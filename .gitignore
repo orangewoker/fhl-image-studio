@@ -1,5 +1,32 @@
 release-assets/
+
+# OS / editor
 .DS_Store
 Thumbs.db
 *.log
 *.tmp
+
+# Local user data and secrets
+input/
+output/
+intermediate/
+config/*.local*
+config/cli.env.local
+config/fhl-api.local.json
+cli.env.local
+fhl-api.local.json
+browser-jobs.v1.json
+.local/
+
+# Frontend / Android build outputs
+node_modules/
+dist/
+build/
+.gradle/
+.gradle-wrapper/
+.tmp/
+local.properties
+
+# Release binaries are attached to GitHub Releases, not committed.
+*.apk
+*.zip

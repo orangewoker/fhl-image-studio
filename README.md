@@ -1,45 +1,81 @@
-# FHL Image Studio 方汤圆 CLI 魔改版 V2.0.0
+﻿# FHL Image Studio 方汤圆版
 
-> Independent modified distribution based on [RoseKhlifa/Image-Studio](https://github.com/RoseKhlifa/Image-Studio). This project is not affiliated with, endorsed by, or maintained by the upstream project.
+> 基于 [RoseKhlifa/Image-Studio](https://github.com/RoseKhlifa/Image-Studio) 的独立深度改造发行版。本项目不隶属于、不代表、也不由上游项目维护。
 
-FHL Image Studio 方汤圆 CLI 魔改版是一个面向 Windows 的便携式图像生成工具包，基于上游 MIT 开源项目 `Image-Studio` 深度改造。当前发行版聚焦：
+当前仓库发布 **Android V2.0.1 源码与 Android APK**。上一个桌面版发行包继续保留在旧 Release/旧资产中，本次不会覆盖桌面版。
 
-- FHL Responses API 一键配置：`https://www.fhl.mom`
+## Android V2.0.1
+
+Android 版面向 FHL 生图工作流，默认使用用户在 App 中配置的 FHL API：
+
+- FHL 一键配置：`Responses / openai / https://www.fhl.mom / gpt-5.5 / gpt-image-2`
 - 文生图、图生图、多参考图输入
-- Codex Skill 调用本地 CLI，并把生成图回传到 Codex 对话框预览
-- 浏览器模式后台任务、结果流、审计日志
-- 发行包隔离：不携带 API Key、历史、输入图、输出图或本机日志
+- 生成图自动保存到系统相册 `Pictures/ImageStudio`
+- 支持保存原图、系统分享到微信/QQ/其他 App
+- 支持提示词复制/清空快捷按钮
+- 画布工具栏加入横向滑动提示
+- 手机状态栏/底部手势区安全区适配
 
 ## 下载
 
-请到本仓库的 **Releases** 页面下载：
+请到本仓库 **Releases** 下载 Android 版：
 
 ```text
-FHL-Image-Studio方汤圆CLI魔改版V2.0.0-发行版-20260605-152640.zip
+FHL-Image-Studio方汤圆版-V2.0.1-Android-Release-20260606.apk
+FHL-Image-Studio方汤圆版-V2.0.1-Android-Release-20260606.zip
 ```
 
-## 快速开始
+APK SHA256：
 
-1. 解压 zip。
-2. 双击 `一键启动FHL桌面版.cmd`。
-3. 在 UI 中点击「一键配置 FHL API」。
-4. 输入你自己的 FHL API Key。
-5. 先在 UI 中测试或生成一次，跑通后 CLI 配置会自动同步。
-6. 需要让 Codex 使用 CLI 时，运行根目录的 `安装CodexSkill.cmd` 安装 Skill。
+```text
+F794064CD3704889A88FE59E5F914652E18B91C131BCE173DF3463A68619A1F6
+```
+
+## 首次使用
+
+1. 安装 APK。
+2. 打开 App，点击“一键配置”。
+3. 输入你自己的 FHL API Key。
+4. 用小图先测试一次文生图或图生图。
+5. 生成成功后，图片会自动进入系统相册，也可以在历史/画布里手动“保存原图”或分享。
+
+## 从源码构建 Android
+
+需要 JDK 17、Node.js 20、Android SDK 34。
+
+```bash
+cd image-studio/frontend
+npm ci
+npm test
+npm run build:android
+
+cd ../../android-shell
+./gradlew assembleRelease
+```
+
+Windows 可使用：
+
+```bat
+cd image-studio\frontend
+npm.cmd ci
+npm.cmd test
+npm.cmd run build:android
+
+cd ..\..\android-shell
+gradlew.bat assembleRelease
+```
+
+默认 release 若未提供正式签名，会使用 fallback debug keystore，适合 GitHub Release 侧载安装。上架应用商店前请配置正式 keystore。
 
 ## 安全说明
 
-- 发行包不内置 API Key。
-- 发行包不携带历史图像、输入图像、输出图像、raw 日志或审计日志。
-- API Key 由用户在本机 UI 中输入，并保存到本机私有配置。
-- 浏览器缓存和密码自动填充已做隔离处理，避免旧版本配置混入新发行包。
+- 本仓库和发布 APK 不内置 API Key。
+- 用户需要在本机 App 内自行输入 API Key。
+- 不提交 `cli.env.local`、`fhl-api.local.json`、浏览器缓存、生成历史、输入图、输出图、raw 日志或审计日志。
+- Android 版与桌面版 Release 分开发布，避免覆盖已有桌面版资产。
 
 ## 与上游项目的关系
 
-本项目基于 [RoseKhlifa/Image-Studio](https://github.com/RoseKhlifa/Image-Studio) 修改，原项目使用 MIT License。当前仓库是独立修改发行版，不是上游官方版本，也不向上游提交 PR。
+本项目基于 `RoseKhlifa/Image-Studio` 修改，原项目使用 MIT License。当前仓库是独立维护的修改发行版，不向上游提交 PR，也不声明为官方版本。
 
-保留上游版权声明和 MIT License；本项目新增改动由当前维护者维护。
-
-## License
-
-Upstream project is licensed under the MIT License. See [LICENSE](./LICENSE) and [NOTICE.md](./NOTICE.md).
+上游版权与 MIT License 保留在 [LICENSE](./LICENSE) 和 [NOTICE.md](./NOTICE.md)。
