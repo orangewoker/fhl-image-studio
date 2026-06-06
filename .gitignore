@@ -1,0 +1,27 @@
+/.tmp/
+/.cache/
+
+# Build dependencies and generated output
+node_modules/
+dist/
+build/
+.gradle/
+.gradle-wrapper/
+.local/
+
+# Local/private configuration
+cli.env.local
+fhl-api.local.json
+browser-jobs.v1.json
+session-*.jsonl
+session-*.md
+*.log
+
+# User images and runtime state
+input/*
+output/*
+intermediate/*
+ui-audit/
+
+# Release assets stay on disk for GitHub Releases, not in git history.
+versions/**/release-assets/**
