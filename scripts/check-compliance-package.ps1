@@ -1,115 +1,125 @@
 param(
-  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+  [string]$Root = ""
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = "Stop"
 
-$rootPath = (Resolve-Path $Root).Path
-$failures = New-Object System.Collections.Generic.List[string]
-$textExtensions = @(
-  '.bat','.cmd','.css','.env','.example','.go','.gradle','.html','.java',
-  '.js','.json','.kt','.kts','.md','.mjs','.properties','.ps1','.toml',
-  '.ts','.tsx','.txt','.xml','.yaml','.yml'
-)
-$secretPattern = 'sk-[A-Za-z0-9_-]{40,}'
-$forbiddenNames = @(
-  'cli.env.local',
-  'fhl-api.local.json',
-  'browser-jobs.v1.json'
-)
-
-function Add-Failure([string]$Message) {
-  $script:failures.Add($Message) | Out-Null
+function Resolve-Root {
+  param([string]$Value)
+  if ($Value.Trim()) {
+    return (Resolve-Path -LiteralPath $Value).Path
+  }
+  return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 }
 
-function Test-PathName([string]$DisplayPath) {
-  $normalized = $DisplayPath.Replace('/', '\').ToLowerInvariant()
-  $name = [System.IO.Path]::GetFileName($normalized)
-  if ($forbiddenNames -contains $name) {
-    Add-Failure "forbidden file: $DisplayPath"
-  }
-  if ($normalized -match '\\.local\\') {
-    Add-Failure "forbidden .local path: $DisplayPath"
-  }
-  if ($normalized -match '\\.gradle-wrapper\\') {
-    Add-Failure "forbidden Gradle download cache path: $DisplayPath"
-  }
-  if ($normalized -match '\\ui-audit\\') {
-    Add-Failure "forbidden audit log path: $DisplayPath"
-  }
-  if ($normalized -match '\\output\\log\\.+') {
-    Add-Failure "forbidden output log file: $DisplayPath"
-  }
-  if ($normalized -match '\\release-assets\\.+\\(input|output|intermediate)\\.+') {
-    Add-Failure "forbidden runtime image/state file: $DisplayPath"
-  }
-  if ($normalized -match 'session-[^\\]+\\.(jsonl|md)$') {
-    Add-Failure "forbidden session log: $DisplayPath"
-  }
+function Test-SkippablePath {
+  param([string]$Path)
+  return $Path -match "\\.git\\|\\node_modules\\|\\frontend\\dist\\|\\build\\bin\\"
 }
 
-function Test-TextContent([string]$DisplayPath, [string]$Text) {
-  if ($Text -match $secretPattern) {
-    Add-Failure "possible API key pattern in: $DisplayPath"
-  }
+function Test-TextFile {
+  param([System.IO.FileInfo]$File)
+  if ($File.Length -gt 20MB) { return $false }
+  $textExtensions = @(
+    ".bat", ".cmd", ".cjs", ".css", ".env", ".example", ".go", ".html",
+    ".js", ".json", ".jsonc", ".md", ".mjs", ".ps1", ".svg", ".toml",
+    ".ts", ".tsx", ".txt", ".yaml", ".yml"
+  )
+  return $textExtensions -contains $File.Extension.ToLowerInvariant()
 }
 
-function Test-FileContent([System.IO.FileInfo]$File) {
-  if ($textExtensions -notcontains $File.Extension.ToLowerInvariant()) {
-    return
-  }
-  if ($File.Length -gt 5MB) {
-    return
-  }
-  $text = Get-Content -LiteralPath $File.FullName -Raw -ErrorAction SilentlyContinue
-  if ($null -ne $text) {
-    Test-TextContent $File.FullName $text
-  }
+function Get-ForbiddenDirs {
+  param([string]$ScanRoot)
+  $forbiddenNames = @(
+    "input", "output", "intermediate", "node_modules", "dist", "bin",
+    ".local", ".gradle", ".gradle-wrapper", ".kotlin", ".cache", "ui-audit"
+  )
+
+  Get-ChildItem -LiteralPath $ScanRoot -Recurse -Force -Directory -ErrorAction SilentlyContinue |
+    Where-Object {
+      if ($_.FullName -match "\\.git(\\|$)") { return $false }
+      if ($_.FullName -match "\\LICENSES(\\|$)") { return $false }
+      if ($_.Name -eq "dist" -and $_.FullName -notmatch "\\frontend\\dist(\\|$)") { return $false }
+      if ($_.Name -eq "bin" -and $_.FullName -notmatch "\\build\\bin(\\|$)") { return $false }
+      return $forbiddenNames -contains $_.Name
+    } |
+    Select-Object -ExpandProperty FullName
 }
 
-Write-Host "Scanning package root: $rootPath"
+function Get-ForbiddenFiles {
+  param([string]$ScanRoot)
+  $forbiddenNames = @(
+    "cli.env.local", "fhl-api.local.json", "browser-jobs.v1.json"
+  )
 
-$files = Get-ChildItem -LiteralPath $rootPath -Recurse -File -Force
-foreach ($file in $files) {
-  Test-PathName $file.FullName
-  Test-FileContent $file
+  Get-ChildItem -LiteralPath $ScanRoot -Recurse -Force -File -ErrorAction SilentlyContinue |
+    Where-Object {
+      if ($_.FullName -match "\\.git\\") { return $false }
+      return
+        ($forbiddenNames -contains $_.Name) -or
+        ($_.Name -match "\.local(\.json)?$") -or
+        ($_.Name -match "^\.codex-vite.*\.log$") -or
+        ($_.Name -match "\.(log|tmp)$") -or
+        ($_.FullName -match "\\output\\log\\")
+    } |
+    Select-Object -ExpandProperty FullName
 }
 
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archives = $files | Where-Object { $_.Extension.ToLowerInvariant() -in @('.zip','.apk') }
-foreach ($archive in $archives) {
-  Write-Host "Inspecting archive: $($archive.FullName)"
-  $zip = [System.IO.Compression.ZipFile]::OpenRead($archive.FullName)
-  try {
-    foreach ($entry in $zip.Entries) {
-      if ([string]::IsNullOrEmpty($entry.Name)) { continue }
-      $entryPath = "$($archive.FullName)!$($entry.FullName)"
-      Test-PathName $entryPath
-      $ext = [System.IO.Path]::GetExtension($entry.Name).ToLowerInvariant()
-      if ($textExtensions -contains $ext -and $entry.Length -le 2MB) {
-        $stream = $entry.Open()
+function Get-KeyPatternFiles {
+  param([string]$ScanRoot)
+  $patterns = @(
+    "sk-[A-Za-z0-9_-]{20,}",
+    "sess-[A-Za-z0-9_-]{20,}",
+    "ghp_[A-Za-z0-9_]{20,}",
+    "github_pat_[A-Za-z0-9_]{20,}"
+  )
+  $hits = New-Object System.Collections.Generic.HashSet[string]
+
+  Get-ChildItem -LiteralPath $ScanRoot -Recurse -Force -File -ErrorAction SilentlyContinue |
+    Where-Object { -not (Test-SkippablePath $_.FullName) -and (Test-TextFile $_) } |
+    ForEach-Object {
+      foreach ($pattern in $patterns) {
         try {
-          $reader = New-Object System.IO.StreamReader($stream)
-          try {
-            Test-TextContent $entryPath $reader.ReadToEnd()
-          } finally {
-            $reader.Dispose()
+          if (Select-String -LiteralPath $_.FullName -Pattern $pattern -Quiet -ErrorAction Stop) {
+            [void]$hits.Add($_.FullName)
+            break
           }
-        } finally {
-          $stream.Dispose()
-        }
+        } catch {}
       }
     }
-  } finally {
-    $zip.Dispose()
-  }
+
+  $hits
 }
 
-if ($failures.Count -gt 0) {
-  Write-Host ''
-  Write-Host 'Compliance scan failed:' -ForegroundColor Red
-  $failures | Sort-Object -Unique | ForEach-Object { Write-Host " - $_" }
+function Test-ExampleConfig {
+  param([string]$ScanRoot)
+  $errors = New-Object System.Collections.Generic.List[string]
+  $example = Join-Path $ScanRoot "config\cli.env.example"
+  if (-not (Test-Path -LiteralPath $example)) {
+    [void]$errors.Add("MISSING_EXAMPLE_CONFIG: $example")
+    return $errors
+  }
+  $raw = Get-Content -LiteralPath $example -Raw
+  if ($raw -match "(?m)^IMAGE_STUDIO_API_KEY=.+$") {
+    [void]$errors.Add("EXAMPLE_API_KEY_NOT_EMPTY: $example")
+  }
+  $errors
+}
+
+$scanRoot = Resolve-Root $Root
+$issues = New-Object System.Collections.Generic.List[string]
+
+foreach ($item in (Get-ForbiddenDirs $scanRoot)) { [void]$issues.Add("FORBIDDEN_DIR: $item") }
+foreach ($item in (Get-ForbiddenFiles $scanRoot)) { [void]$issues.Add("FORBIDDEN_FILE: $item") }
+foreach ($item in (Get-KeyPatternFiles $scanRoot)) { [void]$issues.Add("KEY_PATTERN_FILE: $item") }
+foreach ($item in (Test-ExampleConfig $scanRoot)) { [void]$issues.Add($item) }
+
+Write-Host "[FHL compliance] Root: $scanRoot"
+Write-Host "[FHL compliance] Issues: $($issues.Count)"
+
+if ($issues.Count -gt 0) {
+  $issues | ForEach-Object { Write-Host $_ }
   exit 1
 }
 
-Write-Host 'Compliance scan passed.' -ForegroundColor Green
+Write-Host "[FHL compliance] OK"

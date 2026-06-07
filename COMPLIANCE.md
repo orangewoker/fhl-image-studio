@@ -1,36 +1,48 @@
-# AGPL 合规说明
+# AGPLv3 合规说明
 
-## 目标
+本仓库是 `FHL Image Studio 方汤圆修改版 V2.0.1` 的公开源码发布树，基于 `RoseKhlifa/Image-Studio` 做独立修改并以 GNU Affero General Public License v3.0 发布。
 
-这个目录用于按上游作者提醒公开 FHL Image Studio 方汤圆版已分发版本的对应源码。
+## 项目来源
 
-覆盖版本：
+- Image-Studio 原作者 RoseKhlifa 项目地址：https://github.com/RoseKhlifa/Image-Studio
+- 方汤圆修改版项目地址：https://github.com/supart/fhl-image-studio
+- 上游历史许可证记录：[LICENSES/UPSTREAM-MIT-v1.0.7.txt](./LICENSES/UPSTREAM-MIT-v1.0.7.txt)
 
-- 桌面版 V2.0.0
-- Android 版 V2.0.1.1
+本项目不是原作者官方版本，也不代表原作者对本修改版提供维护或背书。
 
-## 已做处理
+## 分发义务
 
-- 根目录保留 AGPLv3 `LICENSE`。
-- `NOTICE.md` 标注上游项目和原仓库链接。
-- 每个版本都有独立源码目录和发布资产目录。
-- 发布资产与源码分离，APK/ZIP 不进入 git 历史，只作为 GitHub Release 附件。
-- 排除本机私有配置、API Key、运行日志、用户输入输出图片和构建缓存。
+根据 AGPLv3：
 
-## 发布前检查
+- 重新分发本项目或其修改版时，必须随附完整对应源码。
+- 如果通过网络向用户提供修改版服务，也需要向用户提供对应源码。
+- 必须保留许可证、版权、NOTICE 和修改来源说明。
+- 不得移除或规避 AGPLv3 赋予用户的权利。
 
-运行：
+## 本次发布清理
+
+本次 `V2.0.1` 封板源码明确不包含：
+
+- API Key、访问令牌、真实账号配置或本机私有配置。
+- `cli.env.local`、`fhl-api.local.json`、`browser-jobs.v1.json`。
+- 用户生成图片、测试图、导入源图、临时图。
+- `input/`、`output/`、`intermediate/`、`output/log/`。
+- `node_modules/`、`frontend/dist/`、`build/bin/`、Gradle 缓存、`.local` 和运行日志。
+
+仓库只保留 `.example` 示例配置。示例文件不得包含真实 API Key。
+
+## API 与数据说明
+
+应用需要用户自行配置兼容的上游 API。发布包不提供、不代理、不内置任何可用 API Key。
+
+桌面端生成历史、图片、配置和运行日志默认保存在用户本机。用户自行配置的 API Key 会尽量走系统安全存储或本机私有配置，不应进入公开仓库。
+
+## 二次开发建议
+
+二次开发者在公开发布前应运行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\check-compliance-package.ps1
 ```
 
-检查通过后再提交源码、推送分支、创建 GitHub Release。
-
-## 分发渠道文案
-
-推荐在 GitHub、B站、QQ群文件说明、下载页中使用：
-
-```text
-本项目是基于 RoseKhlifa/Image-Studio 的独立修改发行版，遵循 GNU AGPLv3.0 协议公开源码。原项目地址：https://github.com/RoseKhlifa/Image-Studio。
-```
+该脚本会扫描常见密钥模式、禁止提交的本机配置、生成目录、构建缓存和运行日志。
