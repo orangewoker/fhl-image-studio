@@ -123,13 +123,16 @@ export function AndroidUpstreamProfileForm({
         </div>
       </AndroidField>
 
-      {draft.apiMode === "responses" ? (
-        <AndroidField label="文本模型 ID">
+      {draft.apiMode === "responses" || draft.apiMode === "apimart" ? (
+        <AndroidField
+          label="文本模型 ID"
+          hint={draft.apiMode === "apimart" ? "仅用于提示词优化/反推的 /v1/responses 文本模型；留空时会借用已有 Responses/FHL 文本配置。" : undefined}
+        >
           <input
             type="text"
             value={draft.textModelID}
             onChange={(event) => onPatchDraft({ textModelID: event.target.value })}
-            placeholder="留空 = 默认 gpt-5.5"
+            placeholder={draft.apiMode === "apimart" ? "可选：gpt-5.2-pro / gpt-4o / gemini-2.0-flash-exp" : "留空 = 默认 gpt-5.5"}
             className="focus-ring android-upstream-input font-mono-token"
             spellCheck={false}
           />

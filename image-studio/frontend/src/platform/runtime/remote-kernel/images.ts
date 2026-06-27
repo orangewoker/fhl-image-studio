@@ -9,6 +9,8 @@ import {
 import { nativeHttpRequestText } from "./nativeHttp.ts";
 import {
   MAX_ATTEMPTS,
+  imagePayloadFingerprint,
+  rejectIfFinalMatchesPartial,
   RemoteKernelError,
   STATUS_INTERVAL_MS,
   type ExtractedImageResult,
@@ -32,10 +34,13 @@ function parseSSEEvent(line: string): any | null {
 function parseImagesStreamEvent(
   event: any,
   callbacks: RemoteJobCallbacks,
+  partialFingerprints = new Set<string>(),
 ): ExtractedImageResult | null {
   const type = event?.type;
   if (type === "image_generation.partial_image" || type === "image_edit.partial_image") {
     if (event.b64_json) {
+      const fingerprint = imagePayloadFingerprint(event.b64_json);
+      if (fingerprint) partialFingerprints.add(fingerprint);
       callbacks.onPartialImage?.({
         imageB64: event.b64_json,
         partialImageIndex: typeof event.partial_image_index === "number" ? event.partial_image_index : undefined,
@@ -46,6 +51,7 @@ function parseImagesStreamEvent(
   }
   if (type === "image_generation.completed" || type === "image_edit.completed") {
     if (event.b64_json) {
+      rejectIfFinalMatchesPartial(event.b64_json, partialFingerprints);
       return {
         imageB64: event.b64_json,
         revisedPrompt: "",
@@ -96,20 +102,16 @@ function parseImagesStreamRaw(
   raw: string,
   callbacks: RemoteJobCallbacks,
   emitPartials = false,
+  rawPath: string | null = null,
 ): ExtractedImageResult | null {
-  let fallbackPartial = "";
   const partialCallbacks = emitPartials ? callbacks : { signal: callbacks.signal };
+  const partialFingerprints = new Set<string>();
   for (const line of raw.split(/\r?\n/)) {
     const event = parseSSEEvent(line);
     if (!event) continue;
-    if ((event.type === "image_generation.partial_image" || event.type === "image_edit.partial_image") && event.b64_json) {
-      fallbackPartial = event.b64_json;
-    }
-    const result = parseImagesStreamEvent(event, partialCallbacks);
+    const result = parseImagesStreamEvent(event, partialCallbacks, partialFingerprints);
+    if (result) rejectIfFinalMatchesPartial(result.imageB64, partialFingerprints, rawPath);
     if (result) return result;
-  }
-  if (fallbackPartial) {
-    return { imageB64: fallbackPartial, revisedPrompt: "", sourceEvent: "images_api_partial" };
   }
   return null;
 }
@@ -132,14 +134,15 @@ export async function requestImagesOnce(
     const proxyMode = request.payload.proxyMode === "none" || request.payload.proxyMode === "custom" ? request.payload.proxyMode : "system";
     if (shouldUseAndroidNativeHTTP()) {
       let rawFromLines = "";
-      let nativeStreamResult: ExtractedImageResult | null = null;
+      const nativeStreamResults: ExtractedImageResult[] = [];
       let nativeBytesReceived = 0;
+      const nativePartialFingerprints = new Set<string>();
       const consumeNativeLine = (line: string) => {
         rawFromLines += `${line}\n`;
         nativeBytesReceived += line.length + 1;
         const event = parseSSEEvent(line);
-        const parsed = event ? parseImagesStreamEvent(event, callbacks) : null;
-        if (parsed) nativeStreamResult = parsed;
+        const parsed = event ? parseImagesStreamEvent(event, callbacks, nativePartialFingerprints) : null;
+        if (parsed) nativeStreamResults[0] = parsed;
         callbacks.onProgress?.("已收到 Images API 流式事件", nowSeconds(startedAt), nativeBytesReceived);
       };
       const response = await nativeHttpRequestText(
@@ -158,8 +161,12 @@ export async function requestImagesOnce(
       const rawBody = response.body || rawFromLines;
       const rawPath = registerRawText("images", attempt, rawBody);
       const isStream = String(response.contentType || "").toLowerCase().includes("text/event-stream");
+      const streamResult = nativeStreamResults[0] ?? null;
+      if (streamResult) {
+        rejectIfFinalMatchesPartial(streamResult.imageB64, nativePartialFingerprints, rawPath);
+      }
       const result = isStream
-        ? nativeStreamResult ?? parseImagesStreamRaw(rawBody, callbacks)
+        ? streamResult ?? parseImagesStreamRaw(rawBody, callbacks, false, rawPath)
         : parseImagesResponse(rawBody, response.status);
       if (!result) throw new RemoteKernelError("上游没有返回可用图片", rawPath);
       return { ...result, rawPath, prompt: request.payload.prompt, mode: request.payload.mode };
@@ -185,6 +192,7 @@ export async function requestImagesOnce(
       let pending = "";
       let result: ExtractedImageResult | null = null;
       let bytesReceived = 0;
+      const partialFingerprints = new Set<string>();
       try {
         while (true) {
           const { value, done } = await reader.read();
@@ -198,7 +206,7 @@ export async function requestImagesOnce(
             const line = pending.slice(0, newline).replace(/\r$/, "");
             pending = pending.slice(newline + 1);
             const event = parseSSEEvent(line);
-            const parsed = event ? parseImagesStreamEvent(event, callbacks) : null;
+            const parsed = event ? parseImagesStreamEvent(event, callbacks, partialFingerprints) : null;
             if (parsed) result = parsed;
             callbacks.onProgress?.("已收到 Images API 流式事件", nowSeconds(startedAt), bytesReceived);
             newline = pending.indexOf("\n");
@@ -207,22 +215,25 @@ export async function requestImagesOnce(
         raw += decoder.decode();
         if (pending.trim()) {
           const event = parseSSEEvent(pending);
-          const parsed = event ? parseImagesStreamEvent(event, callbacks) : null;
+          const parsed = event ? parseImagesStreamEvent(event, callbacks, partialFingerprints) : null;
           if (parsed) result = parsed;
         }
       } catch (error) {
-        const fallback = parseImagesStreamRaw(raw, callbacks);
+        const rawPath = registerRawText("images", attempt, raw);
+        const fallback = parseImagesStreamRaw(raw, callbacks, false, rawPath);
         if (fallback?.imageB64) {
-          const rawPath = registerRawText("images", attempt, raw);
           return { ...fallback, rawPath, prompt: request.payload.prompt, mode: request.payload.mode };
         }
         throw error;
       }
       const rawPath = registerRawText("images", attempt, raw);
+      if (result) {
+        rejectIfFinalMatchesPartial(result.imageB64, partialFingerprints, rawPath);
+      }
       if (!response.ok) {
         throw new RemoteKernelError(`上游返回 HTTP ${response.status}`, rawPath);
       }
-      result ??= parseImagesStreamRaw(raw, callbacks);
+      result ??= parseImagesStreamRaw(raw, callbacks, false, rawPath);
       if (!result) throw new RemoteKernelError("上游没有返回可用图片", rawPath);
       return { ...result, rawPath, prompt: request.payload.prompt, mode: request.payload.mode };
     }

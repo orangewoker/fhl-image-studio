@@ -23,6 +23,7 @@ type UseCanvasShortcutsArgs = {
   setSelectedAnnotationId: (value: string | null) => void;
   setTool: (value: Tool) => void;
   undo: () => void;
+  onNavigatePreview?: (direction: -1 | 1) => void;
 };
 
 export function useCanvasShortcuts({
@@ -45,6 +46,7 @@ export function useCanvasShortcuts({
   setSelectedAnnotationId,
   setTool,
   undo,
+  onNavigatePreview,
 }: UseCanvasShortcutsArgs) {
   useEffect(() => {
     const isTypingInField = (e: KeyboardEvent) => {
@@ -73,6 +75,11 @@ export function useCanvasShortcuts({
         else if (compareB) setCompareB(null);
         else if (selectedAnnotationId) setSelectedAnnotationId(null);
         else if (errorMessage) setErrorMessage(null);
+        return;
+      }
+      if ((k === "arrowleft" || k === "arrowright") && onNavigatePreview) {
+        e.preventDefault();
+        onNavigatePreview(k === "arrowleft" ? -1 : 1);
         return;
       }
       if ((k === "delete" || k === "backspace") && selectedAnnotationId) {
@@ -141,5 +148,6 @@ export function useCanvasShortcuts({
     setSelectedAnnotationId,
     setTool,
     undo,
+    onNavigatePreview,
   ]);
 }

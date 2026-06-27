@@ -1,4 +1,4 @@
-import type { APIMode, OutputFormatValue, QualityValue, RequestPolicy, SizeValue } from "../types/domain";
+﻿import type { APIMode, OutputFormatValue, QualityValue, RequestPolicy, SizeValue } from "../types/domain";
 import {
   FHL_BASE_URL,
   FHL_IMAGE_MODEL_ID,
@@ -7,6 +7,7 @@ import {
 import { STORAGE_NAMESPACE } from "./storageNamespace.ts";
 
 const CLI_CONFIG_ENDPOINT = "/__image-studio-local-config/cli-env";
+const RUNNINGHUB_DEFAULT_BASE_URL = "http://127.0.0.1:8117";
 
 export type CLIConfigSyncInput = {
   apiKey?: string;
@@ -31,17 +32,18 @@ function isLocalPreviewHost(): boolean {
 
 export async function syncCLIConfig(input: CLIConfigSyncInput = {}): Promise<boolean> {
   if (!isLocalPreviewHost() || typeof fetch === "undefined") return false;
+  const apiMode = input.apiMode || "images";
   const response = await fetch(CLI_CONFIG_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       storageNamespace: STORAGE_NAMESPACE,
-      apiKey: input.apiKey,
+      apiKey: apiMode === "runninghub" ? "" : input.apiKey,
       clearAPIKey: input.clearAPIKey === true,
-      baseURL: input.baseURL || FHL_BASE_URL,
-      apiMode: input.apiMode || "responses",
+      baseURL: input.baseURL || (apiMode === "runninghub" ? RUNNINGHUB_DEFAULT_BASE_URL : FHL_BASE_URL),
+      apiMode,
       requestPolicy: input.requestPolicy || "openai",
-      imagesNewAPICompat: input.imagesNewAPICompat === true,
+      imagesNewAPICompat: apiMode === "images" && input.imagesNewAPICompat !== false,
       textModelID: input.textModelID || FHL_TEXT_MODEL_ID,
       imageModelID: input.imageModelID || FHL_IMAGE_MODEL_ID,
       outputFormat: input.outputFormat || "png",
@@ -56,3 +58,5 @@ export async function syncCLIConfig(input: CLIConfigSyncInput = {}): Promise<boo
 export function syncCLIConfigQuietly(input: CLIConfigSyncInput = {}) {
   void syncCLIConfig(input).catch(() => undefined);
 }
+
+

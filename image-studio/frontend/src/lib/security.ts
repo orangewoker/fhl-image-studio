@@ -14,6 +14,7 @@ export function sanitizeHistoryForExport(item: HistoryItem): HistoryItem {
     imageBlob: null,
     previewBlob: null,
     sourceImages: undefined,
+    panoramaRoundtrip: undefined,
     previewOnly: true,
   };
 }

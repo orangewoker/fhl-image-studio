@@ -9,8 +9,10 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"image/jpeg"
 	"image/png"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/yuanhua/image-gptcodex/pkg/client"
+	xdraw "golang.org/x/image/draw"
 )
 
 type responseText struct {
@@ -38,6 +41,25 @@ const promptOptimizeBaseInstructions = "Rewrite the user's image prompt into a c
 const promptOptimizeRequiredModificationInstructions = " Apply the required modification direction before polishing the prompt. Treat it as a mandatory edit, not a style preference. Add, remove, replace, or reshape subjects, actions, positions, and relationships when requested. For added subjects or story elements, turn the relationship into concrete visual action instead of merely listing the new element. If it conflicts with the original prompt, the required modification direction wins. Preserve the original scene, style, lighting, composition, and intent wherever they do not conflict. Integrate the change into one coherent image prompt, and do not mention that a modification was requested."
 const promptReverseInstructions = "Analyze the attached image and write a detailed Simplified Chinese text-to-image prompt that could recreate its visible subject, composition, style, lighting, colors, camera perspective, mood, and important visual details. The returned prompt must be in Simplified Chinese. Return only the prompt text. Do not mention that you are analyzing an image. Do not add explanations, labels, markdown, or quotes."
 const promptReverseUserText = "Write a Simplified Chinese text-to-image prompt for the attached image."
+const textModelUploadJPEGQuality = 82
+
+type textModelUploadSummary struct {
+	Count       int
+	Original    int64
+	Upload      int64
+	MaxLongSide int
+	Compressed  int
+}
+
+func textModelUploadMaxLongSide(sourceCount int) int {
+	if sourceCount >= 3 {
+		return 1024
+	}
+	if sourceCount >= 2 {
+		return 1280
+	}
+	return 1600
+}
 
 // prepareUploadSourcePaths flattens transparent PNG sources onto white
 // backgrounds before upload so the upstream model sees the actual content.
@@ -69,6 +91,114 @@ func prepareUploadSourcePaths(paths []string) ([]string, func(), error) {
 	}
 
 	return out, cleanup, nil
+}
+
+func prepareTextModelUploadSourcePaths(paths []string, purpose string) ([]string, textModelUploadSummary, func(), error) {
+	cleaned := make([]string, 0, len(paths))
+	for _, rawPath := range paths {
+		path := strings.TrimSpace(rawPath)
+		if path != "" {
+			cleaned = append(cleaned, path)
+		}
+	}
+
+	summary := textModelUploadSummary{
+		Count:       len(cleaned),
+		MaxLongSide: textModelUploadMaxLongSide(len(cleaned)),
+	}
+	out := make([]string, 0, len(cleaned))
+	tmpFiles := make([]string, 0, len(cleaned))
+	cleanup := func() {
+		for _, p := range tmpFiles {
+			_ = os.Remove(p)
+		}
+	}
+
+	for _, path := range cleaned {
+		info, statErr := os.Stat(path)
+		if statErr == nil && !info.IsDir() {
+			summary.Original += info.Size()
+		}
+
+		uploadPath, tmp, err := makeTextModelUploadCopy(path, summary.MaxLongSide)
+		if err != nil {
+			cleanup()
+			return nil, summary, nil, err
+		}
+		if tmp != "" {
+			tmpFiles = append(tmpFiles, tmp)
+			summary.Compressed++
+		}
+		if uploadInfo, uploadErr := os.Stat(uploadPath); uploadErr == nil && !uploadInfo.IsDir() {
+			summary.Upload += uploadInfo.Size()
+		}
+		out = append(out, uploadPath)
+	}
+
+	logTextModelUploadSummary(purpose, summary)
+	return out, summary, cleanup, nil
+}
+
+func makeTextModelUploadCopy(path string, maxLongSide int) (string, string, error) {
+	if maxLongSide <= 0 {
+		return path, "", nil
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+
+	src, _, err := image.Decode(f)
+	if err != nil {
+		return path, "", nil
+	}
+	bounds := src.Bounds()
+	longSide := max(bounds.Dx(), bounds.Dy())
+	if longSide <= 0 {
+		return path, "", nil
+	}
+	if longSide <= maxLongSide && !imageHasTransparency(src) {
+		return path, "", nil
+	}
+
+	scale := min(1, float64(maxLongSide)/float64(longSide))
+	width := max(1, int(float64(bounds.Dx())*scale+0.5))
+	height := max(1, int(float64(bounds.Dy())*scale+0.5))
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(dst, dst.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+
+	tmp, err := os.CreateTemp("", "image-studio-text-upload-*.jpg")
+	if err != nil {
+		return "", "", err
+	}
+	if err := jpeg.Encode(tmp, dst, &jpeg.Options{Quality: textModelUploadJPEGQuality}); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return "", "", err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return "", "", err
+	}
+	return tmp.Name(), tmp.Name(), nil
+}
+
+func logTextModelUploadSummary(purpose string, summary textModelUploadSummary) {
+	if summary.Count == 0 {
+		return
+	}
+	log.Printf(
+		"image-studio text upload %s: count=%d original=%dB upload=%dB maxLongSide=%d compressed=%d",
+		purpose,
+		summary.Count,
+		summary.Original,
+		summary.Upload,
+		summary.MaxLongSide,
+		summary.Compressed,
+	)
 }
 
 func flattenTransparentImage(path string) (string, string, error) {
@@ -231,7 +361,10 @@ func optimizePromptWithLLM(
 
 	optimized := strings.TrimSpace(extractResponseText(raw))
 	if optimized == "" {
-		return "", errors.New("上游没有返回可用的优化结果")
+		if msg := extractResponseErrorMessage(raw); msg != "" {
+			return "", fmt.Errorf("上游没有返回可用的优化结果。请确认当前文本模型支持 /v1/responses 文本输出。上游提示:%s", msg)
+		}
+		return "", errors.New("上游没有返回可用的优化结果。请确认当前文本模型支持 /v1/responses 文本输出")
 	}
 	return optimized, nil
 }
@@ -328,9 +461,9 @@ func reversePromptWithLLM(
 	prompt := strings.TrimSpace(extractResponseText(raw))
 	if prompt == "" {
 		if msg := extractResponseErrorMessage(raw); msg != "" {
-			return "", fmt.Errorf("上游没有返回可用的反推提示词:%s", msg)
+			return "", fmt.Errorf("上游没有返回可用的反推提示词。请确认当前文本模型支持图片理解(input_image)，或在「上游配置」里换一个支持视觉输入的文本模型。上游提示:%s", msg)
 		}
-		return "", errors.New("上游没有返回可用的反推提示词")
+		return "", errors.New("上游没有返回可用的反推提示词。请确认当前文本模型支持图片理解(input_image)，或在「上游配置」里换一个支持视觉输入的文本模型")
 	}
 	return prompt, nil
 }

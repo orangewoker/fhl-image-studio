@@ -4,9 +4,10 @@ import { useStudioStore } from "../../state/studioStore";
 import { OpenExternalURL } from "../../platform/runtime/host";
 import { usePlatform } from "../../platform/context";
 import { openExternalURLForPlatform } from "../../platform/android/bridge";
-import { FHL_BASE_URL, FHL_IMAGE_MODEL_ID } from "../../lib/profiles";
-import { copyText, ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
+import { APIMART_IMAGE_MODEL_ID, apiModeRequiresDirectAPIKey, isAPIMartOfficialBaseURL } from "../../lib/profiles";
+import { copyText } from "../../lib/fhlAPI";
 import { FHLAPIChoiceModal } from "../panel/FHLAPIChoiceModal";
+import { FHLQuickConfigModal } from "../panel/FHLQuickConfigModal";
 import { AppHeaderBrand } from "./AppHeaderBrand";
 import { HeaderIconBtn, HeaderToggleBtn } from "./headerPrimitives";
 
@@ -21,25 +22,38 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
   } = useStudioStore();
   const { isAndroid, isMac, usesFluentUI, usesAndroidUI, usesAppleUI } = usePlatform();
   const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
+  const [fhlQuickConfigOpen, setFHLQuickConfigOpen] = useState(false);
   const [androidConfigRowOpen, setAndroidConfigRowOpen] = useState(false);
-  const isFHLAPIConfigured = apiKey.trim().length > 0
-    && apiMode === "responses"
-    && baseURL.trim().replace(/\/+$/, "") === FHL_BASE_URL
-    && imageModelID.trim() === FHL_IMAGE_MODEL_ID;
-  const showAndroidConfigRow = usesAndroidUI && (!isFHLAPIConfigured || androidConfigRowOpen);
+  const hasDirectKey = !apiModeRequiresDirectAPIKey(apiMode) || apiKey.trim().length > 0;
+  const isFHLAPIConfigured = hasDirectKey && apiMode !== "apimart" && apiMode !== "runninghub";
+  const isAPIMartConfigured = apiKey.trim().length > 0
+    && apiMode === "apimart"
+    && isAPIMartOfficialBaseURL(baseURL)
+    && (imageModelID.trim() || APIMART_IMAGE_MODEL_ID) === APIMART_IMAGE_MODEL_ID;
+  const isRunningHubConfigured = apiMode === "runninghub" && !!baseURL.trim();
+  const isCurrentAPIConfigured = isFHLAPIConfigured || isAPIMartConfigured || isRunningHubConfigured;
+  const configuredAPILabel = isAPIMartConfigured
+    ? "APIMart 已配置"
+    : isRunningHubConfigured
+      ? "RunningHub 已配置"
+    : apiMode === "images"
+      ? "Images API 已配置"
+      : "FHL API 已配置";
+  const showAndroidConfigRow = usesAndroidUI && (!isCurrentAPIConfigured || androidConfigRowOpen);
 
   const openFHLAPIConfig = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
+    if (isCurrentAPIConfigured) {
+      useStudioStore.getState().openUpstreamConfig("app");
+      return;
+    }
     setFHLChoiceOpen(true);
   };
 
   const useExistingFHLAPI = async () => {
     setFHLChoiceOpen(false);
-    const store = useStudioStore.getState();
-    await ensureFHLResponsesProfile(store);
-    useStudioStore.getState().openUpstreamConfig("app");
-    focusFHLAPIKeyInput();
+    setFHLQuickConfigOpen(true);
   };
 
   const copyFHLQQGroup = async (event: MouseEvent<HTMLButtonElement>) => {
@@ -72,7 +86,7 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
         </div>
 
         <div className="no-drag android-header-top-actions">
-          {isFHLAPIConfigured && (
+          {isCurrentAPIConfigured && (
             <button
               type="button"
               data-audit-id="toggle-fhl-config-row"
@@ -118,15 +132,15 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
             <button
               type="button"
               data-audit-id="fhl-config"
-              className={`android-header-fhl-config-btn ${isFHLAPIConfigured ? "is-configured" : "needs-config"}`}
-              title={isFHLAPIConfigured ? "FHL API 已配置，点击可修改" : "一键配置 FHL API"}
-              aria-label={isFHLAPIConfigured ? "FHL API 已配置，点击可修改" : "一键配置 FHL API"}
+              className={`android-header-fhl-config-btn ${isCurrentAPIConfigured ? "is-configured" : "needs-config"}`}
+              title={isCurrentAPIConfigured ? `${configuredAPILabel}，点击可修改` : "一键配置 FHL API"}
+              aria-label={isCurrentAPIConfigured ? `${configuredAPILabel}，点击可修改` : "一键配置 FHL API"}
               onPointerDown={(event) => event.stopPropagation()}
               onMouseDown={(event) => event.stopPropagation()}
               onClick={openFHLAPIConfig}
             >
-              {isFHLAPIConfigured ? <Check className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
-              <span>{isFHLAPIConfigured ? "已配置" : "一键配置"}</span>
+              {isCurrentAPIConfigured ? <Check className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
+              <span>{isCurrentAPIConfigured ? (isAPIMartConfigured ? "APIMart" : "已配置") : "一键配置"}</span>
             </button>
           </div>
         )}
@@ -135,6 +149,14 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
           open={fhlChoiceOpen}
           onClose={() => setFHLChoiceOpen(false)}
           onUseExistingAPI={useExistingFHLAPI}
+        />
+        <FHLQuickConfigModal
+          open={fhlQuickConfigOpen}
+          onClose={() => setFHLQuickConfigOpen(false)}
+          onOpenUpstream={() => {
+            setFHLQuickConfigOpen(false);
+            useStudioStore.getState().openUpstreamConfig("app");
+          }}
         />
       </header>
     );
@@ -261,6 +283,14 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
           open={fhlChoiceOpen}
           onClose={() => setFHLChoiceOpen(false)}
           onUseExistingAPI={useExistingFHLAPI}
+        />
+        <FHLQuickConfigModal
+          open={fhlQuickConfigOpen}
+          onClose={() => setFHLQuickConfigOpen(false)}
+          onOpenUpstream={() => {
+            setFHLQuickConfigOpen(false);
+            useStudioStore.getState().openUpstreamConfig("app");
+          }}
         />
       </header>
     </div>

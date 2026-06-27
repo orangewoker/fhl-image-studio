@@ -1,7 +1,9 @@
 import { Clock3, Ellipsis } from "lucide-react";
-import { historyPreviewSrc, useBlobURL } from "../../lib/images";
+import { historyFullSrc, historyPreviewSrc, useBlobURL } from "../../lib/images";
 import { usePlatform } from "../../platform/context";
+import { ImagePixelSizeBadge } from "../common/ImagePixelSizeBadge";
 import type { HistoryItem } from "../../types/domain";
+import { HistoryApiSourceBadge } from "./HistoryApiSourceBadge";
 import { HistoryMetaBadges } from "./HistoryMetaBadges";
 import { HistoryModeBadge } from "./HistoryModeBadge";
 import { qualityLabel, sizeLabel } from "./historyLabels";
@@ -28,6 +30,7 @@ export function TimelineHistoryItem({
   const { isMac, usesFluentUI } = usePlatform();
   const previewURL = useBlobURL(item.previewBlob ?? item.imageBlob ?? null, item.imageB64 ?? null);
   const imageSrc = historyPreviewSrc(item, previewURL);
+  const fullImageSrc = historyFullSrc(item, previewURL);
   const timeLabel = new Date(item.createdAt).toLocaleTimeString();
 
   return (
@@ -57,6 +60,8 @@ export function TimelineHistoryItem({
               className="h-full w-full object-cover"
             />
             <HistoryModeBadge mode={item.mode} className="absolute left-2 top-2" />
+            <HistoryApiSourceBadge source={item} className="absolute bottom-2 left-2 rounded-[6px]" />
+            <ImagePixelSizeBadge width={item.width} height={item.height} src={fullImageSrc || imageSrc} className="history-image-pixel-size" />
           </button>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">

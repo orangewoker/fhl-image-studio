@@ -91,6 +91,9 @@ func (s *Service) allowedRoots(kind managedPathKind) []string {
 		if dir, err := importsDir(); err == nil {
 			roots = append(roots, dir, previewsSubdir(dir))
 		}
+		if root, ok := portablePackageRoot(); ok {
+			roots = append(roots, portableIntermediateDir(root))
+		}
 		roots = append(roots, platformLegacyImportDirs()...)
 	}
 	if root, err := defaultOutputDir(); err == nil {

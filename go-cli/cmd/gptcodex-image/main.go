@@ -15,6 +15,8 @@ import (
 	"image/jpeg"
 	_ "image/png"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -30,6 +32,7 @@ import (
 
 const (
 	defaultBaseURL       = "https://www.fhl.mom"
+	defaultRunningHubURL = "http://127.0.0.1:8117"
 	defaultAPIMode       = string(client.APIModeResponses)
 	defaultRequestPolicy = string(client.RequestPolicyOpenAI)
 	defaultTextModel     = "gpt-5.5"
@@ -38,6 +41,8 @@ const (
 	defaultQuality       = "medium"
 	defaultOutputFormat  = "png"
 )
+
+var packageVersion = "V2.0.2"
 
 type multiFlag []string
 
@@ -58,52 +63,87 @@ func (m *multiFlag) Set(value string) error {
 }
 
 type commandResult struct {
-	OK                bool     `json:"ok"`
-	Error             string   `json:"error,omitempty"`
-	ImagePath         string   `json:"imagePath,omitempty"`
-	RawPath           string   `json:"rawPath,omitempty"`
-	Mode              string   `json:"mode,omitempty"`
-	APIMode           string   `json:"apiMode,omitempty"`
-	Size              string   `json:"size,omitempty"`
-	Quality           string   `json:"quality,omitempty"`
-	OutputFormat      string   `json:"outputFormat,omitempty"`
-	SourceEvent       string   `json:"sourceEvent,omitempty"`
-	RevisedPrompt     string   `json:"revisedPrompt,omitempty"`
-	ElapsedSec        float64  `json:"elapsedSec,omitempty"`
-	FallbackMode      string   `json:"fallbackMode,omitempty"`
-	FallbackInputPath string   `json:"fallbackInputPath,omitempty"`
-	FallbackReason    string   `json:"fallbackReason,omitempty"`
-	AttemptSummary    []string `json:"attemptSummary,omitempty"`
+	OK                      bool     `json:"ok"`
+	Error                   string   `json:"error,omitempty"`
+	ImagePath               string   `json:"imagePath,omitempty"`
+	RawPath                 string   `json:"rawPath,omitempty"`
+	Mode                    string   `json:"mode,omitempty"`
+	APIMode                 string   `json:"apiMode,omitempty"`
+	Size                    string   `json:"size,omitempty"`
+	Quality                 string   `json:"quality,omitempty"`
+	OutputFormat            string   `json:"outputFormat,omitempty"`
+	SourceEvent             string   `json:"sourceEvent,omitempty"`
+	RevisedPrompt           string   `json:"revisedPrompt,omitempty"`
+	ElapsedSec              float64  `json:"elapsedSec,omitempty"`
+	FallbackMode            string   `json:"fallbackMode,omitempty"`
+	FallbackInputPath       string   `json:"fallbackInputPath,omitempty"`
+	FallbackReason          string   `json:"fallbackReason,omitempty"`
+	AttemptSummary          []string `json:"attemptSummary,omitempty"`
+	PackageVersion          string   `json:"packageVersion,omitempty"`
+	ConfigPath              string   `json:"configPath,omitempty"`
+	BaseURL                 string   `json:"baseURL,omitempty"`
+	RequestPolicy           string   `json:"requestPolicy,omitempty"`
+	TextModelID             string   `json:"textModel,omitempty"`
+	ImageModelID            string   `json:"imageModel,omitempty"`
+	InputDir                string   `json:"inputDir,omitempty"`
+	OutputDir               string   `json:"outputDir,omitempty"`
+	RawDir                  string   `json:"rawDir,omitempty"`
+	APIKeyConfigured        *bool    `json:"apiKeyConfigured,omitempty"`
+	APIKeySource            string   `json:"apiKeySource,omitempty"`
+	RunningHubReachable     *bool    `json:"runningHubBridgeReachable,omitempty"`
+	RunningHubKeyConfigured *bool    `json:"runningHubAPIKeyConfigured,omitempty"`
+	RunningHubBridgeError   string   `json:"runningHubBridgeError,omitempty"`
 }
 
 type cliOptions struct {
-	apiKey         string
-	mode           client.Mode
-	prompt         string
-	imagePaths     []string
-	size           string
-	quality        string
-	outputFormat   string
-	outDir         string
-	rawDir         string
-	inputDir       string
-	baseURL        string
-	apiMode        client.APIMode
-	requestPolicy  client.RequestPolicy
-	textModelID    string
-	imageModelID   string
-	negativePrompt string
-	seed           int64
-	partialImages  int
+	apiKey             string
+	mode               client.Mode
+	prompt             string
+	imagePaths         []string
+	size               string
+	quality            string
+	outputFormat       string
+	outDir             string
+	rawDir             string
+	inputDir           string
+	baseURL            string
+	apiMode            client.APIMode
+	requestPolicy      client.RequestPolicy
+	textModelID        string
+	imageModelID       string
+	negativePrompt     string
+	seed               int64
+	partialImages      int
 	imagesNewAPICompat bool
-	maskB64        string
-	jsonMode       bool
-	jsonlEvents    bool
-	interactive    bool
+	maskB64            string
+	jsonMode           bool
+	jsonlEvents        bool
+	interactive        bool
+	statusOnly         bool
+	configPath         string
+}
+
+var safeFHLImagesExactSizes = map[string]struct{}{
+	"1024x1024": {},
+	"1536x1024": {},
+	"1024x1536": {},
+	"1536x864":  {},
+	"864x1536":  {},
+}
+
+var stableFHLImagesSizeOverrides = map[string]string{
+	"2048x1360": "1536x1024",
+	"3456x2304": "1536x1024",
+	"1360x2048": "1024x1536",
+	"2304x3456": "1024x1536",
+	"2048x1152": "1536x864",
+	"3840x2160": "1536x864",
+	"1152x2048": "864x1536",
+	"2160x3840": "864x1536",
 }
 
 func main() {
-	jsonHint := hasFlag(os.Args[1:], "json")
+	jsonHint := hasFlag(os.Args[1:], "json") || hasFlag(os.Args[1:], "status")
 	result, err := run(os.Args[1:], jsonHint)
 	if jsonHint {
 		if result.Error == "" && err != nil {
@@ -123,6 +163,9 @@ func run(args []string, jsonHint bool) (commandResult, error) {
 	opts, err := buildOptions(args, jsonHint)
 	if err != nil {
 		return failResult(opts, err)
+	}
+	if opts.statusOnly {
+		return statusResult(opts), nil
 	}
 	return execute(opts)
 }
@@ -148,7 +191,7 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 	rawDir := fs.String("raw-dir", "", "raw upstream response output directory")
 	inputDir := fs.String("input-dir", "", "base directory for relative --image paths")
 	baseURL := fs.String("base-url", "", "upstream base URL")
-	apiMode := fs.String("api-mode", "", "responses | images")
+	apiMode := fs.String("api-mode", "", "responses | images | apimart | runninghub")
 	requestPolicy := fs.String("request-policy", "", "openai | compat")
 	textModel := fs.String("text-model", "", "Responses API text model")
 	imageModel := fs.String("image-model", "", "image model")
@@ -163,6 +206,7 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 	jsonlEvents := fs.Bool("jsonl-events", false, "print progress JSON lines to stderr")
 	noInput := fs.Bool("no-input", false, "fail instead of prompting for missing values")
 	interactive := fs.Bool("interactive", false, "enable legacy terminal prompts for missing values")
+	statusOnly := fs.Bool("status", false, "print the current package and API profile status as JSON")
 
 	if err := fs.Parse(args); err != nil {
 		return opts, err
@@ -172,29 +216,32 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 		return opts, fmt.Errorf("--no-input and --interactive cannot be used together")
 	}
 
-	cfg, err := loadConfig(resolveConfigPath(*configPath))
+	resolvedConfigPath := resolveConfigPath(*configPath)
+	cfg, err := loadConfig(resolvedConfigPath)
 	if err != nil {
 		return opts, err
 	}
 
 	opts = cliOptions{
-		apiKey:         resolveString(*apiKey, []string{"IMAGE_STUDIO_API_KEY", "GPTCODEX_API_KEY"}, cfg, []string{"IMAGE_STUDIO_API_KEY", "GPTCODEX_API_KEY"}, ""),
-		prompt:         strings.TrimSpace(*prompt),
-		size:           resolveString(*size, []string{"IMAGE_STUDIO_SIZE"}, cfg, []string{"IMAGE_STUDIO_SIZE"}, defaultSize),
-		quality:        resolveString(*quality, []string{"IMAGE_STUDIO_QUALITY"}, cfg, []string{"IMAGE_STUDIO_QUALITY"}, defaultQuality),
-		outputFormat:   resolveString(*outputFormat, []string{"IMAGE_STUDIO_OUTPUT_FORMAT"}, cfg, []string{"IMAGE_STUDIO_OUTPUT_FORMAT"}, defaultOutputFormat),
-		outDir:         resolveString(*outDir, []string{"IMAGE_STUDIO_OUTPUT_DIR"}, cfg, []string{"IMAGE_STUDIO_OUTPUT_DIR"}, defaultOutputDir()),
-		inputDir:       resolveString(*inputDir, []string{"IMAGE_STUDIO_INPUT_DIR"}, cfg, []string{"IMAGE_STUDIO_INPUT_DIR"}, defaultInputDir()),
-		baseURL:        resolveString(*baseURL, []string{"IMAGE_STUDIO_UPSTREAM_BASE_URL"}, cfg, []string{"IMAGE_STUDIO_UPSTREAM_BASE_URL"}, defaultBaseURL),
-		textModelID:    resolveString(*textModel, []string{"IMAGE_STUDIO_TEXT_MODEL"}, cfg, []string{"IMAGE_STUDIO_TEXT_MODEL"}, defaultTextModel),
-		imageModelID:   resolveString(*imageModel, []string{"IMAGE_STUDIO_IMAGE_MODEL"}, cfg, []string{"IMAGE_STUDIO_IMAGE_MODEL"}, defaultImageModel),
-		negativePrompt: strings.TrimSpace(*negativePrompt),
-		seed:           *seed,
-		partialImages:  *partialImages,
+		apiKey:             resolveString(*apiKey, []string{"IMAGE_STUDIO_API_KEY", "GPTCODEX_API_KEY"}, cfg, []string{"IMAGE_STUDIO_API_KEY", "GPTCODEX_API_KEY"}, ""),
+		prompt:             strings.TrimSpace(*prompt),
+		size:               resolveString(*size, []string{"IMAGE_STUDIO_SIZE"}, cfg, []string{"IMAGE_STUDIO_SIZE"}, defaultSize),
+		quality:            resolveString(*quality, []string{"IMAGE_STUDIO_QUALITY"}, cfg, []string{"IMAGE_STUDIO_QUALITY"}, defaultQuality),
+		outputFormat:       resolveString(*outputFormat, []string{"IMAGE_STUDIO_OUTPUT_FORMAT"}, cfg, []string{"IMAGE_STUDIO_OUTPUT_FORMAT"}, defaultOutputFormat),
+		outDir:             resolveString(*outDir, []string{"IMAGE_STUDIO_OUTPUT_DIR"}, cfg, []string{"IMAGE_STUDIO_OUTPUT_DIR"}, defaultOutputDir()),
+		inputDir:           resolveString(*inputDir, []string{"IMAGE_STUDIO_INPUT_DIR"}, cfg, []string{"IMAGE_STUDIO_INPUT_DIR"}, defaultInputDir()),
+		baseURL:            resolveString(*baseURL, []string{"IMAGE_STUDIO_UPSTREAM_BASE_URL"}, cfg, []string{"IMAGE_STUDIO_UPSTREAM_BASE_URL"}, ""),
+		textModelID:        resolveString(*textModel, []string{"IMAGE_STUDIO_TEXT_MODEL"}, cfg, []string{"IMAGE_STUDIO_TEXT_MODEL"}, defaultTextModel),
+		imageModelID:       resolveString(*imageModel, []string{"IMAGE_STUDIO_IMAGE_MODEL"}, cfg, []string{"IMAGE_STUDIO_IMAGE_MODEL"}, defaultImageModel),
+		negativePrompt:     strings.TrimSpace(*negativePrompt),
+		seed:               *seed,
+		partialImages:      *partialImages,
 		imagesNewAPICompat: *imagesNewAPICompat,
-		jsonMode:       jsonOutput,
-		jsonlEvents:    *jsonlEvents,
-		interactive:    *interactive,
+		jsonMode:           jsonOutput,
+		jsonlEvents:        *jsonlEvents,
+		interactive:        *interactive,
+		statusOnly:         *statusOnly,
+		configPath:         resolvedConfigPath,
 	}
 	opts.rawDir = resolveString(*rawDir, []string{"IMAGE_STUDIO_RAW_DIR"}, cfg, []string{"IMAGE_STUDIO_RAW_DIR"}, filepath.Join(opts.outDir, "log"))
 	if opts.negativePrompt == "" {
@@ -227,10 +274,21 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 	if err != nil {
 		return opts, err
 	}
+	if strings.TrimSpace(opts.baseURL) == "" {
+		if opts.apiMode == client.APIModeRunningHub {
+			opts.baseURL = defaultRunningHubURL
+		} else {
+			opts.baseURL = defaultBaseURL
+		}
+	}
 	policyValue := resolveString(*requestPolicy, []string{"IMAGE_STUDIO_REQUEST_POLICY"}, cfg, []string{"IMAGE_STUDIO_REQUEST_POLICY"}, defaultRequestPolicy)
 	opts.requestPolicy, err = normalizeRequestPolicy(policyValue)
 	if err != nil {
 		return opts, err
+	}
+
+	if opts.statusOnly {
+		return opts, nil
 	}
 
 	if opts.prompt == "" && strings.TrimSpace(*promptFile) != "" {
@@ -263,7 +321,7 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 
 func resolveInteractive(opts *cliOptions, modeFlag string) error {
 	p := promptui.NewPrompter()
-	if strings.TrimSpace(opts.apiKey) == "" {
+	if strings.TrimSpace(opts.apiKey) == "" && opts.apiMode != client.APIModeRunningHub {
 		if !opts.interactive {
 			return client.ErrEmptyAPIKey
 		}
@@ -321,6 +379,76 @@ func resolveInteractive(opts *cliOptions, modeFlag string) error {
 	return nil
 }
 
+func normalizeBaseURLForFHLComparison(raw string) string {
+	cleaned := strings.TrimRight(strings.TrimSpace(raw), "/")
+	for strings.HasSuffix(strings.ToLower(cleaned), "/v1") {
+		cleaned = strings.TrimRight(cleaned[:len(cleaned)-3], "/")
+	}
+	return strings.ToLower(cleaned)
+}
+
+func isExactSizeString(raw string) bool {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(raw)), "x")
+	if len(parts) != 2 {
+		return false
+	}
+	width, err := strconv.Atoi(parts[0])
+	if err != nil || width <= 0 {
+		return false
+	}
+	height, err := strconv.Atoi(parts[1])
+	if err != nil || height <= 0 {
+		return false
+	}
+	return true
+}
+
+func isGPTImage2Model(modelID string) bool {
+	model := strings.TrimSpace(modelID)
+	if model == "" {
+		model = client.ImageModel
+	}
+	return strings.HasPrefix(strings.ToLower(model), "gpt-image-2")
+}
+
+func shouldPreferResponsesForExactFHLSize(opts cliOptions) bool {
+	if opts.apiMode != client.APIModeImages {
+		return false
+	}
+	if normalizeBaseURLForFHLComparison(opts.baseURL) != strings.ToLower(defaultBaseURL) {
+		return false
+	}
+	if isGPTImage2Model(opts.imageModelID) {
+		return false
+	}
+	size := strings.ToLower(strings.TrimSpace(opts.size))
+	if !isExactSizeString(size) {
+		return false
+	}
+	_, ok := safeFHLImagesExactSizes[size]
+	return !ok
+}
+
+func stableFHLImagesSize(opts cliOptions) string {
+	size := strings.ToLower(strings.TrimSpace(opts.size))
+	if opts.apiMode != client.APIModeImages {
+		return opts.size
+	}
+	if normalizeBaseURLForFHLComparison(opts.baseURL) != strings.ToLower(defaultBaseURL) {
+		return opts.size
+	}
+	if isGPTImage2Model(opts.imageModelID) {
+		return opts.size
+	}
+	if !isExactSizeString(size) {
+		return opts.size
+	}
+	if stable, ok := stableFHLImagesSizeOverrides[size]; ok {
+		return stable
+	}
+	return opts.size
+}
+
 func execute(opts cliOptions) (commandResult, error) {
 	if err := fsio.EnsureDir(opts.outDir); err != nil {
 		return failResult(opts, err)
@@ -334,27 +462,40 @@ func execute(opts cliOptions) (commandResult, error) {
 		return failResult(opts, err)
 	}
 
+	effectiveAPIMode := opts.apiMode
+	effectiveSize := stableFHLImagesSize(opts)
+	attemptSummary := []string{fmt.Sprintf("%s:%s", opts.mode, opts.apiMode)}
+	if effectiveSize != opts.size {
+		attemptSummary = append(attemptSummary, fmt.Sprintf("fhl_stable_size:%s->%s", opts.size, effectiveSize))
+	}
+	routingOpts := opts
+	routingOpts.size = effectiveSize
+	if shouldPreferResponsesForExactFHLSize(routingOpts) {
+		effectiveAPIMode = client.APIModeResponses
+		attemptSummary = append(attemptSummary, fmt.Sprintf("fhl_exact_size_via_responses:%s", effectiveSize))
+	}
+
 	clientOpts := client.Options{
-		APIKey:           strings.TrimSpace(opts.apiKey),
-		Prompt:           strings.TrimSpace(opts.prompt),
-		Mode:             opts.mode,
-		Size:             opts.size,
-		Quality:          opts.quality,
-		OutputFormat:     opts.outputFormat,
-		ImagePaths:       opts.imagePaths,
-		APIMode:          opts.apiMode,
-		RequestPolicy:    opts.requestPolicy,
-		MaskB64:          opts.maskB64,
-		Seed:             opts.seed,
-		NegativePrompt:   opts.negativePrompt,
-		BaseURL:          opts.baseURL,
-		TextModelID:      opts.textModelID,
-		ImageModelID:     opts.imageModelID,
-		NoPromptRevision: true,
-		PartialImages:    opts.partialImages,
+		APIKey:             strings.TrimSpace(opts.apiKey),
+		Prompt:             strings.TrimSpace(opts.prompt),
+		Mode:               opts.mode,
+		Size:               effectiveSize,
+		Quality:            opts.quality,
+		OutputFormat:       opts.outputFormat,
+		ImagePaths:         opts.imagePaths,
+		APIMode:            effectiveAPIMode,
+		RequestPolicy:      opts.requestPolicy,
+		MaskB64:            opts.maskB64,
+		Seed:               opts.seed,
+		NegativePrompt:     opts.negativePrompt,
+		BaseURL:            opts.baseURL,
+		TextModelID:        opts.textModelID,
+		ImageModelID:       opts.imageModelID,
+		NoPromptRevision:   true,
+		PartialImages:      opts.partialImages,
 		ImagesNewAPICompat: opts.imagesNewAPICompat,
 	}
-	if opts.apiMode == client.APIModeResponses && opts.mode == client.ModeEdit {
+	if effectiveAPIMode == client.APIModeResponses && opts.mode == client.ModeEdit {
 		for _, p := range opts.imagePaths {
 			dataURL, err := client.ImageFileToDataURL(p)
 			if err != nil {
@@ -384,7 +525,18 @@ func execute(opts cliOptions) (commandResult, error) {
 
 	if !opts.jsonMode {
 		fmt.Fprintln(log, "FHL Studio CLI")
-		fmt.Fprintf(log, "requesting %s, size %s, quality %s...\n", modeActionLabel(opts.mode), opts.size, opts.quality)
+		fmt.Fprintf(log, "requesting %s, size %s, quality %s...\n", modeActionLabel(opts.mode), effectiveSize, opts.quality)
+		if effectiveSize != opts.size {
+			fmt.Fprintf(log, "FHL Images size %s uses stable %s for reliable aspect output.\n", opts.size, effectiveSize)
+		}
+	}
+	if effectiveAPIMode != opts.apiMode {
+		rerouteMessage := fmt.Sprintf("FHL exact size %s uses Responses API for stable output.", effectiveSize)
+		if opts.jsonlEvents {
+			emitEvent("log", map[string]any{"message": rerouteMessage})
+		} else if !opts.jsonMode {
+			fmt.Fprintln(log, rerouteMessage)
+		}
 	}
 
 	result, rawPath, err := client.RequestAndExtractWithRetries(ctx, transport, clientOpts, opts.rawDir, timestamp, func(msg string) {
@@ -397,8 +549,7 @@ func execute(opts cliOptions) (commandResult, error) {
 	if rawPath != "" {
 		rawPath, _ = filepath.Abs(rawPath)
 	}
-	actualAPIMode := opts.apiMode
-	attemptSummary := []string{fmt.Sprintf("%s:%s", opts.mode, opts.apiMode)}
+	actualAPIMode := effectiveAPIMode
 	fallbackMode := ""
 	fallbackInputPath := ""
 	fallbackReason := ""
@@ -431,9 +582,9 @@ func execute(opts cliOptions) (commandResult, error) {
 		fallbackReason = fallbackReasonForEditFailure(err, rawPath)
 		attemptSummary = append(attemptSummary, "contact_sheet_fallback")
 		if opts.jsonlEvents {
-			emitEvent("log", map[string]any{"message": "多参考图直传失败,正在生成兼容参考图并重试"})
+			emitEvent("log", map[string]any{"message": "\u591a\u56fe\u7f16\u8f91\u56de\u9000\uff1a\u4e0a\u6e38\u6682\u65f6\u4e0d\u7a33\u5b9a\uff0c\u6539\u7528\u53c2\u8003\u62fc\u56fe\u517c\u5bb9\u6a21\u5f0f\u91cd\u8bd5..."})
 		} else {
-			fmt.Fprintln(log, "多参考图直传失败,正在生成兼容参考图并重试...")
+			fmt.Fprintln(log, "\u591a\u56fe\u7f16\u8f91\u56de\u9000\uff1a\u4e0a\u6e38\u6682\u65f6\u4e0d\u7a33\u5b9a\uff0c\u6539\u7528\u53c2\u8003\u62fc\u56fe\u517c\u5bb9\u6a21\u5f0f\u91cd\u8bd5...")
 		}
 		sheetPath, sheetErr := createContactSheetFallback(opts.imagePaths, opts.rawDir, timestamp)
 		if sheetErr == nil {
@@ -582,7 +733,7 @@ func shouldFallbackEditToContactSheet(opts cliOptions, err error, rawPath string
 			return true
 		}
 	}
-	for _, marker := range []string{"无可用账号", "请稍后重试", "稍后重试", "上游返回"} {
+	for _, marker := range []string{"\u65e0\u53ef\u7528\u8d26\u53f7", "\u8bf7\u7a0d\u540e\u91cd\u8bd5", "\u7a0d\u540e\u91cd\u8bd5", "\u4e0a\u6e38\u8fd4\u56de"} {
 		if strings.Contains(err.Error(), marker) || strings.Contains(raw, marker) {
 			return true
 		}
@@ -594,10 +745,10 @@ func fallbackReasonForEditFailure(err error, rawPath string) string {
 	rawBytes, _ := os.ReadFile(rawPath)
 	raw := string(rawBytes)
 	lower := strings.ToLower(err.Error() + "\n" + raw)
-	if strings.Contains(err.Error(), "无可用账号") ||
-		strings.Contains(raw, "无可用账号") ||
-		strings.Contains(err.Error(), "请稍后重试") ||
-		strings.Contains(raw, "请稍后重试") ||
+	if strings.Contains(err.Error(), "\u65e0\u53ef\u7528\u8d26\u53f7") ||
+		strings.Contains(raw, "\u65e0\u53ef\u7528\u8d26\u53f7") ||
+		strings.Contains(err.Error(), "\u8bf7\u7a0d\u540e\u91cd\u8bd5") ||
+		strings.Contains(raw, "\u8bf7\u7a0d\u540e\u91cd\u8bd5") ||
 		strings.Contains(lower, "no available account") ||
 		strings.Contains(lower, "503") {
 		return "upstream_busy"
@@ -616,7 +767,7 @@ func fallbackReasonForEditFailure(err error, rawPath string) string {
 
 func contactSheetFallbackPrompt(prompt string, sourceCount int) string {
 	return strings.TrimSpace(prompt) + fmt.Sprintf(
-		"\n\n多参考图兼容模式说明:输入图是一张参考合成图,左侧大图是第 1 张主图,右侧从上到下/从左到右是第 2 到第 %d 张参考图。请以左侧主图为被修改对象,只吸收右侧参考图的人物、风格、场景或材质信息,不要输出拼图、边框、分栏或参考图版式。",
+		"\n\n\u591a\u53c2\u8003\u56fe\u517c\u5bb9\u6a21\u5f0f\u8bf4\u660e: \u8f93\u5165\u56fe\u662f\u4e00\u5f20\u53c2\u8003\u5408\u6210\u56fe\uff0c\u5de6\u4fa7\u5927\u56fe\u662f\u7b2c 1 \u5f20\u4e3b\u56fe\uff0c\u53f3\u4fa7\u4ece\u4e0a\u5230\u4e0b\u6216\u4ece\u5de6\u5230\u53f3\u662f\u7b2c 2 \u5230\u7b2c %d \u5f20\u53c2\u8003\u56fe\u3002\u8bf7\u4ee5\u5de6\u4fa7\u4e3b\u56fe\u4e3a\u88ab\u4fee\u6539\u5bf9\u8c61\uff0c\u53ea\u5438\u6536\u53f3\u4fa7\u53c2\u8003\u56fe\u7684\u4eba\u7269\u3001\u98ce\u683c\u3001\u573a\u666f\u6216\u6750\u8d28\u4fe1\u606f\uff0c\u4e0d\u8981\u8f93\u51fa\u62fc\u56fe\u3001\u8fb9\u6846\u3001\u5206\u680f\u6216\u53c2\u8003\u56fe\u7248\u5f0f\u3002",
 		sourceCount,
 	)
 }
@@ -761,6 +912,112 @@ func baseResult(opts cliOptions) commandResult {
 	}
 }
 
+func statusResult(opts cliOptions) commandResult {
+	_ = fsio.EnsureDir(opts.inputDir)
+	_ = fsio.EnsureDir(opts.outDir)
+	_ = fsio.EnsureDir(opts.rawDir)
+
+	apiKeyConfigured := strings.TrimSpace(opts.apiKey) != ""
+	apiKeySource := "none"
+	if apiKeyConfigured {
+		apiKeySource = "config"
+	}
+
+	out := baseResult(opts)
+	out.OK = true
+	out.PackageVersion = packageVersion
+	out.ConfigPath = absPathForStatus(opts.configPath)
+	out.BaseURL = sanitizeURLForStatus(opts.baseURL)
+	out.RequestPolicy = string(opts.requestPolicy)
+	out.TextModelID = opts.textModelID
+	out.ImageModelID = opts.imageModelID
+	out.InputDir = absPathForStatus(opts.inputDir)
+	out.OutputDir = absPathForStatus(opts.outDir)
+	out.RawDir = absPathForStatus(opts.rawDir)
+	out.APIKeySource = apiKeySource
+
+	if opts.apiMode == client.APIModeRunningHub {
+		apiKeySource = "bridge"
+		reachable, bridgeKeyConfigured, bridgeErr := runningHubBridgeStatus(opts.baseURL)
+		out.APIKeySource = apiKeySource
+		out.RunningHubReachable = boolPtr(reachable)
+		out.RunningHubKeyConfigured = boolPtr(bridgeKeyConfigured)
+		out.APIKeyConfigured = boolPtr(bridgeKeyConfigured)
+		if bridgeErr != "" {
+			out.RunningHubBridgeError = bridgeErr
+		}
+		return out
+	}
+
+	out.APIKeyConfigured = boolPtr(apiKeyConfigured)
+	return out
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func absPathForStatus(path string) string {
+	cleaned := strings.TrimSpace(path)
+	if cleaned == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(cleaned)
+	if err != nil {
+		return cleaned
+	}
+	return abs
+}
+
+func sanitizeURLForStatus(raw string) string {
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" {
+		return ""
+	}
+	parsed, err := url.Parse(cleaned)
+	if err != nil || parsed.Scheme == "" {
+		return strings.TrimRight(cleaned, "/")
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return strings.TrimRight(parsed.String(), "/")
+}
+
+func runningHubBridgeStatus(baseURL string) (bool, bool, string) {
+	cleaned := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if cleaned == "" {
+		cleaned = defaultRunningHubURL
+	}
+	endpoint := cleaned + "/api/config"
+	httpClient := &http.Client{Timeout: 2 * time.Second}
+	resp, err := httpClient.Get(endpoint)
+	if err != nil {
+		return false, false, err.Error()
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, false, fmt.Sprintf("RunningHub bridge returned HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		APIKeyConfigured      bool `json:"api_key_configured"`
+		APIKeyConfiguredCamel bool `json:"apiKeyConfigured"`
+		Config                struct {
+			APIKeyConfigured      bool `json:"api_key_configured"`
+			APIKeyConfiguredCamel bool `json:"apiKeyConfigured"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return true, false, err.Error()
+	}
+	return true,
+		payload.APIKeyConfigured ||
+			payload.APIKeyConfiguredCamel ||
+			payload.Config.APIKeyConfigured ||
+			payload.Config.APIKeyConfiguredCamel,
+		""
+}
+
 func logger(opts cliOptions) io.Writer {
 	if opts.jsonMode {
 		return os.Stderr
@@ -879,8 +1136,12 @@ func normalizeAPIMode(value string) (client.APIMode, error) {
 		return client.APIModeResponses, nil
 	case string(client.APIModeImages):
 		return client.APIModeImages, nil
+	case string(client.APIModeApimart):
+		return client.APIModeApimart, nil
+	case string(client.APIModeRunningHub):
+		return client.APIModeRunningHub, nil
 	default:
-		return "", fmt.Errorf("--api-mode must be responses or images")
+		return "", fmt.Errorf("--api-mode must be responses, images, apimart, or runninghub")
 	}
 }
 

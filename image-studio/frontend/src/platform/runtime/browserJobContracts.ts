@@ -30,14 +30,20 @@ export interface BrowserJobSubmitPayload {
   negativePrompt: string;
   styleTag?: string;
   sourceImagePaths?: string[];
+  batchSourcePath?: string;
+  batchSourceSlotIndex?: number;
   maskB64?: string;
   apiKey: string;
   baseURL: string;
-  apiMode: "responses" | "images";
+  apiMode: "responses" | "images" | "apimart" | "runninghub";
+  apiProfileId?: string;
+  apiProfileName?: string;
   requestPolicy: RequestPolicy;
   imagesNewAPICompat?: boolean;
   textModelID: string;
   imageModelID: string;
+  continuousGenerateTest?: boolean;
+  continuousBatchIndex?: number;
 }
 
 export interface BrowserJobSubmitResponse {

@@ -1,0 +1,1674 @@
+.pano-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(12px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pano-modal {
+  width: min(1200px, 94vw);
+  height: min(760px, 92vh);
+  background: var(--pano-bg-panel);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.66);
+  color: var(--pano-text);
+  display: grid;
+  --pano-side-w: 320px;
+  grid-template-columns: minmax(0, 1fr) var(--pano-side-w);
+  gap: var(--pano-space-lg);
+  padding: var(--pano-space-lg);
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+  font-family: "Plus Jakarta Sans", "Geist", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, sans-serif;
+  --pano-surface-0: #0a0a0a;
+  --pano-surface-1: #0f0f10;
+  --pano-surface-2: #1a1a1a;
+  --pano-surface-3: #3d3d3f;
+  --pano-surface-hover: #222224;
+  --pano-muted: #787878;
+  --pano-muted-strong: #a0a0a0;
+  --pano-space-xs: 4px;
+  --pano-space-sm: 6px;
+  --pano-space-md: 8px;
+  --pano-space-lg: 12px;
+  --pano-space-xl: 14px;
+  --pano-space-2xl: 24px;
+  --pano-bg-base: var(--pano-surface-0);
+  --pano-bg-panel: var(--pano-surface-0);
+  --pano-bg-control: var(--pano-surface-2);
+  --pano-border: rgba(255, 255, 255, 0.09);
+  --pano-text: #f5f5f5;
+  --pano-text-secondary: var(--pano-muted);
+  --pano-text-tertiary: #5e5e5e;
+  --pano-text-reversed: #ffffff;
+  --pano-accent: var(--pano-theme-accent, #0070f3);
+  --pano-accent-dimmed: color-mix(in srgb, var(--pano-accent) 34%, transparent);
+  --pano-accent-dark: var(--pano-theme-accent-dark, #0366d6);
+  --pano-accent-extra-dark: var(--pano-theme-accent-extra-dark, #0059bc);
+  --pano-float-pad: var(--pano-space-xs);
+  --pano-float-gap: var(--pano-space-sm);
+  --pano-float-radius: 10px;
+  --pano-float-bg: rgba(10, 10, 10, 0.74);
+}
+
+.pano-modal.pano-modal-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  border-radius: 0;
+}
+
+.pano-modal button {
+  cursor: pointer;
+}
+
+.pano-stage-wrap {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pano-stage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: var(--pano-bg-base);
+  transition: filter 130ms ease, opacity 130ms ease;
+}
+
+.pano-floating-top {
+  position: absolute;
+  top: var(--pano-space-lg);
+  left: var(--pano-space-lg);
+  display: flex;
+  gap: var(--pano-float-gap);
+  z-index: 2;
+}
+
+.pano-view-toggle {
+  position: relative;
+  display: inline-flex;
+  background: var(--pano-surface-1);
+  border: 0;
+  border-radius: var(--pano-float-radius);
+  padding: var(--pano-float-pad);
+  gap: 0;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.pano-view-toggle::before {
+  content: "";
+  position: absolute;
+  top: var(--pano-float-pad);
+  bottom: var(--pano-float-pad);
+  left: var(--pano-float-pad);
+  width: calc(50% - var(--pano-float-pad));
+  border-radius: 8px;
+  background: var(--pano-surface-3);
+  transition: transform 170ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: transform;
+  pointer-events: none;
+}
+
+.pano-view-toggle[data-selected="pano"]::before {
+  transform: translateX(0);
+}
+
+.pano-view-toggle[data-selected="unwrap"]::before {
+  transform: translateX(100%);
+}
+
+.pano-view-btn {
+  position: relative;
+  z-index: 1;
+  border-radius: 0;
+  width: 124px;
+  height: 40px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  color: var(--pano-muted);
+  transition: color 100ms ease;
+}
+
+.pano-view-btn .label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.pano-view-btn:active,
+.pano-view-btn:focus-visible {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.pano-view-toggle[data-selected="pano"] .pano-view-btn[data-view="pano"],
+.pano-view-toggle[data-selected="unwrap"] .pano-view-btn[data-view="unwrap"] {
+  color: var(--pano-text);
+}
+
+.pano-view-toggle[data-selected="pano"] .pano-view-btn[data-view="unwrap"]:hover,
+.pano-view-toggle[data-selected="unwrap"] .pano-view-btn[data-view="pano"]:hover {
+  color: var(--pano-muted-strong);
+}
+
+.pano-floating-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: var(--pano-space-2xl);
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--pano-float-gap);
+  padding: var(--pano-float-pad);
+  border-radius: var(--pano-float-radius);
+  border: 0;
+  background: var(--pano-float-bg);
+  backdrop-filter: blur(12px);
+  z-index: 2;
+}
+
+.pano-floating-right {
+  position: absolute;
+  right: var(--pano-space-xl);
+  bottom: var(--pano-space-2xl);
+  display: flex;
+  align-items: center;
+  gap: var(--pano-float-gap);
+  padding: var(--pano-float-pad);
+  padding-left: 0.5rem;
+  min-height: 40px;
+  border-radius: var(--pano-float-radius);
+  border: 0;
+  background: var(--pano-float-bg);
+  backdrop-filter: blur(12px);
+  z-index: 2;
+  color: var(--pano-text-secondary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pano-fov-value {
+  font-variant-numeric: tabular-nums;
+  min-width: 2rem;
+  text-align: right;
+  color: var(--pano-text);
+}
+
+.pano-selection-menu {
+  position: absolute;
+  display: none;
+  gap: var(--pano-float-gap);
+  padding: var(--pano-float-pad);
+  border-radius: var(--pano-float-radius);
+  border: 0;
+  background: var(--pano-float-bg);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  z-index: 3;
+}
+
+.pano-output-preview-toggle {
+  position: absolute;
+  z-index: 3;
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(10, 10, 10, 0.72);
+  color: rgba(250, 250, 250, 0.92);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
+.pano-output-preview-toggle.pano-btn-icon {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+}
+
+.pano-output-preview-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pano-tooltip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 6px 8px;
+  border-radius: var(--pano-space-md);
+  background: color-mix(in srgb, var(--pano-surface-1) 92%, black);
+  color: var(--pano-text);
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 100ms ease, visibility 100ms ease;
+  z-index: 4;
+}
+
+.pano-tooltip.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.pano-btn {
+  background: var(--pano-bg-control);
+  color: var(--pano-text-secondary);
+  border: 0;
+  border-radius: var(--pano-space-md);
+  height: 40px;
+  padding: 0 var(--pano-space-lg);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), color 120ms cubic-bezier(0.2, 0, 0, 1), box-shadow 120ms cubic-bezier(0.2, 0, 0, 1), opacity 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.pano-btn-icon {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pano-btn-texticon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pano-space-md);
+  padding: 0 var(--pano-space-xl);
+}
+
+.pano-btn-texticon .label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.pano-btn-icon svg,
+.pano-btn-texticon svg,
+.pano-view-btn svg,
+.pano-side-title svg,
+.pano-cutout-aspect-label svg,
+.pano-btn-copy svg,
+.pano-ui-caret svg {
+  width: 18px;
+  height: 18px;
+}
+
+.pano-btn:hover {
+  background: var(--pano-surface-hover);
+  color: var(--pano-text);
+}
+
+.pano-btn:disabled {
+  opacity: 0.46;
+  cursor: default;
+  pointer-events: none;
+}
+
+.pano-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--pano-accent);
+}
+
+.pano-btn.active:not(.pano-view-btn) {
+  background: var(--pano-surface-3);
+  color: var(--pano-text);
+  box-shadow: none;
+}
+
+.pano-btn-primary {
+  background: var(--pano-accent);
+  color: var(--pano-text-reversed);
+}
+
+.pano-btn-primary:hover,
+.pano-btn-primary:focus-visible {
+  background: var(--pano-accent-dark);
+}
+
+.pano-btn-primary:active {
+  background: var(--pano-accent-extra-dark);
+}
+
+.pano-view-toggle .pano-view-btn:hover,
+.pano-view-toggle .pano-view-btn:active {
+  background: transparent !important;
+}
+
+.pano-side {
+  border-left: 0;
+  background: var(--pano-surface-0);
+  padding: 0 var(--pano-space-lg);
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  border-radius: 10px;
+}
+
+.pano-side-footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--pano-space-md);
+  height: auto;
+  align-items: center;
+  padding: var(--pano-space-lg) 0 var(--pano-space-xl);
+  border-top: 0;
+}
+
+.pano-side-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 42px;
+  padding: 0;
+}
+
+.pano-side-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pano-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pano-side-title .pano-side-title-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pano-text-secondary);
+}
+
+.pano-side-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.pano-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  display: block;
+  margin: 0 calc(var(--pano-space-lg) * -1);
+}
+
+.pano-inspector {
+  display: grid;
+  gap: var(--pano-space-sm);
+  padding: var(--pano-space-lg) 0;
+  overflow: visible;
+}
+
+.pano-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #d0d0d0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0;
+  margin: 2px 0 8px;
+}
+
+.pano-section-title .meta {
+  color: var(--pano-text-tertiary);
+  font-weight: 500;
+  font-size: 11px;
+}
+
+.pano-state-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0 var(--pano-space-md);
+}
+
+.pano-params {
+  opacity: 1;
+  transition: opacity 0.16s ease, filter 0.16s ease;
+}
+
+.pano-params.disabled {
+  opacity: 0.42;
+  filter: saturate(0.7);
+}
+
+.pano-field {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 60px;
+  gap: var(--pano-space-md);
+  align-items: center;
+  height: 28px;
+  padding: 0;
+}
+
+.pano-field-wide {
+  display: grid;
+  grid-template-columns: 66px 1fr;
+  gap: var(--pano-space-md);
+  align-items: center;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0;
+}
+
+.pano-target-row {
+  margin-top: 0;
+}
+
+.pano-picker {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+
+.pano-picker-trigger {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pano-space-md);
+  background: var(--pano-bg-control);
+  border: 0;
+  color: var(--pano-text);
+  border-radius: var(--pano-space-md);
+  height: 30px;
+  padding: 0 var(--pano-space-md);
+}
+
+.pano-picker-trigger:disabled {
+  opacity: 0.62;
+}
+
+.pano-picker-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.pano-picker-caret {
+  color: var(--pano-text-tertiary);
+  font-size: 11px;
+}
+
+.pano-picker-pop {
+  position: absolute;
+  top: calc(100% + var(--pano-space-sm));
+  left: 0;
+  right: 0;
+  z-index: 6;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--pano-surface-1);
+  border: 0;
+  border-radius: var(--pano-space-lg);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.5);
+  padding: var(--pano-space-sm);
+}
+
+.pano-picker-pop[hidden] {
+  display: none;
+}
+
+.pano-picker-item {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--pano-muted);
+  border-radius: var(--pano-space-md);
+  height: 32px;
+  padding: 0 var(--pano-space-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.pano-picker-item:hover {
+  background: var(--pano-surface-2);
+  color: var(--pano-text);
+}
+
+.pano-picker-item.active {
+  background: var(--pano-surface-3);
+  color: #f5f5f5;
+  box-shadow: none;
+}
+
+.pano-aspect-row {
+  align-items: start;
+  margin-bottom: 4px;
+}
+
+.pano-cutout-aspect-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.pano-cutout-aspect-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.pano-cutout-aspect-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pano-cutout-aspect-pop {
+  left: 0;
+  right: auto;
+  top: calc(100% + 6px);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  z-index: 12;
+}
+
+.pano-cutout-aspect-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pano-cutout-aspect-presets .pano-picker-item {
+  height: 28px;
+  text-align: left;
+}
+
+.pano-cutout-aspect-custom {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.pano-modal .pano-cutout-aspect-custom input {
+  width: 100%;
+  min-width: 52px;
+  height: 30px;
+  background: var(--pano-bg-control);
+  color: var(--pano-text);
+  border: 0;
+  border-radius: var(--pano-space-md);
+  padding: 0 8px;
+  box-sizing: border-box;
+}
+
+.pano-cutout-aspect-custom .pano-btn {
+  height: 28px;
+  padding: 0 10px;
+  grid-column: 1 / -1;
+}
+
+.pano-cutout-aspect-trigger {
+  height: 32px;
+}
+
+.pano-cutout-aspect-rotate {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+}
+
+.pano-inline-tools {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pano-btn.subtle {
+  background: transparent;
+  border: 0;
+  color: var(--pano-muted);
+  padding: 0 var(--pano-space-md);
+  font-size: 10.5px;
+  height: 32px;
+}
+
+.pano-btn-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pano-btn.subtle:hover {
+  color: var(--pano-text);
+  background: color-mix(in srgb, var(--pano-bg-control) 55%, transparent);
+}
+
+.pano-ui-settings {
+  margin: var(--pano-space-md) 0 0;
+  border-radius: var(--pano-space-md);
+  background: var(--pano-surface-1);
+  overflow: visible;
+}
+
+.pano-ui-settings > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f5f5f5;
+  border-radius: var(--pano-space-md);
+}
+
+.pano-ui-summary-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pano-space-sm);
+}
+
+.pano-ui-caret {
+  width: 14px;
+  height: 14px;
+  color: var(--pano-muted);
+  transition: transform 140ms cubic-bezier(0.2, 0, 0, 1), color 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.pano-ui-settings[open] .pano-ui-caret {
+  transform: rotate(180deg);
+  color: var(--pano-muted-strong);
+}
+
+.pano-ui-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.pano-ui-settings-body {
+  display: grid;
+  gap: var(--pano-space-md);
+  padding: 0 0 var(--pano-space-md);
+  overflow: visible;
+}
+
+.pano-ui-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pano-space-md);
+}
+
+.pano-ui-row label {
+  font-size: 11px;
+  color: var(--pano-muted-strong);
+}
+
+.pano-segment {
+  position: relative;
+  display: inline-flex;
+  background: var(--pano-surface-1);
+  border-radius: var(--pano-space-md);
+  padding: 2px;
+  gap: 0;
+  overflow: hidden;
+}
+
+.pano-segment::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  border-radius: calc(var(--pano-space-md) - 2px);
+  background: var(--pano-surface-3);
+  transition: transform 170ms cubic-bezier(0.2, 0, 0, 1);
+  pointer-events: none;
+}
+
+.pano-segment[data-selected="1"]::before {
+  transform: translateX(100%);
+}
+
+.pano-segment-btn {
+  position: relative;
+  z-index: 1;
+  min-width: 72px;
+  padding: 0 var(--pano-space-md);
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--pano-muted);
+  font-size: 11px;
+  font-weight: 500;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.pano-segment-btn[aria-pressed="true"] {
+  color: #f5f5f5;
+}
+
+.pano-ui-picker {
+  width: 126px;
+  position: relative;
+}
+
+.pano-ui-picker .pano-picker-trigger {
+  height: 28px;
+  border-radius: calc(var(--pano-space-md) - 2px);
+  font-size: 11px;
+  color: var(--pano-muted);
+  background: var(--pano-surface-2);
+}
+
+.pano-ui-picker .pano-picker-trigger:hover {
+  background: var(--pano-surface-hover);
+  color: var(--pano-text);
+}
+
+.pano-modal .pano-field input,
+.pano-modal .pano-size-grid input {
+  box-sizing: border-box;
+  background: var(--pano-bg-control);
+  border: 0;
+  color: var(--pano-text);
+  border-radius: var(--pano-space-md);
+  height: 28px;
+  padding: 0 var(--pano-space-md);
+  width: 100%;
+  min-width: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pano-field label,
+.pano-field-wide label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--pano-muted);
+}
+
+.pano-modal .pano-field input:focus-visible,
+.pano-modal .pano-picker-trigger:focus-visible,
+.pano-modal .pano-size-grid input:focus-visible,
+.pano-modal .pano-cutout-aspect-custom input:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--pano-accent);
+}
+
+.pano-modal .pano-field input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(to right, var(--pano-accent) 0%, var(--pano-accent) var(--v, 50%), rgba(255, 255, 255, 0.16) var(--v, 50%));
+  height: 3px;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.pano-modal .pano-field input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.pano-modal .pano-field input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  margin-top: -4px;
+  border: none;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.pano-modal .pano-field input[type="range"]::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pano-modal .pano-field input[type="range"]::-moz-range-progress {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--pano-accent);
+}
+
+.pano-modal .pano-field input[type="range"]::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  border: none;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.pano-modal .pano-field input[type="number"],
+.pano-modal .pano-size-grid input[type="number"],
+.pano-modal .pano-cutout-aspect-custom input[type="number"] {
+  text-align: right;
+  padding: 0 6px;
+  -moz-appearance: textfield;
+  appearance: textfield;
+  -webkit-text-fill-color: var(--pano-text);
+}
+
+html[data-ui-family="fluent"] .pano-modal .pano-field input[type="number"],
+html[data-ui-family="fluent"] .pano-modal .pano-size-grid input[type="number"],
+html[data-ui-family="fluent"] .pano-modal .pano-cutout-aspect-custom input[type="number"] {
+  background: var(--pano-bg-control);
+  color: var(--pano-text);
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-text-fill-color: var(--pano-text);
+}
+
+.pano-modal .pano-field input[type="number"]::-webkit-outer-spin-button,
+.pano-modal .pano-field input[type="number"]::-webkit-inner-spin-button,
+.pano-modal .pano-size-grid input[type="number"]::-webkit-outer-spin-button,
+.pano-modal .pano-size-grid input[type="number"]::-webkit-inner-spin-button,
+.pano-modal .pano-cutout-aspect-custom input[type="number"]::-webkit-outer-spin-button,
+.pano-modal .pano-cutout-aspect-custom input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.pano-size-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.pano-size-control {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pano-size-mode {
+  width: 132px;
+  max-width: 100%;
+}
+
+.pano-size-grid-longedge {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pano-size-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--pano-muted);
+  font-size: 11px;
+}
+
+.pano-size-derived {
+  color: var(--pano-text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.pano-workbench-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.pano-workbench-note {
+  color: var(--pano-text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.pano-output-manager {
+  display: grid;
+  gap: 10px;
+}
+
+.pano-output-modal {
+  --pano-border: rgba(60, 60, 67, 0.16);
+  --pano-text: #18181b;
+  --pano-text-secondary: rgba(63, 63, 70, 0.68);
+  --pano-bg-control: rgba(244, 244, 245, 0.86);
+}
+
+html.dark .pano-output-modal {
+  --pano-border: rgba(255, 255, 255, 0.12);
+  --pano-text: #f5f5f5;
+  --pano-text-secondary: rgba(235, 235, 245, 0.68);
+  --pano-bg-control: rgba(255, 255, 255, 0.06);
+}
+
+.pano-output-modal-body {
+  overflow: visible;
+}
+
+.pano-output-modal-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--pano-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.pano-output-modal-summary span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pano-output-list-modal {
+  max-height: min(58vh, 520px);
+  padding-right: 4px;
+}
+
+.pano-output-count {
+  min-width: 22px;
+  border: 1px solid var(--pano-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--pano-text-secondary);
+  font-size: 10px;
+  text-align: center;
+}
+
+.pano-output-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.pano-output-item {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--pano-border);
+  border-radius: 8px;
+  background: var(--pano-bg-control, rgba(255, 255, 255, 0.04));
+  padding: 7px;
+}
+
+.pano-output-thumb {
+  width: 58px;
+  height: 44px;
+  overflow: hidden;
+  border: 1px solid var(--pano-border);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--pano-text-secondary);
+  font-size: 10px;
+}
+
+.pano-output-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pano-output-meta {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pano-output-line,
+.pano-output-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pano-output-line {
+  justify-content: space-between;
+}
+
+.pano-output-role {
+  color: var(--pano-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pano-output-size {
+  color: var(--pano-text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.pano-output-actions {
+  flex-wrap: wrap;
+}
+
+.pano-mini-btn {
+  border: 1px solid var(--pano-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--pano-text);
+  padding: 4px 7px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.pano-mini-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pano-output-empty {
+  border: 1px dashed var(--pano-border);
+  border-radius: 8px;
+  padding: 14px 10px;
+  color: var(--pano-text-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.pano-output-file-input {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pano-align-body {
+  overflow: visible;
+}
+
+.pano-align-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 16px;
+}
+
+.pano-align-preview-wrap {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+}
+
+.pano-align-preview {
+  position: relative;
+  width: 100%;
+  justify-self: center;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.08) 75%);
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  background-size: 20px 20px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.pano-align-preview:active {
+  cursor: grabbing;
+}
+
+.pano-align-preview[data-scale-mode="true"] {
+  cursor: zoom-in;
+}
+
+.pano-align-preview[data-mask-mode="true"] {
+  cursor: crosshair;
+}
+
+.pano-align-original {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+}
+
+.pano-align-edited {
+  position: absolute;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 0 rgba(0, 0, 0, 0.01));
+  user-select: none;
+  pointer-events: none;
+  transform-origin: center;
+}
+
+.pano-align-edited-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.pano-align-mask-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  transition: opacity 140ms ease;
+}
+
+.pano-align-mask-layer.is-enabled {
+  opacity: 0.44;
+}
+
+.pano-align-mask-layer.is-previewing {
+  opacity: 0;
+}
+
+.pano-align-mask-cursor {
+  position: absolute;
+  z-index: 6;
+  min-width: 10px;
+  min-height: 10px;
+  border: 2px solid rgba(250, 204, 21, 0.95);
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.16);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.45),
+    0 8px 18px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.pano-align-mask-cursor.erase {
+  border-color: rgba(248, 113, 113, 0.96);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.pano-align-curtain-handle {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1.5px;
+  padding: 0;
+  border: 0;
+  background: #7e5cff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.36);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.pano-align-curtain-handle span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: #7e5cff;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+}
+
+.pano-align-curtain-label {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  pointer-events: none;
+}
+
+.pano-align-curtain-label-left {
+  left: 8px;
+  color: #9ec5ff;
+}
+
+.pano-align-curtain-label-right {
+  right: 8px;
+  color: #cdb8ff;
+}
+
+.pano-align-pivot {
+  position: absolute;
+  z-index: 4;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 2px solid #2563eb;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(0, 0, 0, 0.22);
+  transform: translate(-50%, -50%);
+  cursor: grab;
+}
+
+.pano-align-pivot::before,
+.pano-align-pivot::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.pano-align-pivot::before {
+  width: 42px;
+  height: 2px;
+}
+
+.pano-align-pivot::after {
+  width: 2px;
+  height: 42px;
+}
+
+.pano-align-pivot.pinch-active {
+  background: #0f172a;
+  border-color: #bfdbfe;
+}
+
+.pano-align-pivot.pinch-active::before,
+.pano-align-pivot.pinch-active::after {
+  width: 6px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.pano-align-pivot.pinch-active::before {
+  transform: translate(-8px, -50%) rotate(-12deg);
+}
+
+.pano-align-pivot.pinch-active::after {
+  transform: translate(2px, -50%) rotate(12deg);
+}
+
+.pano-align-pivot:hover,
+.pano-align-pivot:focus-visible {
+  outline: none;
+  border-color: #1d4ed8;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 0 0 2px rgba(37, 99, 235, 0.32),
+    0 10px 22px rgba(0, 0, 0, 0.32);
+}
+
+.pano-align-pivot.pinch-active:hover,
+.pano-align-pivot.pinch-active:focus-visible {
+  background: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.pano-align-pivot:active {
+  cursor: grabbing;
+}
+
+.pano-align-touch-point {
+  position: absolute;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #bfdbfe;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.86);
+  box-shadow:
+    0 0 0 2px rgba(37, 99, 235, 0.2),
+    0 8px 18px rgba(0, 0, 0, 0.26);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.pano-align-touch-point::before,
+.pano-align-touch-point::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.pano-align-touch-point::before {
+  left: 7px;
+  transform: translate(-50%, -50%) rotate(-12deg);
+}
+
+.pano-align-touch-point::after {
+  left: 14px;
+  transform: translate(-50%, -50%) rotate(12deg);
+}
+
+.pano-align-status,
+.pano-align-error {
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 12px;
+}
+
+.pano-align-status {
+  background: rgba(24, 119, 242, 0.08);
+  color: #1d4ed8;
+}
+
+.pano-align-error {
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
+}
+
+.pano-align-controls {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.pano-align-meta {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  padding: 10px;
+  color: #52525b;
+  font-size: 12px;
+}
+
+.pano-align-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.035);
+}
+
+.pano-align-tabs button {
+  min-width: 0;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #71717a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pano-align-tabs button:hover {
+  color: #27272a;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.pano-align-tabs button.active,
+.pano-align-tabs button[aria-selected="true"] {
+  color: #fff;
+  background: #2563eb;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.2);
+}
+
+.pano-align-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.pano-align-mode-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.035);
+}
+
+.pano-align-mode-toggle button {
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #71717a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pano-align-mode-toggle button:hover {
+  color: #27272a;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.pano-align-mode-toggle button.active,
+.pano-align-mode-toggle button[aria-pressed="true"] {
+  color: #fff;
+  background: #2563eb;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.2);
+}
+
+.pano-align-slider {
+  display: grid;
+  grid-template-columns: 66px minmax(0, 1fr) 42px;
+  gap: 8px;
+  align-items: center;
+  color: #27272a;
+  font-size: 12px;
+}
+
+.pano-align-slider-control {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.pano-align-slider-control button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.03);
+  color: #27272a;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pano-align-slider-control button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.pano-align-slider-control input {
+  width: 100%;
+  min-width: 0;
+}
+
+.pano-align-value {
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.pano-mask-switch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(250, 204, 21, 0.08);
+  color: #27272a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pano-mask-switch input {
+  width: 16px;
+  height: 16px;
+  accent-color: #ca8a04;
+}
+
+.pano-mask-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pano-mask-actions .pano-align-secondary {
+  width: 100%;
+  padding: 7px 8px;
+}
+
+.pano-align-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pano-align-primary,
+.pano-align-secondary {
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pano-align-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.pano-align-primary:disabled,
+.pano-align-secondary:disabled {
+  opacity: 0.55;
+}
+
+.pano-align-secondary {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.03);
+  color: #27272a;
+}
+
+.pano-align-hint {
+  margin: 0;
+  color: #71717a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.pano-stage-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(250, 250, 250, 0.72);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.pano-stage-overlay-chip {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(10, 10, 10, 0.72);
+  color: rgba(250, 250, 250, 0.88);
+  font-size: 11px;
+  z-index: 2;
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+
+@media (max-width: 980px) {
+  .pano-modal {
+    width: min(96vw, 1200px);
+    height: min(94vh, 960px);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pano-side {
+    min-height: 260px;
+  }
+
+  .pano-floating-bottom {
+    bottom: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .pano-floating-right {
+    right: 12px;
+    bottom: 90px;
+  }
+}

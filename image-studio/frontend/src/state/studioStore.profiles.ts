@@ -6,13 +6,18 @@ import {
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../types/domain";
 import type { StudioState } from "./studioStore.types";
 import {
+  DEFAULT_CONCURRENCY_LIMIT,
   duplicateProfile as cloneProfile,
+  FHL_BASE_URL,
+  FHL_IMAGE_MODEL_ID,
   genProfileId,
   keyringUserFor,
   nextDefaultProfileName,
+  normalizeAPIMartBaseURL,
   pickActiveProfile,
 } from "../lib/profiles";
 import { normalizeAPIKeyInput } from "../lib/apiKey";
+import { syncCLIConfigQuietly, type CLIConfigSyncInput } from "../lib/cliConfigSync";
 import { cleanBaseURL } from "../lib/security";
 import { normalizeConcurrencyLimit } from "./workspaceRuntime";
 import { persistActiveProfileId, persistProfiles } from "./studioStore.shared";
@@ -22,6 +27,34 @@ type StateAdapter = {
   setState: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void;
 };
 
+function cleanProfileBaseURL(apiMode: APIMode, value: string): string {
+  const cleaned = cleanBaseURL(value);
+  return apiMode === "apimart" ? normalizeAPIMartBaseURL(cleaned) : cleaned;
+}
+
+function isFHLProfileConfig(profile: Pick<UpstreamProfile, "baseURL" | "imageModelID">): boolean {
+  return cleanBaseURL(profile.baseURL) === FHL_BASE_URL && profile.imageModelID.trim() === FHL_IMAGE_MODEL_ID;
+}
+
+function cliConfigFromProfileState(
+  state: StudioState,
+  profile: UpstreamProfile,
+  apiKey: string,
+): CLIConfigSyncInput {
+  return {
+    apiKey,
+    baseURL: profile.baseURL,
+    apiMode: profile.apiMode,
+    requestPolicy: profile.requestPolicy,
+    imagesNewAPICompat: profile.apiMode === "images" && (profile.imagesNewAPICompat ?? false) === true,
+    textModelID: profile.textModelID,
+    imageModelID: profile.imageModelID,
+    outputFormat: state.outputFormat,
+    quality: state.quality,
+    size: state.size,
+    partialImages: 1,
+  };
+}
 export function createProfileActions(store: StateAdapter) {
   return {
     async createProfile(input: {
@@ -38,23 +71,30 @@ export function createProfileActions(store: StateAdapter) {
     }) {
       const list = store.getState().profiles;
       const id = genProfileId();
-      const profile: UpstreamProfile = {
+      const rawProfile: UpstreamProfile = {
         id,
         name: input.name?.trim() || nextDefaultProfileName(list),
         apiMode: input.apiMode,
         requestPolicy: input.requestPolicy ?? "openai",
-        baseURL: cleanBaseURL(input.baseURL ?? ""),
+        baseURL: cleanProfileBaseURL(input.apiMode, input.baseURL ?? ""),
         textModelID: (input.textModelID ?? "").trim(),
         imageModelID: (input.imageModelID ?? "").trim(),
-        concurrencyLimit: normalizeConcurrencyLimit(input.concurrencyLimit ?? 0),
+        concurrencyLimit: normalizeConcurrencyLimit(input.concurrencyLimit ?? DEFAULT_CONCURRENCY_LIMIT),
         imagesNewAPICompat: input.apiMode === "images" && input.imagesNewAPICompat === true,
         createdAt: Date.now(),
       };
+      const profile: UpstreamProfile = isFHLProfileConfig(rawProfile)
+        ? {
+            ...rawProfile,
+            requestPolicy: "openai",
+            imagesNewAPICompat: rawProfile.apiMode === "images" && rawProfile.imagesNewAPICompat === true,
+          }
+        : rawProfile;
       const inputAPIKey = normalizeAPIKeyInput(input.apiKey ?? "");
       if (inputAPIKey) {
         try { await SetStoredAPIKey(keyringUserFor(id), inputAPIKey); }
         catch (e: any) {
-          if (typeof console !== "undefined") console.error("写 keyring 失败", e);
+          if (typeof console !== "undefined") console.error("鍐?keyring 澶辫触", e);
         }
       }
       const next = [...list, profile];
@@ -71,28 +111,36 @@ export function createProfileActions(store: StateAdapter) {
       const index = list.findIndex((profile) => profile.id === id);
       if (index < 0) return false;
       const current = list[index];
-      const next: UpstreamProfile = {
+      const nextApiMode = patch.apiMode ?? current.apiMode;
+      const rawNext: UpstreamProfile = {
         ...current,
         name: patch.name !== undefined ? patch.name.trim() : current.name,
-        apiMode: patch.apiMode ?? current.apiMode,
+        apiMode: nextApiMode,
         requestPolicy: patch.requestPolicy ?? current.requestPolicy,
-        baseURL: patch.baseURL !== undefined ? cleanBaseURL(patch.baseURL) : current.baseURL,
+        baseURL: patch.baseURL !== undefined ? cleanProfileBaseURL(nextApiMode, patch.baseURL) : cleanProfileBaseURL(nextApiMode, current.baseURL),
         textModelID: patch.textModelID !== undefined ? patch.textModelID.trim() : current.textModelID,
         imageModelID: patch.imageModelID !== undefined ? patch.imageModelID.trim() : current.imageModelID,
         concurrencyLimit: patch.concurrencyLimit !== undefined
           ? normalizeConcurrencyLimit(patch.concurrencyLimit) : current.concurrencyLimit,
-        imagesNewAPICompat: (patch.apiMode ?? current.apiMode) === "images"
+        imagesNewAPICompat: nextApiMode === "images"
           ? patch.imagesNewAPICompat ?? current.imagesNewAPICompat ?? false
           : false,
         lastUsedAt: patch.lastUsedAt ?? current.lastUsedAt,
       };
+      const next: UpstreamProfile = isFHLProfileConfig(rawNext)
+        ? {
+            ...rawNext,
+            requestPolicy: "openai",
+            imagesNewAPICompat: rawNext.apiMode === "images" && rawNext.imagesNewAPICompat === true,
+          }
+        : rawNext;
       const nextList = list.map((profile, idx) => (idx === index ? next : profile));
       persistProfiles(nextList);
       store.setState({ profiles: nextList });
       if (patch.apiKey !== undefined) {
         try { await SetStoredAPIKey(keyringUserFor(id), normalizeAPIKeyInput(patch.apiKey)); }
         catch (e: any) {
-          if (typeof console !== "undefined") console.error("写 keyring 失败", e);
+          if (typeof console !== "undefined") console.error("鍐?keyring 澶辫触", e);
         }
       }
       if (id === store.getState().activeProfileId) {
@@ -106,6 +154,7 @@ export function createProfileActions(store: StateAdapter) {
           imagesNewAPICompat: next.imagesNewAPICompat ?? false,
           apiKey,
         });
+        syncCLIConfigQuietly(cliConfigFromProfileState(store.getState(), next, apiKey));
       }
       return true;
     },
@@ -118,7 +167,7 @@ export function createProfileActions(store: StateAdapter) {
       persistProfiles(nextList);
       try { await DeleteStoredAPIKey(keyringUserFor(id)); }
       catch (e: any) {
-        if (typeof console !== "undefined") console.warn("删 keyring 项失败(继续)", e);
+        if (typeof console !== "undefined") console.warn("鍒?keyring 椤瑰け璐?缁х画)", e);
       }
       store.setState({ profiles: nextList });
       if (store.getState().activeProfileId === id) {
@@ -162,10 +211,10 @@ export function createProfileActions(store: StateAdapter) {
     },
 
     async setActiveProfile(id: string) {
-      const profile = store.getState().profiles.find((p) => p.id === id);
+      const before = store.getState();
+      const profile = before.profiles.find((p) => p.id === id);
       if (!profile) return;
       persistActiveProfileId(id);
-      const apiKey = await GetStoredAPIKey(keyringUserFor(id)).catch(() => "");
       const refreshed: UpstreamProfile = { ...profile, lastUsedAt: Date.now() };
       const nextProfiles = store.getState().profiles.map((p) => p.id === id ? refreshed : p);
       persistProfiles(nextProfiles);
@@ -178,8 +227,15 @@ export function createProfileActions(store: StateAdapter) {
         textModelID: profile.textModelID,
         imageModelID: profile.imageModelID,
         imagesNewAPICompat: profile.imagesNewAPICompat ?? false,
-        apiKey,
+        apiKey: "",
       });
+      const apiKey = await GetStoredAPIKey(keyringUserFor(id)).catch(() => "");
+      if (store.getState().activeProfileId === id) {
+        store.setState({ apiKey });
+        syncCLIConfigQuietly(cliConfigFromProfileState(store.getState(), refreshed, apiKey));
+      }
     },
   };
 }
+
+

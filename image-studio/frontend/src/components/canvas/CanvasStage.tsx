@@ -1,20 +1,156 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { ChevronLeft, ChevronRight, RotateCw, Upload } from "lucide-react";
 import { Stage, Layer, Image as KonvaImage, Line, Rect, Arrow } from "react-konva";
 import Konva from "konva";
 import { useStudioStore } from "../../state/studioStore";
-import { HistoryItem } from "../../types/domain";
+import type { BatchTaskRecord, HistoryItem } from "../../types/domain";
 import { usePlatform } from "../../platform/context";
-import { ContextMenu, MenuItem } from "../common/ContextMenu";
-import { BatchResultGrid, type BatchGridSlot } from "./BatchResultGrid";
+import { ContextMenu } from "../common/ContextMenu";
+import { ImagePixelSizeBadge } from "../common/ImagePixelSizeBadge";
+import { BatchResultGrid, type BatchGridSlot, type BatchGridSourcePreview } from "./BatchResultGrid";
 import { CompareOverlay } from "./CompareOverlay";
+import { SideBySideCompareOverlay } from "./SideBySideCompareOverlay";
 import type { Stroke } from "../../state/studioStore.types";
 import { EmptyState } from "./EmptyState";
-import { copyImageB64ToClipboard, copyImageURLToClipboard, useImageFromSource } from "./canvasImage";
+import { copyHistoryItemImageToClipboard, useImageFromSource } from "./canvasImage";
 import { AnnotationShape } from "./AnnotationShape";
 import { useCanvasShortcuts } from "./useCanvasShortcuts";
 import { StreamPreviewBadge } from "./StreamPreviewBadge";
 import { streamPreviewItemsFromPreviews } from "../../state/studioStore.streamPreview";
 import { historyFullSrc, isTransientPreviewItem } from "../../lib/images";
+import { extractAPIMartTaskIdFromText } from "../../lib/apimartAPI";
+import { latestContinuousSlotsByIndex } from "../../state/browserJobs";
+import { displayStatusFromContinuousSlot } from "../../state/batchGridStatus";
+import { isTemporarySourceCompareItem } from "../../state/compareSourceSelection";
+import { sortedBatchTasksForCurrentView, sortedBatchTasksForWorkspace } from "../../state/batchTaskRecords";
+import { sortHistoryGalleryItems } from "./historyGallerySort";
+import { RawResponseModal } from "../history/RawResponseModal";
+import { HistoryApiSourceBadge } from "../history/HistoryApiSourceBadge";
+import type { HistoryApiSource } from "../history/historyApiSource";
+import { useHistoryContextMenu } from "../history/useHistoryContextMenu";
+import { sortBatchGridSlotsForDisplay } from "./batchGridDisplayOrder";
+import { PanoramaViewerModal } from "../panorama/PanoramaViewerModal";
+import { PanoramaPastebackAlignModal } from "../panorama/PanoramaPastebackAlignModal";
+import { hasPanoramaRoundtripRef } from "../../panorama/core";
+
+function sourceFileName(filePath: string) {
+  return filePath.split(/[\\/]/).pop() || "source.png";
+}
+
+function clampCanvasOverlayValue(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  if (max < min) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function mergeSourcePreviewHint(
+  current: BatchGridSourcePreview | undefined,
+  candidate: BatchGridSourcePreview | undefined,
+): BatchGridSourcePreview | undefined {
+  if (!candidate?.path) return current;
+  if (!current) return candidate;
+  const currentScore = Number(!!current.previewUrl) + Number(!!current.imageB64);
+  const candidateScore = Number(!!candidate.previewUrl) + Number(!!candidate.imageB64);
+  if (candidateScore > currentScore) return candidate;
+  return current;
+}
+
+function apiSourceFromRecord(source: HistoryApiSource | null | undefined): HistoryApiSource | null {
+  const apiMode = source?.apiMode;
+  const apiProfileId = String(source?.apiProfileId || "").trim();
+  const apiProfileName = String(source?.apiProfileName || "").trim();
+  if (!apiMode && !apiProfileId && !apiProfileName) return null;
+  return {
+    apiMode,
+    apiProfileId: apiProfileId || undefined,
+    apiProfileName: apiProfileName || undefined,
+  };
+}
+
+function itemWithTaskApiSource(item: HistoryItem, task: BatchTaskRecord | null | undefined): HistoryItem {
+  if (!task) return item;
+  const apiMode = task.apiMode || item.apiMode;
+  const apiProfileId = task.apiProfileId || item.apiProfileId;
+  const apiProfileName = task.apiProfileName || item.apiProfileName;
+  const size = task.size || item.size;
+  const quality = task.quality || item.quality;
+  const outputFormat = task.outputFormat || item.outputFormat;
+  if (
+    apiMode === item.apiMode
+    && apiProfileId === item.apiProfileId
+    && apiProfileName === item.apiProfileName
+    && size === item.size
+    && quality === item.quality
+    && outputFormat === item.outputFormat
+  ) {
+    return item;
+  }
+  return {
+    ...item,
+    apiMode,
+    apiProfileId,
+    apiProfileName,
+    size,
+    quality,
+    outputFormat,
+  };
+}
+
+function apiSourceMatchesActiveProfile(
+  source: Pick<HistoryItem, "apiMode" | "apiProfileId"> | null | undefined,
+  apiMode: string,
+  activeProfileId: string,
+): boolean {
+  if (!source?.apiMode) return true;
+  if (source.apiMode !== apiMode) return false;
+  if (source.apiMode === "runninghub" && apiMode === "runninghub") return true;
+  const sourceProfileId = String(source.apiProfileId || "").trim();
+  return !sourceProfileId || !activeProfileId || sourceProfileId === activeProfileId;
+}
+
+function runningHubFailureSummary(task: BatchTaskRecord | null | undefined): string {
+  return [
+    task?.errorMessage,
+    task?.lastLogLine,
+    task?.rawPath,
+  ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean).join("\n");
+}
+
+function runningHubRecoveryState(task: BatchTaskRecord | null | undefined): {
+  recoverable: boolean;
+  label?: string;
+} {
+  if (!task || task.apiMode !== "runninghub") return { recoverable: false };
+  if (task.status !== "failed" && task.status !== "interrupted") return { recoverable: false };
+  const summary = runningHubFailureSummary(task);
+  const looksHistoricalTimeout = summary.includes("runninghub_task_timeout")
+    || summary.includes("timed out")
+    || summary.includes("timeout")
+    || summary.includes("image proxy")
+    || summary.includes("result image")
+    || summary.includes("bridge");
+  return {
+    recoverable: true,
+    label: looksHistoricalTimeout ? "历史超时遗留" : undefined,
+  };
+}
+
+function apimartRecoveryState(task: BatchTaskRecord | null | undefined): {
+  recoverable: boolean;
+  label?: string;
+} {
+  if (!task || task.apiMode !== "apimart") return { recoverable: false };
+  if (task.status === "queued" || task.status === "running") return { recoverable: false };
+  const hasTaskId = !!extractAPIMartTaskIdFromText(task.apimartTaskId);
+  const traceText = `${task.errorMessage || ""}\n${task.lastLogLine || ""}\n${task.rawPath || ""}`;
+  const hasLoggedTaskId = !!extractAPIMartTaskIdFromText(traceText);
+  const hasRecoverableTrace = hasTaskId
+    || hasLoggedTaskId;
+  return {
+    recoverable: hasRecoverableTrace,
+    label: hasRecoverableTrace ? (hasTaskId ? "APIMart 可同步" : "APIMart 可尝试同步") : undefined,
+  };
+}
 
 export function CanvasStage() {
   const {
@@ -25,7 +161,7 @@ export function CanvasStage() {
     setMaskDataURL,
     strokes, pushStroke,
     undoStack, redoStack, undo, redo,
-    compareB, compareSplit, setCompareSplit, setCompareB,
+    compareB, compareMode, compareSplit, setCompareSplit, setCompareB,
     isRunning, cancel, errorMessage, setField,
     streamPreview,
     streamPreviews,
@@ -33,10 +169,38 @@ export function CanvasStage() {
     jobsTotal,
     jobsCompleted,
     toggleFullscreen,
-    batchResults, resultGridOpen, selectBatchResult, closeResultGrid,
+    batchResults, resultGridOpen, selectBatchGridItem, selectBatchResult, closeResultGrid,
+    history, historyHasMore, historyLoading, historyGalleryOpen, historyGallerySort,
+    selectHistoryGalleryGridItem, selectHistoryGalleryResult, closeHistoryGallery, closeHistoryGalleryToEmpty, setHistoryGallerySort,
+    selectedBatchTaskId,
+    selectBatchTask,
+    pushToast,
+    retryFailedJob,
+    retryBatchTask,
+    cancelBatchTask,
+    promoteBatchTask,
+    recoverRunningHubResult,
+    recoverAPIMartResult,
+    openResultDetail,
+    applyHistoryParams,
+    regenerateFromHistory,
+    reuseAsSource,
+    openPanoramaPastebackAligner,
+    importExternalPanoramaPastebackImage,
+    saveHistoryItemAs,
+    shareHistoryItem,
+    deleteHistoryItem,
+    jobGroupsByWorkspace,
+    batchTasksById,
+    workspaces,
+    activeWorkspaceId,
     canvasViewResetTick,
+    apiMode,
+    activeProfileId,
   } = useStudioStore();
   const { isMac } = usePlatform();
+  const panoramaPastebackImportInputRef = useRef<HTMLInputElement>(null);
+  const [panoramaPastebackImportAnchor, setPanoramaPastebackImportAnchor] = useState<HistoryItem | null>(null);
   const streamPreviewItems = streamPreviewItemsFromPreviews(streamPreviews, {
     workspaceId: useStudioStore.getState().activeWorkspaceId,
     mode: useStudioStore.getState().mode,
@@ -46,9 +210,125 @@ export function CanvasStage() {
     outputFormat: useStudioStore.getState().outputFormat,
     currentImage,
   });
-  const visibleBatchSlotCount = Math.max(jobsTotal, batchResults.length + runningJobs.length, batchResults.length + streamPreviewItems.length);
-  const liveBatchSlots: BatchGridSlot[] = Array.from({ length: visibleBatchSlotCount }, (_, index) => ({ type: "pending", id: `pending-${index}` }));
-  for (const item of batchResults) {
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+  const batchTasks = sortedBatchTasksForWorkspace(activeWorkspaceId, activeWorkspace?.batchTaskIds ?? [], batchTasksById);
+  const displayBatchTasks = sortedBatchTasksForCurrentView(activeWorkspaceId, activeWorkspace?.batchTaskIds ?? [], batchTasksById);
+  const historyById = new Map([...batchResults, ...useStudioStore.getState().history].map((item) => [item.id, item]));
+  const workspaceBatchResultIds = activeWorkspace?.batchResultIds ?? [];
+  const workspaceBatchResults = workspaceBatchResultIds
+    .map((id) => historyById.get(id))
+    .filter((item): item is HistoryItem => !!item);
+  const visibleBatchResultsById = new Map<string, HistoryItem>();
+  for (const item of workspaceBatchResults) visibleBatchResultsById.set(item.id, item);
+  for (const item of batchResults) visibleBatchResultsById.set(item.id, item);
+  const visibleBatchResults = Array.from(visibleBatchResultsById.values());
+  const currentImageTask = currentImage
+    ? batchTasks.find((task) => (
+        task.historyItemId === currentImage.id
+        || (!!currentImage.savedPath && task.savedPath === currentImage.savedPath)
+      )) ?? null
+    : null;
+  const currentHistoryImage = currentImage ? historyById.get(currentImage.id) : null;
+  const currentImageApiSource = currentImage
+    ? itemWithTaskApiSource({
+        ...currentImage,
+        apiMode: currentImage.apiMode || currentHistoryImage?.apiMode,
+        apiProfileId: currentImage.apiProfileId || currentHistoryImage?.apiProfileId,
+        apiProfileName: currentImage.apiProfileName || currentHistoryImage?.apiProfileName,
+      }, currentImageTask)
+    : null;
+  const sourcePreviewHintsByPath = useMemo(() => {
+    const next = new Map<string, BatchGridSourcePreview>();
+    const remember = (candidate: BatchGridSourcePreview | undefined) => {
+      const path = String(candidate?.path || "").trim();
+      if (!path) return;
+      const normalizedCandidate: BatchGridSourcePreview = {
+        path,
+        name: candidate?.name || sourceFileName(path),
+        previewUrl: candidate?.previewUrl || undefined,
+        imageB64: candidate?.imageB64 || undefined,
+      };
+      next.set(path, mergeSourcePreviewHint(next.get(path), normalizedCandidate) ?? normalizedCandidate);
+    };
+
+    for (const source of activeWorkspace?.sources ?? []) {
+      remember({
+        path: source.path,
+        name: source.name,
+        previewUrl: source.previewUrl,
+        imageB64: source.imageB64,
+      });
+    }
+    for (const source of activeWorkspace?.batchProcess.discoveredSources ?? []) {
+      remember({
+        path: source.path,
+        name: source.name,
+        previewUrl: source.previewUrl,
+      });
+    }
+    for (const item of historyById.values()) {
+      if (item.savedPath) {
+        remember({
+          path: item.savedPath,
+          name: sourceFileName(item.savedPath),
+          previewUrl: item.previewUrl || item.fullUrl || undefined,
+          imageB64: item.imageB64,
+        });
+      }
+      for (const source of item.sourceImages ?? []) {
+        remember({
+          path: source.path,
+          name: source.name,
+          previewUrl: source.previewUrl,
+          imageB64: source.imageB64,
+        });
+      }
+    }
+    if (currentImage?.savedPath) {
+      remember({
+        path: currentImage.savedPath,
+        name: sourceFileName(currentImage.savedPath),
+        previewUrl: currentImage.previewUrl || currentImage.fullUrl || undefined,
+        imageB64: currentImage.imageB64,
+      });
+    }
+    return next;
+  }, [activeWorkspace?.batchProcess.discoveredSources, activeWorkspace?.sources, currentImage, historyById]);
+  const resolveSourcePreview = useCallback((
+    sourcePath: string | null | undefined,
+    sourceImages?: Array<{ path: string; name: string; previewUrl?: string | null; imageB64?: string | null }>,
+  ): BatchGridSourcePreview | null => {
+    const explicit = sourceImages?.find((source) => String(source?.path || "").trim());
+    const explicitPath = String(explicit?.path || sourcePath || "").trim();
+    if (!explicitPath) return null;
+    const hint = sourcePreviewHintsByPath.get(explicitPath);
+    return {
+      path: explicitPath,
+      name: explicit?.name || hint?.name || sourceFileName(explicitPath),
+      previewUrl: explicit?.previewUrl || hint?.previewUrl || undefined,
+      imageB64: explicit?.imageB64 || hint?.imageB64 || undefined,
+    };
+  }, [sourcePreviewHintsByPath]);
+  const hasBatchTaskRecords = batchTasks.length > 0;
+  const latestContinuousSlots = latestContinuousSlotsByIndex(jobGroupsByWorkspace[activeWorkspaceId] ?? []);
+  const continuousSlotCount = latestContinuousSlots.size > 0 ? Math.max(...latestContinuousSlots.keys()) + 1 : 0;
+  const visibleBatchSlotCount = Math.max(
+    jobsTotal,
+    continuousSlotCount,
+    visibleBatchResults.reduce((max, item) => (
+      Math.max(max, typeof item.batchIndex === "number" && Number.isFinite(item.batchIndex) ? item.batchIndex + 1 : 0)
+    ), 0),
+    streamPreviewItems.reduce((max, item) => (
+      Math.max(max, typeof item.batchIndex === "number" && Number.isFinite(item.batchIndex) ? item.batchIndex + 1 : 0)
+    ), 0),
+    continuousSlotCount > 0 ? 0 : visibleBatchResults.length + runningJobs.length,
+    continuousSlotCount > 0 ? 0 : visibleBatchResults.length + streamPreviewItems.length,
+  );
+  const liveBatchSlots: BatchGridSlot[] = Array.from(
+    { length: visibleBatchSlotCount },
+    (_, index) => ({ type: "pending", id: `pending-${index}`, status: "waiting" }),
+  );
+  for (const item of visibleBatchResults) {
     const index = typeof item.batchIndex === "number" ? item.batchIndex : liveBatchSlots.findIndex((slot) => slot.type === "pending");
     if (index >= 0 && index < liveBatchSlots.length) liveBatchSlots[index] = { type: "result", item };
   }
@@ -58,12 +338,200 @@ export function CanvasStage() {
       liveBatchSlots[index] = { type: "preview", item };
     }
   }
-  const completedBatchSlots: BatchGridSlot[] = liveBatchSlots.map((slot, index) => (
-    slot.type === "pending" ? { type: "failed", id: `failed-${index}` } : slot
+  const legacyDisplayBatchSlots: BatchGridSlot[] = liveBatchSlots.map((slot, index) => (
+    slot.type !== "pending"
+      ? slot
+      : (() => {
+          if (continuousSlotCount <= 0) return slot;
+          const latest = latestContinuousSlots.get(index);
+          const displayStatus = displayStatusFromContinuousSlot(latest?.slot);
+          if (displayStatus === "failed" && latest) {
+            return {
+              type: "failed",
+              id: `failed-${latest.slot.jobId}`,
+              groupId: latest.group.groupId,
+              jobId: latest.slot.jobId,
+              prompt: latest.group.prompt,
+              logMessage: latest.slot.errorMessage || latest.slot.stage,
+              rawPath: latest.slot.rawPath,
+              apiSource: apiSourceFromRecord(latest.group),
+            };
+          }
+          if (displayStatus === "failed") return slot;
+          return {
+            ...slot,
+            id: `${slot.id}-${displayStatus}`,
+            status: displayStatus,
+            apiSource: apiSourceFromRecord(latest?.group),
+          };
+        })()
   ));
-  const showingLiveBatchGrid = isRunning && visibleBatchSlotCount > 1;
-  const showingCompletedBatchGrid = !isRunning && resultGridOpen && visibleBatchSlotCount > 1;
+  const taskDisplayBatchSlots: BatchGridSlot[] = displayBatchTasks.map((task) => {
+    const item = task.historyItemId ? historyById.get(task.historyItemId) : null;
+    const sourcedItem = item ? itemWithTaskApiSource(item, task) : null;
+    const sourcePreview = resolveSourcePreview(task.batchSourcePath || task.sourceImagePaths?.[0], sourcedItem?.sourceImages);
+    const apiSource = apiSourceFromRecord(task);
+    if (sourcedItem) return { type: "result", item: sourcedItem, slotIndex: task.slotIndex, updatedAt: task.updatedAt, sourcePreview };
+    const preview = streamPreviewItems.find((entry) => entry.batchIndex === task.slotIndex);
+    if (preview && (task.status === "queued" || task.status === "running")) {
+      return { type: "preview", item: itemWithTaskApiSource(preview, task), slotIndex: task.slotIndex, updatedAt: task.updatedAt, sourcePreview };
+    }
+    if (task.status === "failed" || task.status === "interrupted") {
+      const runningHubRecovery = runningHubRecoveryState(task);
+      const apimartRecovery = apimartRecoveryState(task);
+      return {
+        type: "failed",
+        id: `task-failed-${task.id}`,
+        slotIndex: task.slotIndex,
+        updatedAt: task.updatedAt,
+        taskId: task.id,
+        groupId: task.groupId,
+        jobId: task.jobId,
+        prompt: task.prompt,
+        logMessage: task.errorMessage || task.lastLogLine,
+        rawPath: task.rawPath,
+        apiSource,
+        sourcePreview,
+        runningHubRecoverable: runningHubRecovery.recoverable,
+        runningHubRecoveryLabel: runningHubRecovery.label,
+        apimartRecoverable: apimartRecovery.recoverable,
+        apimartRecoveryLabel: apimartRecovery.label,
+      };
+    }
+    if (task.status === "cancelled") {
+      const apimartRecovery = apimartRecoveryState(task);
+      return {
+        type: "pending",
+        id: `task-cancelled-${task.id}`,
+        slotIndex: task.slotIndex,
+        updatedAt: task.updatedAt,
+        taskId: task.id,
+        prompt: task.prompt,
+        status: "cancelled",
+        apiSource,
+        sourcePreview,
+        apimartRecoverable: apimartRecovery.recoverable,
+        apimartRecoveryLabel: apimartRecovery.label,
+      };
+    }
+    if (task.status === "succeeded") {
+      const apimartRecovery = apimartRecoveryState(task);
+      if (apimartRecovery.recoverable) {
+        return {
+          type: "failed",
+          id: `task-missing-image-${task.id}`,
+          slotIndex: task.slotIndex,
+          updatedAt: task.updatedAt,
+          taskId: task.id,
+          groupId: task.groupId,
+          jobId: task.jobId,
+          prompt: task.prompt,
+          label: "结果未同步到本地",
+          logMessage: task.errorMessage || task.lastLogLine || "APIMart 任务可能已经完成，但本地没有最终图片。",
+          rawPath: task.rawPath,
+          apiSource,
+          sourcePreview,
+          apimartRecoverable: true,
+          apimartRecoveryLabel: apimartRecovery.label,
+        };
+      }
+      return {
+        type: "pending",
+        id: `task-missing-image-${task.id}`,
+        slotIndex: task.slotIndex,
+        updatedAt: task.updatedAt,
+        taskId: task.id,
+        prompt: task.prompt,
+        status: "succeeded_no_image",
+        apiSource,
+        sourcePreview,
+        apimartRecoverable: apimartRecovery.recoverable,
+        apimartRecoveryLabel: apimartRecovery.label,
+      };
+    }
+    return {
+      type: "pending",
+      id: `task-${task.status}-${task.id}`,
+      slotIndex: task.slotIndex,
+      updatedAt: task.updatedAt,
+      taskId: task.id,
+      prompt: task.prompt,
+      queuedReason: task.queuedReason,
+      canPromote: task.status === "queued" && task.queuedReason === "local_concurrency" && !task.jobId,
+      status: task.status === "running"
+        ? "running"
+        : (task.queuedReason === "local_concurrency" || task.queuedReason === "batch_shared_concurrency") && !task.jobId
+          ? "local_queued"
+          : "queued",
+      apiSource,
+      sourcePreview,
+    };
+  });
+  const taskSlotIndexes = new Set(batchTasks.map((task) => task.slotIndex));
+  const taskDisplayWithLegacyResults = hasBatchTaskRecords
+    ? [...taskDisplayBatchSlots]
+    : taskDisplayBatchSlots;
+  if (hasBatchTaskRecords) {
+    for (const item of visibleBatchResults) {
+      const index = typeof item.batchIndex === "number" && Number.isFinite(item.batchIndex)
+        ? item.batchIndex
+        : taskDisplayWithLegacyResults.findIndex((slot) => slot.type === "pending");
+      if (index < 0 || taskSlotIndexes.has(index)) continue;
+      taskDisplayWithLegacyResults.push({ type: "result", item, slotIndex: index, updatedAt: item.createdAt });
+    }
+  }
+  const displayBatchSlots = hasBatchTaskRecords ? taskDisplayWithLegacyResults : legacyDisplayBatchSlots;
+  const displaySlotCount = displayBatchSlots.length || visibleBatchSlotCount;
+  const displayResultCount = displayBatchSlots.filter((slot) => slot.type === "result").length;
+  const batchResultIds = new Set(visibleBatchResults.map((item) => item.id));
+  const hasExplicitWorkspaceBatchResults = workspaceBatchResultIds.length > 0
+    && workspaceBatchResultIds.every((id) => batchResultIds.has(id));
+  const canShowResultGrid = hasBatchTaskRecords
+    ? displaySlotCount > 0
+    : displaySlotCount > 1 || (hasExplicitWorkspaceBatchResults && displaySlotCount > 0);
+  const hasWorkspaceBatchResultContext = workspaceBatchResultIds.length > 0
+    && workspaceBatchResultIds.every((id) => batchResultIds.has(id));
+  const hasCurrentBatchSession = hasBatchTaskRecords
+    || workspaceBatchResultIds.length > 0
+    || visibleBatchResults.length > 0
+    || runningJobs.length > 0
+    || jobsTotal > 0
+    || (jobGroupsByWorkspace[activeWorkspaceId] ?? []).length > 0;
+  const resultGridMatchesActiveApiSource = displayBatchSlots.every((slot) => (
+    (slot.type === "result" || slot.type === "preview")
+      ? apiSourceMatchesActiveProfile(slot.item, apiMode, activeProfileId)
+      : true
+  ));
+  const showingLiveBatchGrid = isRunning && resultGridOpen && canShowResultGrid;
+  const showingCompletedBatchGrid = !isRunning
+    && resultGridOpen
+    && canShowResultGrid
+    && (hasCurrentBatchSession || hasWorkspaceBatchResultContext || resultGridMatchesActiveApiSource);
   const showingResultGrid = showingLiveBatchGrid || showingCompletedBatchGrid;
+  const historyGalleryItems = useMemo(
+    () => sortHistoryGalleryItems(history, historyGallerySort),
+    [history, historyGallerySort],
+  );
+  const showingHistoryGallery = !isRunning && historyGalleryOpen && historyGalleryItems.length > 0;
+  const compareUsesSourceImage = isTemporarySourceCompareItem(compareB);
+  const galleryTitle = historyHasMore || historyLoading
+    ? `完整相册 · 已加载 ${historyGalleryItems.length} 张`
+    : `完整相册 · ${historyGalleryItems.length} 张`;
+  const singlePreviewItems = sortBatchGridSlotsForDisplay(
+    displayBatchSlots.map((slot, index) => ({ slot, originalIndex: index })),
+    historyGallerySort === "oldest",
+  )
+    .map(({ slot }) => slot)
+    .filter((slot): slot is Extract<BatchGridSlot, { type: "result" }> => slot.type === "result")
+    .map((slot) => slot.item);
+  const singlePreviewIndex = currentImage ? singlePreviewItems.findIndex((item) => item.id === currentImage.id) : -1;
+  const showSinglePreviewNav = !!currentImage
+    && singlePreviewItems.length > 1
+    && singlePreviewIndex >= 0
+    && !showingResultGrid
+    && !showingHistoryGallery
+    && !compareB
+    && !currentImage.id.startsWith("source-preview-");
 
   // Hold-space-for-pan: while space is held, override tool to "pan".
   const [spacePan, setSpacePan] = useState(false);
@@ -119,10 +587,10 @@ export function CanvasStage() {
     setField,
   ]);
 
-  // ★ Measure the OUTER wrapper (.stage-host) — which is a normal grid item
-  // bounded by its parent shell — instead of the inner absolute container.
+  // 鈽?Measure the OUTER wrapper (.stage-host) 鈥?which is a normal grid item
+  // bounded by its parent shell 鈥?instead of the inner absolute container.
   // This breaks the feedback loop where the Konva canvas width (= hostSize.w)
-  // would otherwise expand its parent in normal flow and push hostSize → ∞.
+  // would otherwise expand its parent in normal flow and push hostSize 鈫?鈭?
   const [hostSize, setHostSize] = useState({ w: 0, h: 0 });
   const hostRef = useCallback((node: HTMLDivElement | null) => {
     if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
@@ -145,7 +613,7 @@ export function CanvasStage() {
     } as ResizeObserver;
   }, []);
 
-  // Plain function — not useMemo — so it is always computed with the very
+  // Plain function 鈥?not useMemo 鈥?so it is always computed with the very
   // latest hostSize / image references on every render. Avoids the closure
   // race we saw with useMemo deps.
   function computeFit(img: HTMLImageElement | null, hw: number, hh: number) {
@@ -173,6 +641,74 @@ export function CanvasStage() {
         height: image.height * view.scale,
       }
     : null;
+  const currentImageBadgeBounds = currentImageApiSource && image && currentImageApiSource.apiMode
+    ? {
+        left: view.x,
+        top: view.y,
+        width: image.width * view.scale,
+        height: image.height * view.scale,
+      }
+    : null;
+  const currentImageBounds = image
+    ? {
+        left: view.x,
+        top: view.y,
+        width: image.width * view.scale,
+        height: image.height * view.scale,
+      }
+    : null;
+  const singlePreviewNavButtonSize = 46;
+  const singlePreviewNavButtonGap = 14;
+  const singlePreviewNavButtonInset = 12;
+  const singlePreviewNavTop = currentImageBounds
+    ? clampCanvasOverlayValue(
+        currentImageBounds.top + currentImageBounds.height / 2 - singlePreviewNavButtonSize / 2,
+        singlePreviewNavButtonInset,
+        hostSize.h - singlePreviewNavButtonSize - singlePreviewNavButtonInset,
+      )
+    : 0;
+  const singlePreviewNavBounds = showSinglePreviewNav && currentImageBounds
+    ? {
+        previous: {
+          left: clampCanvasOverlayValue(
+            currentImageBounds.left - singlePreviewNavButtonSize - singlePreviewNavButtonGap,
+            singlePreviewNavButtonInset,
+            hostSize.w - singlePreviewNavButtonSize - singlePreviewNavButtonInset,
+          ),
+          top: singlePreviewNavTop,
+        },
+        next: {
+          left: clampCanvasOverlayValue(
+            currentImageBounds.left + currentImageBounds.width + singlePreviewNavButtonGap,
+            singlePreviewNavButtonInset,
+            hostSize.w - singlePreviewNavButtonSize - singlePreviewNavButtonInset,
+          ),
+          top: singlePreviewNavTop,
+        },
+      }
+    : null;
+  const panoramaPastebackQuickWidth = 174;
+  const panoramaPastebackQuickHeight = 34;
+  const panoramaPastebackQuickInset = 12;
+  const canQuickPanoramaPasteback = !!currentImage
+    && !!currentImageBounds
+    && !isCurrentStreamPreview
+    && !currentImage.id.startsWith("source-preview-")
+    && hasPanoramaRoundtripRef(currentImage);
+  const panoramaPastebackQuickBounds = canQuickPanoramaPasteback && currentImageBounds
+    ? {
+        left: clampCanvasOverlayValue(
+          currentImageBounds.left + currentImageBounds.width - panoramaPastebackQuickWidth - panoramaPastebackQuickInset,
+          panoramaPastebackQuickInset,
+          hostSize.w - panoramaPastebackQuickWidth - panoramaPastebackQuickInset,
+        ),
+        top: clampCanvasOverlayValue(
+          currentImageBounds.top + panoramaPastebackQuickInset,
+          panoramaPastebackQuickInset,
+          hostSize.h - panoramaPastebackQuickHeight - panoramaPastebackQuickInset,
+        ),
+      }
+    : null;
 
   // Imperatively push the latest fit onto the Konva Stage *after* React commits
   // and *before* paint. This is the belt-and-suspenders fix: even if React
@@ -193,7 +729,7 @@ export function CanvasStage() {
   function onStageDblClick() {
     if (!image || hostSize.w === 0) return;
     if (!userView || Math.abs(userView.scale - 1) > 0.001) {
-      // Currently fit (or not at 100%) → snap to 100% centred on image.
+      // Currently fit (or not at 100%) 鈫?snap to 100% centred on image.
       const cx = (hostSize.w - image.width) / 2;
       const cy = (hostSize.h - image.height) / 2;
       setUserView({ scale: 1, x: cx, y: cy });
@@ -202,7 +738,7 @@ export function CanvasStage() {
     }
   }
 
-  // Local "in-flight" stroke buffer — only the completed strokes live in the
+  // Local "in-flight" stroke buffer 鈥?only the completed strokes live in the
   // store (so we don't spam zustand on every mousemove). Forces re-render via
   // a tick counter when the in-progress stroke needs to redraw.
   const drawingRef = useRef<{ active: boolean; current: Stroke | null }>({ active: false, current: null });
@@ -210,13 +746,39 @@ export function CanvasStage() {
 
   // Annotation drag state.
   const [drag, setDrag] = useState<null | { kind: "rect" | "arrow" | "freehand" | "text"; sx: number; sy: number; x: number; y: number }>(null);
-  const [canvasMenu, setCanvasMenu] = useState<null | { x: number; y: number }>(null);
+  const {
+    buildMenu,
+    closeMenu,
+    closeRaw,
+    menu,
+    openMenu,
+    rawPath,
+  } = useHistoryContextMenu({
+    currentImageId: currentImage?.id ?? null,
+    compareItemId: compareB?.id ?? null,
+    onOpenDetail: openResultDetail,
+    onOpenPanorama: (item) => void useStudioStore.getState().openPanoramaViewer(item),
+    onApplyParams: applyHistoryParams,
+    onRegenerate: (item) => void regenerateFromHistory(item),
+    onReuseAsSource: (item) => void reuseAsSource(item),
+    onRepastePanorama: (item) => openPanoramaPastebackAligner(item),
+    onSaveOriginal: (item) => void saveHistoryItemAs(item),
+    onShare: (item) => void shareHistoryItem(item),
+    onToggleCompare: (item) => setCompareB(compareB?.id === item.id ? null : item),
+    onDelete: (item) => {
+      if (item.previewOnly) return;
+      if (window.confirm(`纭畾鍒犻櫎姝ゅ巻鍙查」锛焅n\n${item.prompt?.slice(0, 60) || "(鏃?prompt)"}`)) {
+        void deleteHistoryItem(item.id);
+      }
+    },
+    pushToast,
+  });
 
   // When the displayed image identity changes, clear the user's manual view
   // and per-image canvas state. This guarantees the new image starts at fit.
-  // canvasViewResetTick 触发同样的重置 —— 用于 旋转 / 翻转 / 裁剪 这些「就地编辑」
-  // 操作:currentImage.id 没变(就是原来那张),但底图尺寸 / 坐标已变,残留的 pan/zoom
-  // 与蒙版坐标系都失效了。
+  // canvasViewResetTick 瑙﹀彂鍚屾牱鐨勯噸缃?鈥斺€?鐢ㄤ簬 鏃嬭浆 / 缈昏浆 / 瑁佸壀 杩欎簺銆屽氨鍦扮紪杈戙€?
+  // 鎿嶄綔:currentImage.id 娌″彉(灏辨槸鍘熸潵閭ｅ紶),浣嗗簳鍥惧昂瀵?/ 鍧愭爣宸插彉,娈嬬暀鐨?pan/zoom
+  // 涓庤挋鐗堝潗鏍囩郴閮藉け鏁堜簡銆?
   useEffect(() => {
     setUserView(null);
     setMaskDataURL(null);
@@ -284,7 +846,7 @@ export function CanvasStage() {
         setDrawingTick((n) => n + 1);
       } else if (annotationKind === "text") {
         // Text annotations are created via a prompt on mouse down (no drag).
-        const text = window.prompt("文字标注内容:");
+        const text = window.prompt("鏂囧瓧鏍囨敞鍐呭:");
         if (text && text.trim()) {
           addAnnotation({
             id: crypto.randomUUID(),
@@ -304,19 +866,26 @@ export function CanvasStage() {
   function openCanvasMenu(e: Konva.KonvaEventObject<PointerEvent>) {
     if (!currentImage) return;
     e.evt.preventDefault();
-    setCanvasMenu({ x: e.evt.clientX, y: e.evt.clientY });
+    openMenu(currentImage, e.evt.clientX, e.evt.clientY);
   }
 
-  const canvasMenuItems: MenuItem[] = currentImage ? [
-    { label: "查看详情", icon: "ℹ", onClick: () => void useStudioStore.getState().openResultDetail(currentImage) },
-    { label: "另存为", icon: "💾", onClick: () => void useStudioStore.getState().saveCurrentImageAs() },
-    {
-      label: modeLabelForMenu(currentImage),
-      icon: "→",
-      onClick: () => void useStudioStore.getState().reuseAsSource(currentImage),
-    },
-    { separatorBefore: true, label: "清空画板", icon: "✕", onClick: () => useStudioStore.getState().setField("currentImage", null) },
-  ] : [];
+  function openExternalPanoramaPastebackPicker(anchor: HistoryItem) {
+    setPanoramaPastebackImportAnchor(anchor);
+    const input = panoramaPastebackImportInputRef.current;
+    if (!input) return;
+    input.value = "";
+    input.click();
+  }
+
+  async function handleExternalPanoramaPastebackFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0] ?? null;
+    const anchor = panoramaPastebackImportAnchor;
+    event.currentTarget.value = "";
+    setPanoramaPastebackImportAnchor(null);
+    if (!file || !anchor) return;
+    await importExternalPanoramaPastebackImage(anchor, file);
+  }
+
 
   function onMouseMove() {
     if (!image) return;
@@ -396,6 +965,22 @@ export function CanvasStage() {
     setUserView(null);
   }
 
+  const navigateSinglePreview = useCallback((direction: -1 | 1) => {
+    if (!showSinglePreviewNav) return;
+    const nextIndex = singlePreviewIndex + direction;
+    if (nextIndex < 0) {
+      pushToast("已经是第一张了", "info", 1800);
+      return;
+    }
+    if (nextIndex >= singlePreviewItems.length) {
+      pushToast("已经是最后一张了", "info", 1800);
+      return;
+    }
+    const target = singlePreviewItems[nextIndex];
+    if (!target || target.id === currentImage?.id) return;
+    void selectBatchResult(target);
+  }, [currentImage?.id, pushToast, selectBatchResult, showSinglePreviewNav, singlePreviewIndex, singlePreviewItems]);
+
   // Expose helpers via window for the toolbar reset buttons.
   useEffect(() => {
     (window as any).__canvasResetView = resetView;
@@ -410,15 +995,15 @@ export function CanvasStage() {
     compareB,
     copyCurrentImage: () => {
       if (!currentImage) return;
-      const copyPromise = useStudioStore.getState().materializeCurrentImage(currentImage).then((full) => (
-        full.fullUrl
-          ? copyImageURLToClipboard(full.fullUrl)
-          : copyImageB64ToClipboard(full.imageB64 ?? "")
-      ));
-      copyPromise.then((ok) => {
+      const copyPromise = copyHistoryItemImageToClipboard(
+        currentImage,
+        (item) => useStudioStore.getState().materializeCurrentImage(item),
+      );
+      copyPromise.then((result) => {
         const pushToast = useStudioStore.getState().pushToast;
-        if (ok) pushToast("已复制图片到剪贴板", "success");
-        else pushToast("复制失败,当前运行环境拒绝写剪贴板", "error");
+        if (result === "success") pushToast("已复制图像，可直接粘贴到微信", "success");
+        else if (result === "missing_original") pushToast("当前图片没有可复制的原图", "warn");
+        else pushToast("复制图像失败", "error");
       });
     },
     currentImage,
@@ -436,6 +1021,7 @@ export function CanvasStage() {
     setSelectedAnnotationId: (value) => setField("selectedAnnotationId", value),
     setTool: (value) => setField("tool", value),
     undo,
+    onNavigatePreview: showSinglePreviewNav ? navigateSinglePreview : undefined,
   });
 
   useEffect(() => {
@@ -460,7 +1046,7 @@ export function CanvasStage() {
   }, []);
 
   // Host div is rendered unconditionally so its ref (and the ResizeObserver
-  // attached to it) survives the empty-state → has-image transition. Previously
+  // attached to it) survives the empty-state 鈫?has-image transition. Previously
   // the empty branch had its own <div ref={hostRef}>, the host unmounted on
   // first generate, and the observer kept reporting the stale initial size.
   return (
@@ -470,7 +1056,7 @@ export function CanvasStage() {
         className="stage-host"
         style={{ cursor: !currentImage ? "default" : (effectiveTool === "pan" ? (spacePan ? "grabbing" : "grab") : "crosshair") }}
       >
-        {!currentImage && !showingResultGrid && <EmptyState />}
+        {!currentImage && !showingResultGrid && !showingHistoryGallery && <EmptyState state={isRunning ? "running" : "idle"} />}
         {streamPreview && currentImage && !showingLiveBatchGrid ? (
           <div className="stream-preview-overlay">
             <StreamPreviewBadge />
@@ -478,32 +1064,74 @@ export function CanvasStage() {
         ) : null}
         {showingResultGrid && (
           <BatchResultGrid
-            items={batchResults}
-            slots={showingLiveBatchGrid ? liveBatchSlots : showingCompletedBatchGrid ? completedBatchSlots : undefined}
+            items={visibleBatchResults}
+            slots={showingLiveBatchGrid || showingCompletedBatchGrid ? displayBatchSlots : undefined}
             currentId={currentImage?.id ?? null}
-            onSelect={selectBatchResult}
+            selectedTaskId={selectedBatchTaskId}
+            onSelect={showingLiveBatchGrid ? () => undefined : selectBatchGridItem}
+            onPreview={selectBatchResult}
+            onOpenItemContextMenu={(item, x, y) => openMenu(item, x, y)}
+            onSelectTask={selectBatchTask}
+            onRetryFailed={({ groupId, jobId }) => retryFailedJob(groupId, jobId)}
+            onRetryTask={({ taskId }) => retryBatchTask(taskId, { independent: true })}
+            onRecoverRunningHub={({ taskId }) => {
+              void recoverRunningHubResult(taskId);
+            }}
+            onRecoverAPIMart={({ taskId }) => {
+              void recoverAPIMartResult(taskId);
+            }}
+            onCancelTask={({ taskId }) => cancelBatchTask(taskId)}
+            onPromoteTask={({ taskId }) => promoteBatchTask(taskId)}
             onClose={closeResultGrid}
             showClose={!showingLiveBatchGrid}
-            title={showingLiveBatchGrid ? `本批预览 · ${jobsCompleted}/${jobsTotal}` : `本批结果 · ${batchResults.length}/${visibleBatchSlotCount} 张`}
+            preserveSlotOrder={hasBatchTaskRecords}
+            gallerySort={historyGallerySort}
+            onGallerySortChange={setHistoryGallerySort}
+            title={showingLiveBatchGrid ? `本批预览 · ${jobsCompleted}/${Math.max(jobsTotal, displaySlotCount)}` : `本批结果 · ${displayResultCount}/${displaySlotCount} 张`}
           />
         )}
-        {!showingResultGrid && currentImage && compareB && (
+        {showingHistoryGallery && !showingResultGrid && (
+          <BatchResultGrid
+            items={historyGalleryItems}
+            currentId={currentImage?.id ?? null}
+            onSelect={selectHistoryGalleryGridItem}
+            onPreview={selectHistoryGalleryResult}
+            onOpenItemContextMenu={(item, x, y) => openMenu(item, x, y)}
+            onClose={closeHistoryGallery}
+            onCloseToEmpty={closeHistoryGalleryToEmpty}
+            title={galleryTitle}
+            variant="historyGallery"
+            gallerySort={historyGallerySort}
+            onGallerySortChange={setHistoryGallerySort}
+          />
+        )}
+        {!showingResultGrid && !showingHistoryGallery && currentImage && compareB && compareMode === "sideBySide" && (
+          <SideBySideCompareOverlay
+            leftBlob={compareB.imageBlob ?? null}
+            leftB64={compareB.imageB64}
+            leftUrl={compareB.fullUrl || compareB.previewUrl}
+            rightBlob={currentImage.imageBlob ?? null}
+            rightB64={currentImage.imageB64}
+            rightUrl={currentImage.fullUrl || currentImage.previewUrl}
+            leftLabel={compareUsesSourceImage ? "原图" : "对比图"}
+            rightLabel={compareUsesSourceImage ? "成图" : "当前图"}
+          />
+        )}
+        {!showingResultGrid && !showingHistoryGallery && currentImage && compareB && compareMode !== "sideBySide" && (
           <CompareOverlay
-            aBlob={currentImage.imageBlob ?? null}
-            aB64={currentImage.imageB64}
-            aUrl={currentImage.fullUrl}
-            bBlob={compareB.imageBlob ?? null}
-            bB64={compareB.imageB64}
-            bUrl={compareB.fullUrl}
+            leftBlob={compareB.imageBlob ?? null}
+            leftB64={compareB.imageB64}
+            leftUrl={compareB.fullUrl || compareB.previewUrl}
+            rightBlob={currentImage.imageBlob ?? null}
+            rightB64={currentImage.imageB64}
+            rightUrl={currentImage.fullUrl || currentImage.previewUrl}
             split={compareSplit}
             onSplit={setCompareSplit}
+            leftLabel={compareUsesSourceImage ? "原图" : "对比图"}
+            rightLabel={compareUsesSourceImage ? "成图" : "当前图"}
           />
         )}
-        {!showingResultGrid && currentImage && !compareB && hostSize.w > 0 && hostSize.h > 0 && (
-        // The Stage canvas is wrapped in an absolutely positioned container so
-        // its (potentially very large) layout footprint cannot push back on the
-        // stage-host's grid-derived width. stage-host stays bounded by the grid
-        // track; this wrapper takes whatever size stage-host gives it via inset:0.
+        {!showingResultGrid && !showingHistoryGallery && currentImage && !compareB && hostSize.w > 0 && hostSize.h > 0 && (
         <div
           className={`stage-canvas-wrap ${isCurrentStreamPreview ? "stream-preview-blur" : ""}`}
           style={{ position: "absolute", inset: 0, overflow: "hidden" }}
@@ -555,9 +1183,9 @@ export function CanvasStage() {
             ))}
             {drawingRef.current.current && (
               <Line
-                // ★ 必须 .slice() 出新数组引用 —— onMouseMove 原地 push 不会改变
-                // points 数组引用,react-konva 走 prop 浅比较会跳过更新,导致
-                // 拖拽期间只画起点 / 终点,松手才一次性补全所有中间点。
+                // 鈽?蹇呴』 .slice() 鍑烘柊鏁扮粍寮曠敤 鈥斺€?onMouseMove 鍘熷湴 push 涓嶄細鏀瑰彉
+                // points 鏁扮粍寮曠敤,react-konva 璧?prop 娴呮瘮杈冧細璺宠繃鏇存柊,瀵艰嚧
+                // 鎷栨嫿鏈熼棿鍙敾璧风偣 / 缁堢偣,鏉炬墜鎵嶄竴娆℃€цˉ鍏ㄦ墍鏈変腑闂寸偣銆?
                 points={drawingRef.current.current.points.slice()}
                 stroke={drawingRef.current.current.erase ? "rgba(226,85,85,0.55)" : "rgba(77,124,255,0.55)"}
                 strokeWidth={drawingRef.current.current.size}
@@ -605,7 +1233,7 @@ export function CanvasStage() {
             )}
             {freehandRef.current && freehandRef.current.length >= 4 && (
               <Line
-                // 同上:.slice() 强制每帧新引用,绕过 react-konva 的浅比较跳更新。
+                // 鍚屼笂:.slice() 寮哄埗姣忓抚鏂板紩鐢?缁曡繃 react-konva 鐨勬祬姣旇緝璺虫洿鏂般€?
                 points={freehandRef.current.slice()}
                 stroke={annotationColor}
                 strokeWidth={3 / view.scale}
@@ -617,6 +1245,99 @@ export function CanvasStage() {
             )}
           </Layer>
         </Stage>
+        {currentImageBadgeBounds && currentImageApiSource ? (
+          <div className="canvas-api-source-badge-host" style={currentImageBadgeBounds} aria-hidden="true">
+            <HistoryApiSourceBadge source={currentImageApiSource} className="canvas-api-source-badge rounded-[6px]" />
+            <ImagePixelSizeBadge
+              width={currentImage?.width || image?.naturalWidth}
+              height={currentImage?.height || image?.naturalHeight}
+              src={currentImageURL}
+              className="canvas-image-pixel-size"
+            />
+          </div>
+        ) : null}
+        {panoramaPastebackQuickBounds && currentImage ? (
+          <div
+            className="canvas-panorama-pasteback-actions"
+            style={panoramaPastebackQuickBounds}
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="canvas-panorama-pasteback-button"
+              title="贴回当前 360 大图"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openPanoramaPastebackAligner(currentImage);
+              }}
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+              <span>手动贴回</span>
+            </button>
+            <button
+              type="button"
+              className="canvas-panorama-pasteback-button"
+              title="导入同比例外部图像贴回当前 360 大图"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openExternalPanoramaPastebackPicker(currentImage);
+              }}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>导入贴回</span>
+            </button>
+          </div>
+        ) : null}
+        <input
+          ref={panoramaPastebackImportInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="canvas-panorama-pasteback-file"
+          tabIndex={-1}
+          onChange={handleExternalPanoramaPastebackFile}
+        />
+        {singlePreviewNavBounds ? (
+          <>
+            <button
+              type="button"
+              className={`single-preview-nav-button single-preview-nav-button-left ${singlePreviewIndex <= 0 ? "single-preview-nav-button-disabled" : ""}`}
+              style={singlePreviewNavBounds.previous}
+              aria-disabled={singlePreviewIndex <= 0}
+              aria-label="上一张"
+              title={singlePreviewIndex <= 0 ? "已经是第一张了" : "上一张"}
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                navigateSinglePreview(-1);
+              }}
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+            <button
+              type="button"
+              className={`single-preview-nav-button single-preview-nav-button-right ${singlePreviewIndex >= singlePreviewItems.length - 1 ? "single-preview-nav-button-disabled" : ""}`}
+              style={singlePreviewNavBounds.next}
+              aria-disabled={singlePreviewIndex >= singlePreviewItems.length - 1}
+              aria-label="下一张"
+              title={singlePreviewIndex >= singlePreviewItems.length - 1 ? "已经是最后一张了" : "下一张"}
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                navigateSinglePreview(1);
+              }}
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
+          </>
+        ) : null}
         {streamPreviewImageBounds ? (
           <div
             className="stream-preview-image-cover"
@@ -624,25 +1345,26 @@ export function CanvasStage() {
             aria-live="polite"
           >
             <span className="stream-preview-final-wait">
-              服务器信号图像已返回，等待最后结果...
+              服务端最终图像已返回，等待最后结果...
             </span>
           </div>
         ) : null}
         </div>
         )}
       </div>
-      {canvasMenu && currentImage ? (
+      {menu ? (
         <ContextMenu
-          x={canvasMenu.x}
-          y={canvasMenu.y}
-          items={canvasMenuItems}
-          onClose={() => setCanvasMenu(null)}
+          x={menu.x}
+          y={menu.y}
+          items={buildMenu(menu.item)}
+          onClose={closeMenu}
         />
       ) : null}
+      <PanoramaViewerModal />
+      <PanoramaPastebackAlignModal />
+      {rawPath ? <RawResponseModal path={rawPath} onClose={closeRaw} /> : null}
     </>
   );
 }
 
-function modeLabelForMenu(item: HistoryItem) {
-  return item.mode === "edit" ? "设为继续编辑源图" : "设为图生图源图";
-}
+

@@ -8,6 +8,7 @@ import (
 
 func TestEnsureManagedReadablePath(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv(publicRootEnvName, "")
 	svc := NewService()
 	root := t.TempDir()
 	svc.addTrustedOutputRoot(root)
@@ -71,5 +72,24 @@ func TestEnsureManagedReadablePath(t *testing.T) {
 	}
 	if _, err := svc.ensureManagedReadablePath(outside, managedRawLogFile); err == nil {
 		t.Fatalf("expected outside log path to be rejected")
+	}
+}
+
+func TestEnsureManagedReadablePathAllowsPortableIntermediateImage(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(publicRootEnvName, root)
+
+	svc := NewService()
+	intermediateDir := portableIntermediateDir(root)
+	if err := os.MkdirAll(intermediateDir, secureDirMode); err != nil {
+		t.Fatal(err)
+	}
+	imagePath := filepath.Join(intermediateDir, "partial.png")
+	if err := os.WriteFile(imagePath, []byte("png"), secureFileMode); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.ensureManagedReadablePath(imagePath, managedImageFile); err != nil {
+		t.Fatalf("expected portable intermediate image path to pass: %v", err)
 	}
 }

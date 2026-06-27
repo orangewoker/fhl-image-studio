@@ -11,6 +11,8 @@ import { nativeHttpRequestText } from "./nativeHttp.ts";
 import { buildResponsesPayload } from "./requestPayloads.ts";
 import {
   MAX_ATTEMPTS,
+  imagePayloadFingerprint,
+  rejectIfFinalMatchesPartial,
   RemoteKernelError,
   STATUS_INTERVAL_MS,
   type ExtractedImageResult,
@@ -98,8 +100,8 @@ function walkForImageCall(value: any): any | null {
   return null;
 }
 
-function extractImageResult(raw: string): ExtractedImageResult | null {
-  let partialResult: ExtractedImageResult | null = null;
+function extractImageResult(raw: string, rawPath: string | null = null): ExtractedImageResult | null {
+  const partialFingerprints = new Set<string>();
   for (const line of raw.split(/\r?\n/)) {
     if (!line.startsWith("data: ")) continue;
     const payload = line.slice(6).trim();
@@ -111,15 +113,13 @@ function extractImageResult(raw: string): ExtractedImageResult | null {
       continue;
     }
     if (event?.type === "response.image_generation_call.partial_image" && event.partial_image_b64) {
-      partialResult = {
-        imageB64: event.partial_image_b64,
-        revisedPrompt: event.revised_prompt || "",
-        sourceEvent: "partial",
-      };
+      const fingerprint = imagePayloadFingerprint(event.partial_image_b64);
+      if (fingerprint) partialFingerprints.add(fingerprint);
       continue;
     }
     if (event?.type === "response.output_item.done" && event?.item?.type === "image_generation_call") {
       if (event.item.result) {
+        rejectIfFinalMatchesPartial(event.item.result, partialFingerprints, rawPath);
         return {
           imageB64: event.item.result,
           revisedPrompt: event.item.revised_prompt || "",
@@ -129,6 +129,7 @@ function extractImageResult(raw: string): ExtractedImageResult | null {
     }
     const found = walkForImageCall(event);
     if (found?.result) {
+      rejectIfFinalMatchesPartial(found.result, partialFingerprints, rawPath);
       return {
         imageB64: found.result,
         revisedPrompt: found.revised_prompt || "",
@@ -141,17 +142,18 @@ function extractImageResult(raw: string): ExtractedImageResult | null {
     const parsed = JSON.parse(raw);
     const found = walkForImageCall(parsed);
     if (found?.result) {
+      rejectIfFinalMatchesPartial(found.result, partialFingerprints, rawPath);
       return {
         imageB64: found.result,
         revisedPrompt: found.revised_prompt || "",
         sourceEvent: "json",
       };
     }
-  } catch {
-    // ignore
+  } catch (error) {
+    if (error instanceof RemoteKernelError) throw error;
   }
 
-  return partialResult;
+  return null;
 }
 
 export async function requestResponsesOnce(
@@ -206,7 +208,7 @@ export async function requestResponsesOnce(
       if (response.status < 200 || response.status >= 300) {
         throw new RemoteKernelError(describeProblem(raw), rawPath);
       }
-      const result = extractImageResult(raw);
+      const result = extractImageResult(raw, rawPath);
       if (!result) {
         throw new RemoteKernelError(describeProblem(raw), rawPath);
       }
@@ -232,7 +234,7 @@ export async function requestResponsesOnce(
       if (!response.ok) {
         throw new RemoteKernelError(describeProblem(raw), rawPath);
       }
-      const result = extractImageResult(raw);
+      const result = extractImageResult(raw, rawPath);
       if (!result) {
         throw new RemoteKernelError("上游没有返回可用的完整图片", rawPath);
       }
@@ -274,12 +276,11 @@ export async function requestResponsesOnce(
         }
       }
     } catch (error) {
-      const fallback = extractImageResult(raw);
+      const rawPath = registerRawText("responses", attempt, raw);
+      const fallback = extractImageResult(raw, rawPath);
       if (fallback?.imageB64) {
-        const rawPath = registerRawText("responses", attempt, raw);
         return { ...fallback, rawPath, prompt: request.payload.prompt, mode: request.payload.mode };
       }
-      const rawPath = registerRawText("responses", attempt, raw);
       if (error instanceof RemoteKernelError) throw error;
       throw new RemoteKernelError(String((error as any)?.message || error), rawPath);
     }
@@ -288,7 +289,7 @@ export async function requestResponsesOnce(
     if (!response.ok) {
       throw new RemoteKernelError(describeProblem(raw), rawPath);
     }
-    const result = extractImageResult(raw);
+    const result = extractImageResult(raw, rawPath);
     if (!result) {
       throw new RemoteKernelError(describeProblem(raw), rawPath);
     }

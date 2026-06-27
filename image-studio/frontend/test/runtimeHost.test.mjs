@@ -12,6 +12,7 @@ const realWindow = globalThis.window;
 const realURL = globalThis.URL;
 const realAtob = globalThis.atob;
 const realBtoa = globalThis.btoa;
+const realFileReader = globalThis.FileReader;
 
 function installBase64() {
   globalThis.atob = (value) => Buffer.from(value, "base64").toString("binary");
@@ -180,6 +181,7 @@ async function withPatchedGlobals(setup, run) {
     globalThis.URL = realURL;
     globalThis.atob = realAtob;
     globalThis.btoa = realBtoa;
+    globalThis.FileReader = realFileReader;
     delete globalThis.__probeCalls;
   }
 }
@@ -309,6 +311,152 @@ test("runtimeHost remote mode forwards partial image previews", async () => {
   });
 });
 
+test("runtimeHost ChooseBatchInputDir avoids unstable browser directory inputs", async () => {
+  let attributeCalls = [];
+
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5176/",
+      origin: "http://127.0.0.1:5176",
+      hostname: "127.0.0.1",
+    };
+    globalThis.window.showDirectoryPicker = undefined;
+
+    globalThis.FileReader = class MockFileReader {
+      constructor() {
+        this.result = null;
+        this.error = null;
+        this.onload = null;
+        this.onerror = null;
+      }
+
+      readAsDataURL(file) {
+        Promise.resolve(typeof file?.arrayBuffer === "function" ? file.arrayBuffer() : new Uint8Array())
+          .then((buffer) => {
+            const base64 = Buffer.from(buffer).toString("base64");
+            this.result = `data:${file?.type || "image/png"};base64,${base64}`;
+            this.onload?.();
+          })
+          .catch((error) => {
+            this.error = error;
+            this.onerror?.();
+          });
+      }
+    };
+
+    const pickedFile = {
+      name: "batch-cat.png",
+      type: "image/png",
+      size: 4,
+      async arrayBuffer() {
+        return Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+      },
+    };
+
+    const originalCreateElement = globalThis.document.createElement.bind(globalThis.document);
+    globalThis.document.createElement = (tag) => {
+      if (tag !== "input") return originalCreateElement(tag);
+      const listeners = new Map();
+      return {
+        type: "",
+        accept: "",
+        multiple: false,
+        style: {},
+        files: [pickedFile],
+        setAttribute(name, value) {
+          attributeCalls.push([name, value]);
+        },
+        addEventListener(name, handler) {
+          listeners.set(name, handler);
+        },
+        click() {
+          queueMicrotask(() => listeners.get("change")?.());
+        },
+        remove() {},
+      };
+    };
+
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes("/__image-studio-files/save-image")) {
+        const body = JSON.parse(String(init?.body || "{}"));
+        return new Response(JSON.stringify({
+          path: `I:/preview/${body.subdir || "batch-inputs"}/batch-cat.png`,
+          name: "batch-cat.png",
+          size: 4,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const result = await runtimeHost.ChooseBatchInputDir();
+    assert.equal(result.images.length, 1);
+    assert.match(result.directory, /batch-inputs/i);
+    assert.deepEqual(
+      attributeCalls
+        .map(([name]) => name)
+        .filter((name) => name === "webkitdirectory" || name === "directory"),
+      [],
+    );
+  });
+});
+
+test("runtimeHost ChooseDirectory uses the local preview directory picker endpoint", async () => {
+  let requestBody = null;
+
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5176/",
+      origin: "http://127.0.0.1:5176",
+      hostname: "127.0.0.1",
+    };
+    globalThis.window.prompt = () => {
+      throw new Error("manual path prompt should not be used");
+    };
+    globalThis.fetch = async (url, init) => {
+      assert.equal(String(url), "/__image-studio-files/choose-directory");
+      requestBody = JSON.parse(String(init?.body || "{}"));
+      return new Response(JSON.stringify({ path: "I:/AI/Image-Studio/output/batch-test" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const chosen = await runtimeHost.ChooseDirectory("选择批处理输出目录");
+    assert.equal(chosen, "I:/AI/Image-Studio/output/batch-test");
+    assert.deepEqual(requestBody, { title: "选择批处理输出目录" });
+  });
+});
+
+test("runtimeHost ChooseOutputDir uses the local preview directory picker endpoint in browser mode", async () => {
+  let requestBody = null;
+
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5176/",
+      origin: "http://127.0.0.1:5176",
+      hostname: "127.0.0.1",
+    };
+    globalThis.fetch = async (url, init) => {
+      assert.equal(String(url), "/__image-studio-files/choose-directory");
+      requestBody = JSON.parse(String(init?.body || "{}"));
+      return new Response(JSON.stringify({ path: "I:/AI/Image-Studio/output/manual-choice" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const chosen = await runtimeHost.ChooseOutputDir();
+    assert.equal(chosen, "I:/AI/Image-Studio/output/manual-choice");
+    assert.deepEqual(requestBody, { title: "选择输出目录" });
+  });
+});
+
 test("runtimeHost remote images mode forwards partial image previews", async () => {
   await withPatchedGlobals(async () => {
     globalThis.fetch = async (url) => {
@@ -367,6 +515,167 @@ test("runtimeHost remote images mode forwards partial image previews", async () 
   });
 });
 
+test("vite config routes APIMart local preview through fetch middleware", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../vite.config.ts", import.meta.url), "utf8");
+  assert.match(source, /const apimartLegacyProxyPrefix = "\/__image-studio-apimart-legacy"/);
+  assert.match(source, /function apimartAPIProxyPlugin\(\): Plugin/);
+  assert.match(source, /server\.middlewares\.use\(prefix/);
+  assert.match(source, /const upstream = await fetch\(requestURL\.href, init\)/);
+  assert.match(source, /mountAPIMartProxy\(server, apimartLegacyProxyPrefix, "https:\/\/api\.apib\.ai"\)/);
+  assert.match(source, /mountAPIMartProxy\(server, apimartProxyPrefix, "https:\/\/api\.apimart\.ai"\)/);
+  assert.ok(
+    source.indexOf('mountAPIMartProxy(server, apimartLegacyProxyPrefix, "https://api.apib.ai")')
+      < source.indexOf('mountAPIMartProxy(server, apimartProxyPrefix, "https://api.apimart.ai")'),
+  );
+});
+test("runtimeHost probes APIMart balance through official and legacy preview proxies", async () => {
+  const calls = [];
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5173/",
+      origin: "http://127.0.0.1:5173",
+      hostname: "127.0.0.1",
+    };
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ success: true, balance: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    await runtimeHost.probeCurrentUpstream("https://api.apimart.ai/v1", "sk-official", "system", "", "apimart");
+    await runtimeHost.probeCurrentUpstream("https://api.apib.ai/v1", "sk-legacy", "system", "", "apimart");
+    assert.deepEqual(calls.map((call) => call.url), [
+      "http://127.0.0.1:5173/__image-studio-apimart/v1/balance",
+      "http://127.0.0.1:5173/__image-studio-apimart-legacy/v1/balance",
+    ]);
+    assert.equal(calls[0].init.method, "GET");
+    assert.equal(calls[0].init.headers.Authorization, "Bearer sk-official");
+    assert.equal(calls[1].init.headers.Authorization, "Bearer sk-legacy");
+  });
+});
+
+test("runtimeHost falls back to APIMart legacy probe after transport failure", async () => {
+  const calls = [];
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5173/",
+      origin: "http://127.0.0.1:5173",
+      hostname: "127.0.0.1",
+    };
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      if (calls.length === 1) {
+        throw new TypeError("connectex: A connection attempt failed");
+      }
+      return new Response(JSON.stringify({ success: true, balance: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    await runtimeHost.probeCurrentUpstream("https://api.apimart.ai/v1", "sk-official", "system", "", "apimart");
+    assert.deepEqual(calls.map((call) => call.url), [
+      "http://127.0.0.1:5173/__image-studio-apimart/v1/balance",
+      "http://127.0.0.1:5173/__image-studio-apimart-legacy/v1/balance",
+    ]);
+    assert.equal(calls[0].init.headers.Authorization, "Bearer sk-official");
+    assert.equal(calls[1].init.headers.Authorization, "Bearer sk-official");
+  });
+});
+
+test("runtimeHost falls back to APIMart legacy probe after probe timeout", async () => {
+  const calls = [];
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5173/",
+      origin: "http://127.0.0.1:5173",
+      hostname: "127.0.0.1",
+    };
+    globalThis.fetch = async (url) => {
+      calls.push(String(url));
+      if (calls.length === 1) {
+        throw new DOMException("The operation timed out", "TimeoutError");
+      }
+      return new Response(JSON.stringify({ success: true, balance: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    await runtimeHost.probeCurrentUpstream("https://api.apimart.ai/v1", "sk-official", "system", "", "apimart");
+    assert.deepEqual(calls, [
+      "http://127.0.0.1:5173/__image-studio-apimart/v1/balance",
+      "http://127.0.0.1:5173/__image-studio-apimart-legacy/v1/balance",
+    ]);
+  });
+});
+
+test("runtimeHost reports APIMart balance probe authorization failures", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5173/",
+      origin: "http://127.0.0.1:5173",
+      hostname: "127.0.0.1",
+    };
+    globalThis.fetch = async (url) => {
+      assert.equal(String(url), "http://127.0.0.1:5173/__image-studio-apimart/v1/balance");
+      return new Response(JSON.stringify({ error: { message: "bad key" } }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    await assert.rejects(
+      () => runtimeHost.probeCurrentUpstream("https://api.apimart.ai", "sk-bad", "system", "", "apimart"),
+      /APIMart API Key/,
+    );
+  });
+});
+
+test("runtimeHost probes RunningHub bridge config and capabilities directly", async () => {
+  const calls = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url) => {
+      calls.push(String(url));
+      if (String(url).endsWith("/api/config")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          config: { api_key_configured: true },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (String(url).endsWith("/api/runninghub-sizes")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          modes: {
+            "text-to-image": { resolutions: ["1k", "2k", "4k"] },
+            "image-to-image": { resolutions: ["1k", "2k", "4k"] },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    await runtimeHost.probeCurrentUpstream("http://127.0.0.1:8117", "", "system", "", "runninghub");
+    assert.deepEqual(calls, [
+      "http://127.0.0.1:8117/api/config",
+      "http://127.0.0.1:8117/api/runninghub-sizes",
+    ]);
+  });
+});
 test("runtimeHost Android transforms persist GPU-backed results to host files", async () => {
   await withPatchedGlobals(async () => {
     globalThis.createImageBitmap = async () => ({

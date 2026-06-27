@@ -28,17 +28,17 @@ type GenerateOptions struct {
 	// frontend builds. Folded into ImagePaths when present.
 	ImagePath string `json:"imagePath"`
 
-	MaskB64        string `json:"maskB64"`        // optional, phase 3 reservation
-	Seed           int64  `json:"seed"`           // 0 = random
-	NegativePrompt string `json:"negativePrompt"` // optional
-	BaseURL        string `json:"baseURL"`        // overrides the default upstream URL
-	TextModelID    string `json:"textModelID"`    // overrides the default text model
-	ImageModelID   string `json:"imageModelID"`   // overrides the default image model
-	APIMode        string `json:"apiMode"`        // "responses" (default) | "images"
-	RequestPolicy  string `json:"requestPolicy"`  // "openai" (default) | "compat"
-	ImagesNewAPICompat bool `json:"imagesNewAPICompat"`
-	ProxyMode      string `json:"proxyMode"`      // "none" | "system" (default) | "custom"
-	ProxyURL       string `json:"proxyURL"`       // http(s) proxy URL when ProxyMode == "custom"
+	MaskB64            string `json:"maskB64"`        // optional, phase 3 reservation
+	Seed               int64  `json:"seed"`           // 0 = random
+	NegativePrompt     string `json:"negativePrompt"` // optional
+	BaseURL            string `json:"baseURL"`        // overrides the default upstream URL
+	TextModelID        string `json:"textModelID"`    // overrides the default text model
+	ImageModelID       string `json:"imageModelID"`   // overrides the default image model
+	APIMode            string `json:"apiMode"`        // "responses" (default) | "images"
+	RequestPolicy      string `json:"requestPolicy"`  // "openai" (default) | "compat"
+	ImagesNewAPICompat bool   `json:"imagesNewAPICompat"`
+	ProxyMode          string `json:"proxyMode"` // "none" | "system" (default) | "custom"
+	ProxyURL           string `json:"proxyURL"`  // http(s) proxy URL when ProxyMode == "custom"
 	// NoPromptRevision is kept for backward compatibility; Responses API
 	// requests now always ask the text model to keep the prompt verbatim.
 	NoPromptRevision bool `json:"noPromptRevision"`
@@ -52,7 +52,7 @@ type GenerateOptions struct {
 type PromptOptimizeOptions struct {
 	APIKey               string   `json:"apiKey"`
 	Prompt               string   `json:"prompt"`
-	OptimizationGuidance string `json:"optimizationGuidance"`
+	OptimizationGuidance string   `json:"optimizationGuidance"`
 	Mode                 string   `json:"mode"`
 	BaseURL              string   `json:"baseURL"`
 	TextModelID          string   `json:"textModelID"`
@@ -135,6 +135,8 @@ type ResultPayload struct {
 	ThumbPath     string `json:"thumbPath,omitempty"`
 	PreviewURL    string `json:"previewUrl,omitempty"`
 	FullURL       string `json:"fullUrl,omitempty"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
 	PreviewWidth  int    `json:"previewWidth,omitempty"`
 	PreviewHeight int    `json:"previewHeight,omitempty"`
 	RawPath       string `json:"rawPath"` // raw SSE dump location
@@ -174,8 +176,30 @@ type SelectFileResponse struct {
 	ImageB64      string `json:"imageB64,omitempty"`
 	ImageID       string `json:"imageId,omitempty"`
 	PreviewURL    string `json:"previewUrl,omitempty"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
 	PreviewWidth  int    `json:"previewWidth,omitempty"`
 	PreviewHeight int    `json:"previewHeight,omitempty"`
+}
+
+type BatchInputImage struct {
+	Path          string `json:"path"`
+	Name          string `json:"name"`
+	Size          int64  `json:"size"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
+	PreviewURL    string `json:"previewUrl,omitempty"`
+	PreviewWidth  int    `json:"previewWidth,omitempty"`
+	PreviewHeight int    `json:"previewHeight,omitempty"`
+}
+
+type BatchInputDirectory struct {
+	Directory string            `json:"directory"`
+	Images    []BatchInputImage `json:"images"`
+}
+
+type SelectFilesResponse struct {
+	Files []BatchInputImage `json:"files"`
 }
 
 // ImportedImage describes a freshly imported (drag-dropped or pasted) image.
@@ -184,6 +208,8 @@ type ImportedImage struct {
 	ImageB64      string `json:"imageB64,omitempty"`
 	ImageID       string `json:"imageId,omitempty"`
 	PreviewURL    string `json:"previewUrl,omitempty"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
 	PreviewWidth  int    `json:"previewWidth,omitempty"`
 	PreviewHeight int    `json:"previewHeight,omitempty"`
 }
@@ -194,6 +220,35 @@ type MediaAssetRef struct {
 	ThumbPath     string `json:"thumbPath,omitempty"`
 	PreviewURL    string `json:"previewUrl,omitempty"`
 	FullURL       string `json:"fullUrl,omitempty"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
 	PreviewWidth  int    `json:"previewWidth,omitempty"`
 	PreviewHeight int    `json:"previewHeight,omitempty"`
+}
+
+type MaterialOutputSyncItem struct {
+	HistoryID     string `json:"historyId"`
+	SavedPath     string `json:"savedPath"`
+	SuggestedName string `json:"suggestedName,omitempty"`
+	MissingReason string `json:"missingReason,omitempty"`
+}
+
+type MaterialOutputSyncedFile struct {
+	HistoryID string `json:"historyId"`
+	Source    string `json:"source"`
+	Path      string `json:"path"`
+}
+
+type MaterialOutputSyncMissing struct {
+	HistoryID string `json:"historyId"`
+	Path      string `json:"path,omitempty"`
+	Reason    string `json:"reason"`
+}
+
+type MaterialOutputSyncResult struct {
+	TargetDir    string                      `json:"targetDir"`
+	Synced       int                         `json:"synced"`
+	Missing      int                         `json:"missing"`
+	Files        []MaterialOutputSyncedFile  `json:"files"`
+	MissingItems []MaterialOutputSyncMissing `json:"missingItems"`
 }

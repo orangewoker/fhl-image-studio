@@ -5,7 +5,7 @@ export type Mode = "generate" | "edit";
 
 // 上游 API 形态 —— Responses (`/v1/responses` + SSE) 或标准 Images API。
 // 老代码里以前是顶层全局二选一,v0.1.6 起降级成 profile 的字段。
-export type APIMode = "responses" | "images";
+export type APIMode = "responses" | "images" | "apimart" | "runninghub";
 export type RequestPolicy = "openai" | "compat";
 
 // UpstreamProfile 是一组完整可用于生成的上游配置。用户可以保存多个,例如
@@ -31,23 +31,96 @@ export interface UpstreamProfile {
   lastUsedAt?: number;
 }
 
-export type SizeValue = "auto" | `${number}x${number}`;
+export type SizeValue =
+  | "auto"
+  | `${number}x${number}`
+  | `${number}:${number}`
+  | `${number}:${number}@${"1k" | "2k" | "4k"}`;
 export type QualityValue = "auto" | "high" | "medium" | "low";
 export type KernelRuntimeMode = "auto" | "local" | "remote";
 export type ProxyMode = "none" | "system" | "custom";
 // 让上游做编码;落盘扩展名 jpeg → .jpg,其他原样。
 export type OutputFormatValue = "png" | "jpeg" | "webp";
 export type ThemeMode = "system" | "light" | "dark";
+export type HistoryGallerySort = "newest" | "oldest";
+export type EditSourceMode = "manual" | "batch";
+export type BatchProcessOutputMode = "source_dir" | "custom_dir";
+export type BatchProcessAutoAspectResolution = "" | "1k" | "2k" | "4k";
 
 export interface SizeOption { value: SizeValue; label: string; }
 export interface QualityOption { value: QualityValue; label: string; }
 export interface OutputFormatOption { value: OutputFormatValue; label: string; }
 
+export interface PanoramaShot {
+  id: string;
+  yaw_deg: number;
+  pitch_deg: number;
+  roll_deg: number;
+  hFOV_deg: number;
+  vFOV_deg: number;
+  out_w: number;
+  out_h: number;
+  aspect_id: string;
+}
+
+export interface PanoramaRoundtripState {
+  kind: "ty360_roundtrip_state";
+  version: 1;
+  projection_model: "pinhole_rectilinear";
+  source_erp: {
+    width: number;
+    height: number;
+    path?: string;
+    history_id?: string;
+  };
+  rect: {
+    width: number;
+    height: number;
+  };
+  pose: {
+    yaw_deg: number;
+    pitch_deg: number;
+    roll_deg: number;
+    hFOV_deg: number;
+    vFOV_deg: number;
+  };
+  source_aspect: number;
+}
+
+export interface PanoramaRoundtripRef {
+  sourceHistoryId?: string;
+  sourcePath?: string;
+  roundtripState: PanoramaRoundtripState;
+}
+
+export type PanoramaProjectRole = "source" | "shot" | "edited-shot" | "pasted-panorama";
+
+export interface PanoramaProjectRef {
+  sourceHistoryId: string;
+  sourcePath?: string;
+  role: PanoramaProjectRole;
+  shotHistoryId?: string;
+  editedShotHistoryId?: string;
+}
+
+export interface PanoramaPastebackAlignment {
+  offsetXRatio: number;
+  offsetYRatio: number;
+  scale: number;
+  rotationDeg: number;
+  featherFraction?: number;
+  brightness?: number;
+  contrast?: number;
+  hueRotationDeg?: number;
+}
+
 export const SIZE_OPTIONS: SizeOption[] = [
   { value: "auto",      label: "自适应 auto" },
-  { value: "1024x1024", label: "方形 1024×1024" },
-  { value: "1536x1024", label: "横版 1536×1024" },
-  { value: "1024x1536", label: "竖版 1024×1536" },
+  { value: "1024x1024", label: "1K 方形 1024×1024" },
+  { value: "1536x1024",  label: "1K 横版 1248×832" },
+  { value: "1024x1536",  label: "1K 竖版 832×1248" },
+  { value: "1536x864",  label: "1K 横版 1280×720" },
+  { value: "864x1536",  label: "1K 竖版 720×1280" },
   { value: "2048x2048", label: "2K 方形 2048×2048" },
   { value: "2048x1360", label: "2K 横版 2048×1360" },
   { value: "1360x2048", label: "2K 竖版 1360×2048" },
@@ -78,11 +151,54 @@ export interface SourceImage {
   path: string;
   name: string;
   size: number;       // bytes; 0 when unknown (e.g. reused-from-history)
+  width?: number;
+  height?: number;
   previewUrl?: string;
   imageBlob?: Blob | null;
   // Legacy/browser fallback for canvas preview. Wails source previews should
   // prefer previewUrl so selected files do not cross the bridge as base64.
   imageB64?: string;
+  panoramaRoundtrip?: PanoramaRoundtripRef;
+  panoramaProject?: PanoramaProjectRef;
+}
+
+export interface BatchProcessSourceImage {
+  path: string;
+  name: string;
+  size: number;
+  width?: number;
+  height?: number;
+  previewUrl?: string;
+  previewWidth?: number;
+  previewHeight?: number;
+  selected?: boolean;
+}
+
+export interface BatchProcessConfig {
+  inputDir: string;
+  outputMode: BatchProcessOutputMode;
+  outputDir: string;
+  concurrency: number;
+  retryOnFailure: boolean;
+  autoAspectResolution: BatchProcessAutoAspectResolution;
+  batchSourceSlotIndex?: number;
+  discoveredSources: BatchProcessSourceImage[];
+}
+
+export type MaterialGroupKind = "folder" | "referenceSet";
+
+export type MaterialRef =
+  | { kind: "history"; historyId: string }
+  | { kind: "source"; source: SourceImage };
+
+export interface MaterialGroup {
+  id: string;
+  name: string;
+  description?: string;
+  kind: MaterialGroupKind;
+  items: MaterialRef[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface HistoryItem {
@@ -93,6 +209,8 @@ export interface HistoryItem {
   thumbPath?: string;
   previewWidth?: number;
   previewHeight?: number;
+  width?: number;
+  height?: number;
   // Legacy/import/browser fallback. New Wails result records keep this empty so
   // full images do not live in persistent Zustand/history/batch state.
   imageB64?: string;
@@ -102,6 +220,9 @@ export interface HistoryItem {
   prompt: string;
   revisedPrompt?: string;
   mode: Mode;
+  apiMode?: APIMode;
+  apiProfileId?: string;
+  apiProfileName?: string;
   size: SizeValue;
   quality: QualityValue;
   outputFormat?: OutputFormatValue;
@@ -119,6 +240,8 @@ export interface HistoryItem {
 
   savedPath?: string;
   rawPath?: string;
+  panoramaRoundtrip?: PanoramaRoundtripRef;
+  panoramaProject?: PanoramaProjectRef;
 }
 
 export interface ProgressInfo {
@@ -162,6 +285,7 @@ export interface JobSlotSnapshot {
   errorMessage?: string;
   revisedPrompt?: string;
   sourceEvent?: string;
+  apimartTaskId?: string;
   fallbackMode?: string;
   fallbackInputPath?: string;
   fallbackReason?: string;
@@ -174,6 +298,8 @@ export interface JobGroupSnapshot {
   createdAt: number;
   mode: Mode;
   apiMode: APIMode;
+  apiProfileId?: string;
+  apiProfileName?: string;
   prompt: string;
   batchCount: number;
   size: SizeValue;
@@ -183,9 +309,62 @@ export interface JobGroupSnapshot {
   styleTag?: string;
   seed?: number;
   sourceImagePaths?: string[];
+  batchSourcePath?: string;
+  batchSourceSlotIndex?: number;
+  continuousGenerateTest?: boolean;
+  continuousBatchIndex?: number;
   slotIds: string[];
   slots: JobSlotSnapshot[];
   statusSummary: JobStatusSummary;
+}
+
+export interface BatchTaskRecord {
+  id: string;
+  workspaceId: string;
+  slotIndex: number;
+  status: JobStatus;
+  createdAt: number;
+  updatedAt: number;
+  mode: Mode;
+  apiMode: APIMode;
+  apiProfileId?: string;
+  apiProfileName?: string;
+  prompt: string;
+  size: SizeValue;
+  quality: QualityValue;
+  outputFormat: OutputFormatValue;
+  requestPolicy?: RequestPolicy;
+  imagesNewAPICompat?: boolean;
+  textModelID?: string;
+  imageModelID?: string;
+  seed?: number;
+  negativePrompt?: string;
+  styleTag?: string;
+  sourceImagePaths?: string[];
+  sourceImages?: SourceImage[];
+  panoramaRoundtrip?: PanoramaRoundtripRef;
+  batchSourcePath?: string;
+  batchSourceSlotIndex?: number;
+  autoAspectResolution?: Exclude<BatchProcessAutoAspectResolution, "">;
+  maskB64?: string;
+  jobId?: string;
+  groupId?: string;
+  historyItemId?: string;
+  savedPath?: string;
+  rawPath?: string;
+  apimartTaskId?: string;
+  apimartTaskExpiresAt?: number;
+  errorMessage?: string;
+  lastLogLine?: string;
+  elapsedSec?: number;
+  autoRetryCount?: number;
+  autoRetryScheduledAt?: number;
+  autoRetryReason?: string;
+  queuedReason?: "local_concurrency" | "batch_shared_concurrency";
+  queuePriority?: number;
+  batchOutputMode?: BatchProcessOutputMode;
+  batchOutputDir?: string;
+  batchOutputPrefix?: string;
 }
 
 export interface StreamPreview {
@@ -194,6 +373,8 @@ export interface StreamPreview {
   previewUrl?: string;
   previewWidth?: number;
   previewHeight?: number;
+  width?: number;
+  height?: number;
   imageB64?: string;
   revisedPrompt?: string;
   partialImageIndex?: number;
@@ -207,6 +388,7 @@ export interface Workspace {
   id: string;
   name: string;
   // Fields whose value is workspace-scoped (different per tab).
+  promptPrefix: string;
   prompt: string;
   optimizationGuidance: string;
   negativePrompt: string;
@@ -216,6 +398,10 @@ export interface Workspace {
   outputFormat: OutputFormatValue;
   seed: number;
   batchCount: number;
+  continuousGenerateTest: boolean;
+  editSourceMode: EditSourceMode;
+  batchProcess: BatchProcessConfig;
+  editAutoAspectUserLocked: boolean;
   styleTag: string;
   sources: SourceImage[];
   // We store currentImageId rather than the full HistoryItem so we don't
@@ -224,10 +410,20 @@ export interface Workspace {
   // IDs from the latest multi-request run for this workspace. These are history
   // IDs so the tab state stays light while the canvas can reopen the batch grid.
   batchResultIds: string[];
+  // IDs from the latest batch/continuous run for this workspace. These point to
+  // task records so failed/cancelled/in-flight slots do not disappear.
+  batchTaskIds: string[];
+  clearedJobGroupsBefore?: number;
+  selectedBatchTaskId: string | null;
+  batchSinglePreviewOpen: boolean;
   resultGridOpen: boolean;
+  historyGalleryOpen: boolean;
+  historyGallerySinglePreviewId?: string | null;
+  historyGallerySort: HistoryGallerySort;
   runningJobIds: string[];
   jobsTotal: number;
   jobsCompleted: number;
+  jobsFailed: number;
   progress: ProgressInfo | null;
   streamPreview: StreamPreview | null;
   streamPreviews?: StreamPreviewMap;

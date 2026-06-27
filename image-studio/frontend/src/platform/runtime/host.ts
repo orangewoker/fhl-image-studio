@@ -37,7 +37,16 @@ import {
   cancelAndroidJobs,
   submitAndroidJobGroup,
 } from "./androidJobClient.ts";
-import { readProjectImage, readProjectText, saveProjectImage } from "./localProjectFiles.ts";
+import {
+  buildProjectBatchOutputPath,
+  chooseProjectDirectory,
+  listProjectBatchInputImages,
+  openProjectMaterialSyncDir,
+  readProjectImage,
+  readProjectText,
+  saveProjectImage,
+  syncProjectMaterialGroup,
+} from "./localProjectFiles.ts";
 import {
   clearLocalEvents,
   emitLocalEvent,
@@ -45,6 +54,7 @@ import {
   onLocalEvent,
   setForcedKernelRuntimeMode,
 } from "./hostEvents.ts";
+import { isTransportishError } from "./remote-kernel/common.ts";
 import {
   canInvokeAndroidMethod,
   getRuntime,
@@ -53,6 +63,8 @@ import {
   invokeService,
 } from "./hostBindings.ts";
 import type {
+  BatchInputDirectoryLike,
+  BatchInputImageLike,
   GenerateOptionsLike,
   HostCapabilities,
   HostKind,
@@ -60,17 +72,25 @@ import type {
   ImportedImageLike,
   JobStartedLike,
   KernelRuntimeMode,
+  MaterialOutputSyncItemLike,
+  MaterialOutputSyncResultLike,
   MediaAssetRefLike,
   ProbeUpstreamOptionsLike,
   ProbeUpstreamResultLike,
   PromptOptimizeOptionsLike,
   PromptReverseOptionsLike,
   SelectFileResponseLike,
+  SelectFilesResponseLike,
 } from "./hostTypes.ts";
 
 const remoteJobControllers = new Map<string, AbortController>();
 const FHL_BASE_URL = "https://www.fhl.mom";
 const FHL_LOCAL_PROXY_PREFIX = "/__image-studio-fhl";
+const APIMART_BASE_URL = "https://api.apimart.ai";
+const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
+const APIMART_LOCAL_PROXY_PREFIX = "/__image-studio-apimart";
+const APIMART_LEGACY_LOCAL_PROXY_PREFIX = "/__image-studio-apimart-legacy";
+const APIMART_PROBE_TIMEOUT_MS = 15_000;
 
 function unsupportedMessage(method: string): string {
   const kind = detectHostKind();
@@ -90,9 +110,20 @@ function isLocalPreviewHost(): boolean {
 }
 
 function normalizeProbeBaseURL(raw: string): string {
-  const normalized = normalizeSharedBaseURL(raw);
+  const normalizedRaw = normalizeSharedBaseURL(raw);
+  const normalized = normalizedRaw === `${APIMART_LEGACY_BASE_URL}/v1`
+    ? APIMART_LEGACY_BASE_URL
+    : normalizedRaw === `${APIMART_BASE_URL}/v1`
+      ? APIMART_BASE_URL
+      : normalizedRaw;
   if (isLocalPreviewHost() && normalized === FHL_BASE_URL) {
     return `${window.location.origin}${FHL_LOCAL_PROXY_PREFIX}`;
+  }
+  if (isLocalPreviewHost() && normalized === APIMART_BASE_URL) {
+    return `${window.location.origin}${APIMART_LOCAL_PROXY_PREFIX}`;
+  }
+  if (isLocalPreviewHost() && normalized === APIMART_LEGACY_BASE_URL) {
+    return `${window.location.origin}${APIMART_LEGACY_LOCAL_PROXY_PREFIX}`;
   }
   return normalized;
 }
@@ -102,6 +133,31 @@ function summarizeProbeBody(raw: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 260);
+}
+
+function fallbackAPIMartProbeBaseURL(baseURL: string): string {
+  const normalized = String(baseURL || "").replace(/\/+$/, "").replace(/\/v1$/i, "");
+  if (normalized === APIMART_BASE_URL) return APIMART_LEGACY_BASE_URL;
+  if (normalized.endsWith(APIMART_LOCAL_PROXY_PREFIX)) {
+    return `${normalized.slice(0, -APIMART_LOCAL_PROXY_PREFIX.length)}${APIMART_LEGACY_LOCAL_PROXY_PREFIX}`;
+  }
+  return "";
+}
+
+function apimartProbeSignal(signal?: AbortSignal): AbortSignal | undefined {
+  if (typeof AbortSignal === "undefined" || typeof AbortSignal.timeout !== "function") return signal;
+  const timeout = AbortSignal.timeout(APIMART_PROBE_TIMEOUT_MS);
+  if (signal && typeof AbortSignal.any === "function") return AbortSignal.any([signal, timeout]);
+  return timeout;
+}
+
+function isRetryableAPIMartProbeError(error: unknown): boolean {
+  const name = String((error as any)?.name || "").toLowerCase();
+  const message = String((error as any)?.message || error || "").toLowerCase();
+  return name === "timeouterror"
+    || message.includes("timeout")
+    || /\b50[0-4]\b/.test(message)
+    || isTransportishError(error);
 }
 
 async function probeUpstreamFromBrowser(
@@ -136,6 +192,112 @@ async function probeUpstreamFromBrowser(
   }
 }
 
+async function probeAPIMartFromBrowser(
+  baseURL: string,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const normalizedBaseURL = normalizeProbeBaseURL(baseURL);
+  const headerAPIKey = validateAPIKeyForHeader(apiKey);
+  if (!normalizedBaseURL) throw new Error("BASE_URL 不能为空");
+  const probeOnce = async (probeBaseURL: string): Promise<void> => {
+  const response = await fetch(`${probeBaseURL}/v1/balance`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${headerAPIKey}`,
+      Accept: "application/json",
+    },
+    signal: apimartProbeSignal(signal),
+  });
+  const raw = await response.text();
+  const summary = summarizeProbeBody(raw);
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(summary ? `APIMart API Key 无效或未授权 (${response.status}): ${summary}` : `APIMart API Key 无效或未授权 (${response.status})`);
+    }
+    if (response.status >= 500) {
+      throw new Error(summary ? `APIMart 上游或网络异常 (${response.status}): ${summary}` : `APIMart 上游或网络异常 (${response.status})`);
+    }
+    throw new Error(summary ? `APIMart /v1/balance 返回 ${response.status}: ${summary}` : `APIMart /v1/balance 返回 ${response.status}`);
+  }
+  let parsed: any;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("APIMart /v1/balance 返回的 JSON 无效");
+  }
+  if (parsed?.success === false || parsed?.ok === false) {
+    const message = typeof parsed?.message === "string"
+      ? parsed.message
+      : typeof parsed?.error === "string"
+        ? parsed.error
+        : typeof parsed?.error?.message === "string"
+          ? parsed.error.message
+          : "";
+    throw new Error(message ? `APIMart /v1/balance 返回失败: ${message}` : "APIMart /v1/balance 返回 success:false");
+  }
+  };
+  try {
+    await probeOnce(normalizedBaseURL);
+  } catch (error) {
+    const fallbackBaseURL = isRetryableAPIMartProbeError(error) ? fallbackAPIMartProbeBaseURL(normalizedBaseURL) : "";
+    if (!fallbackBaseURL) throw error;
+    await probeOnce(fallbackBaseURL);
+  }
+}
+
+async function probeRunningHubFromBrowser(
+  baseURL: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const normalizedBaseURL = normalizeProbeBaseURL(baseURL);
+  if (!normalizedBaseURL) throw new Error("BASE_URL 不能为空");
+  const configResponse = await fetch(`${normalizedBaseURL}/api/config`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  const configRaw = await configResponse.text();
+  const configSummary = summarizeProbeBody(configRaw);
+  if (!configResponse.ok) {
+    throw new Error(configSummary ? `RunningHub bridge /api/config 返回 ${configResponse.status}: ${configSummary}` : `RunningHub bridge /api/config 返回 ${configResponse.status}`);
+  }
+  let configParsed: any;
+  try {
+    configParsed = JSON.parse(configRaw);
+  } catch {
+    throw new Error("RunningHub bridge /api/config 返回的 JSON 无效");
+  }
+  if (configParsed?.ok === false) {
+    throw new Error(String(configParsed?.message || "RunningHub bridge /api/config 返回失败"));
+  }
+  if (configParsed?.config?.api_key_configured !== true) {
+    throw new Error("RunningHub bridge 可达，但桥接里还没有配置 RunningHub API Key");
+  }
+
+  const sizesResponse = await fetch(`${normalizedBaseURL}/api/runninghub-sizes`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  const sizesRaw = await sizesResponse.text();
+  const sizesSummary = summarizeProbeBody(sizesRaw);
+  if (!sizesResponse.ok) {
+    throw new Error(sizesSummary ? `RunningHub bridge /api/runninghub-sizes 返回 ${sizesResponse.status}: ${sizesSummary}` : `RunningHub bridge /api/runninghub-sizes 返回 ${sizesResponse.status}`);
+  }
+  let sizesParsed: any;
+  try {
+    sizesParsed = JSON.parse(sizesRaw);
+  } catch {
+    throw new Error("RunningHub bridge /api/runninghub-sizes 返回的 JSON 无效");
+  }
+  if (sizesParsed?.ok === false) {
+    throw new Error(String(sizesParsed?.message || "RunningHub bridge /api/runninghub-sizes 返回失败"));
+  }
+  if (!sizesParsed?.modes?.["text-to-image"] || !sizesParsed?.modes?.["image-to-image"]) {
+    throw new Error("RunningHub bridge 没有返回完整的文生图/图生图能力矩阵");
+  }
+}
 function makeJobID(): string {
   try {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -181,6 +343,194 @@ async function persistBrowserSelectedImage(res: SelectFileResponseLike): Promise
   return {
     ...res,
     path: saved.path,
+  };
+}
+
+type BrowserDirectoryInput = HTMLInputElement & {
+  webkitdirectory?: boolean;
+  directory?: boolean;
+};
+
+type BrowserBatchDirectoryPick = {
+  label: string;
+  files: File[];
+};
+
+function batchInputMimeMatch(file: File): boolean {
+  return /^image\/(png|jpe?g|webp)$/i.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name);
+}
+
+function safeBatchFolderSegment(value: string): string {
+  return String(value || "")
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "batch";
+}
+
+function directoryFromFilePath(filePath: string): string {
+  const normalized = String(filePath || "").trim();
+  const index = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  return index >= 0 ? normalized.slice(0, index) : "";
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error(`failed to read ${file.name}`));
+    reader.onload = () => {
+      const raw = String(reader.result || "");
+      const comma = raw.indexOf(",");
+      resolve((comma >= 0 ? raw.slice(comma + 1) : raw).trim());
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function readBrowserImageDimensions(file: File): Promise<{ width?: number; height?: number }> {
+  return new Promise((resolve) => {
+    try {
+      const objectURL = URL.createObjectURL(file);
+      const img = new Image();
+      const cleanup = () => URL.revokeObjectURL(objectURL);
+      img.onload = () => {
+        resolve({
+          width: img.naturalWidth || img.width || undefined,
+          height: img.naturalHeight || img.height || undefined,
+        });
+        cleanup();
+      };
+      img.onerror = () => {
+        resolve({});
+        cleanup();
+      };
+      img.src = objectURL;
+    } catch {
+      resolve({});
+    }
+  });
+}
+
+async function persistBrowserBatchFiles(
+  files: File[],
+  subdir: string,
+): Promise<BatchInputImageLike[]> {
+  const savedFiles: BatchInputImageLike[] = [];
+  for (const file of files) {
+    if (!batchInputMimeMatch(file)) continue;
+    const imageB64 = await readFileAsBase64(file);
+    const saved = await saveProjectImage("input", imageB64, file.name, file.type || null, {
+      subdir,
+      preserveName: true,
+    });
+    if (!saved?.path) continue;
+    const dims = await readBrowserImageDimensions(file);
+    savedFiles.push({
+      path: saved.path,
+      name: file.name,
+      size: file.size,
+      width: dims.width,
+      height: dims.height,
+    });
+  }
+  return savedFiles;
+}
+
+async function chooseBrowserFiles(options: {
+  multiple?: boolean;
+  directory?: boolean;
+} = {}): Promise<File[]> {
+  if (typeof document === "undefined") return [];
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input") as BrowserDirectoryInput;
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/webp";
+    input.multiple = options.multiple !== false;
+    if (options.directory) {
+      input.setAttribute("webkitdirectory", "");
+      input.setAttribute("directory", "");
+      input.webkitdirectory = true;
+      input.directory = true;
+    }
+    input.style.position = "fixed";
+    input.style.left = "-9999px";
+    document.body.appendChild(input);
+    const cleanup = () => input.remove();
+    input.addEventListener("change", () => {
+      const files = Array.from(input.files ?? []);
+      cleanup();
+      resolve(files);
+    }, { once: true });
+    input.addEventListener("error", () => {
+      cleanup();
+      reject(new Error("failed to open file picker"));
+    }, { once: true });
+    input.click();
+  });
+}
+
+async function openImagesDialogFallback(): Promise<SelectFilesResponseLike> {
+  const files = await chooseBrowserFiles({ multiple: true });
+  if (files.length === 0) return { files: [] };
+  const subdir = `batch-inputs/manual-${Date.now().toString(36)}`;
+  return { files: await persistBrowserBatchFiles(files, subdir) };
+}
+
+async function chooseBrowserBatchDirectoryFiles(): Promise<BrowserBatchDirectoryPick> {
+  const showDirectoryPicker = typeof window !== "undefined"
+    ? (window as typeof window & { showDirectoryPicker?: () => Promise<{ name?: string; values?: () => AsyncIterable<any> }> }).showDirectoryPicker
+    : undefined;
+  if (typeof showDirectoryPicker === "function") {
+    try {
+      const handle = await showDirectoryPicker();
+      const files: File[] = [];
+      if (handle?.values) {
+        for await (const entry of handle.values()) {
+          if (!entry || entry.kind !== "file" || typeof entry.getFile !== "function") continue;
+          const file = await entry.getFile();
+          if (file) files.push(file);
+        }
+      }
+      return {
+        label: String(handle?.name || "").trim(),
+        files,
+      };
+    } catch (error: any) {
+      if (String(error?.name || "") === "AbortError") {
+        return { label: "", files: [] };
+      }
+      throw error;
+    }
+  }
+
+  // Embedded preview browsers can crash on `webkitdirectory`; fall back to the
+  // regular multi-file picker instead of opening an unstable directory dialog.
+  return {
+    label: "",
+    files: await chooseBrowserFiles({ multiple: true }),
+  };
+}
+
+async function chooseBatchInputDirFallback(): Promise<BatchInputDirectoryLike> {
+  const picked = await chooseBrowserBatchDirectoryFiles();
+  if (picked.files.length === 0) return { directory: "", images: [] };
+  const typedFiles = picked.files.filter((file) => batchInputMimeMatch(file));
+  if (typedFiles.length === 0) return { directory: "", images: [] };
+  const relativePaths = typedFiles.map((file) => String((file as any).webkitRelativePath || file.name));
+  const rootName = picked.label || relativePaths[0]?.split(/[\\/]/).filter(Boolean)[0] || "batch-input";
+  const topLevelFiles = typedFiles.filter((file) => {
+    const rel = String((file as any).webkitRelativePath || file.name);
+    const segments = rel.split(/[\\/]/).filter(Boolean);
+    return segments.length <= 2;
+  });
+  const selectedFiles = topLevelFiles.length > 0 ? topLevelFiles : typedFiles;
+  const subdir = `batch-inputs/${safeBatchFolderSegment(rootName)}-${Date.now().toString(36)}`;
+  const savedFiles = await persistBrowserBatchFiles(selectedFiles, subdir);
+  return {
+    directory: directoryFromFilePath(savedFiles[0]?.path || ""),
+    images: savedFiles,
   };
 }
 
@@ -253,6 +603,7 @@ async function startRemoteJob(options: GenerateOptionsLike): Promise<JobStartedL
         sourceEvent: result.sourceEvent,
         savedPath: nativeSavedPath || projectSaved?.path || saved.path,
         rawPath: result.rawPath,
+        apimartTaskId: result.apimartTaskId || undefined,
         mode: result.mode,
         prompt: result.prompt,
       });
@@ -264,6 +615,7 @@ async function startRemoteJob(options: GenerateOptionsLike): Promise<JobStartedL
       emitLocalEvent(`error:${jobId}`, {
         message: typed.message,
         rawPath: typed.rawPath || null,
+        apimartTaskId: typed.apimartTaskId || undefined,
       });
     } finally {
       remoteJobControllers.delete(jobId);
@@ -517,6 +869,30 @@ export function OpenImageDialog(): Promise<SelectFileResponseLike> {
   return openImageDialogFallback().then((res) => persistBrowserSelectedImage(res));
 }
 
+export function OpenImagesDialog(): Promise<SelectFilesResponseLike> {
+  if (hasServiceMethod("OpenImagesDialog")) {
+    return invokeService<SelectFilesResponseLike>(unsupportedMessage, "OpenImagesDialog");
+  }
+  return openImagesDialogFallback();
+}
+
+export function ChooseBatchInputDir(): Promise<BatchInputDirectoryLike> {
+  if (hasServiceMethod("ChooseBatchInputDir")) {
+    return invokeService<BatchInputDirectoryLike>(unsupportedMessage, "ChooseBatchInputDir");
+  }
+  return chooseBatchInputDirFallback();
+}
+
+export function ListBatchInputImages(directory: string): Promise<BatchInputDirectoryLike> {
+  if (hasServiceMethod("ListBatchInputImages")) {
+    return invokeService<BatchInputDirectoryLike>(unsupportedMessage, "ListBatchInputImages", directory);
+  }
+  return listProjectBatchInputImages(directory).then((result) => {
+    if (result) return result;
+    throw new Error(unsupportedMessage("ListBatchInputImages"));
+  });
+}
+
 export function GetOutputDir(): Promise<string> {
   if (hasServiceMethod("GetOutputDir")) {
     return invokeService<string>(unsupportedMessage, "GetOutputDir");
@@ -595,7 +971,7 @@ export function SaveImageToDir(imageB64: string, directory: string, suggestedNam
     return invokeAndroid<string>(unsupportedMessage, "SaveImageToDir", imageB64, directory, suggestedName);
   }
   const mimeType = mimeTypeForImageName(suggestedName);
-  return saveProjectImage("output", imageB64, suggestedName, mimeType).then((projectSaved) => {
+  return saveProjectImage("output", imageB64, suggestedName, mimeType, { directory }).then((projectSaved) => {
     if (projectSaved?.path) return projectSaved.path;
     throw new Error(unsupportedMessage("SaveImageToDir"));
   });
@@ -613,6 +989,33 @@ export function SaveImagePathToDir(path: string, directory: string, suggestedNam
       .catch(() => ReadImageAsBase64(path).then((b64) => SaveImageToDir(b64, directory, suggestedName)));
   }
   return ReadImageAsBase64(path).then((b64) => SaveImageToDir(b64, directory, suggestedName));
+}
+
+export function BeginNativeFileDrag(path: string): Promise<void> {
+  if (hasServiceMethod("BeginNativeFileDrag")) {
+    return invokeService<void>(unsupportedMessage, "BeginNativeFileDrag", path);
+  }
+  return Promise.reject(new Error(unsupportedMessage("BeginNativeFileDrag")));
+}
+
+export function SyncMaterialGroupToOutput(
+  groupKind: string,
+  groupName: string,
+  items: MaterialOutputSyncItemLike[],
+): Promise<MaterialOutputSyncResultLike> {
+  if (hasServiceMethod("SyncMaterialGroupToOutput")) {
+    return invokeService<MaterialOutputSyncResultLike>(
+      unsupportedMessage,
+      "SyncMaterialGroupToOutput",
+      groupKind,
+      groupName,
+      items,
+    );
+  }
+  return syncProjectMaterialGroup(groupKind, groupName, items).then((result) => {
+    if (result) return result;
+    throw new Error(unsupportedMessage("SyncMaterialGroupToOutput"));
+  });
 }
 
 export async function ShareImageAs(imageB64: string, suggestedName: string): Promise<string> {
@@ -757,7 +1160,26 @@ export function ChooseOutputDir(): Promise<string> {
   if (canInvokeAndroidMethod("ChooseOutputDir")) {
     return invokeAndroid<string>(unsupportedMessage, "ChooseOutputDir");
   }
-  return GetOutputDir();
+  return chooseProjectDirectory("选择输出目录").then((chosen) => {
+    if (chosen !== null) return chosen;
+    return GetOutputDir();
+  });
+}
+
+export function ChooseDirectory(title: string): Promise<string> {
+  if (hasServiceMethod("ChooseDirectory")) {
+    return invokeService<string>(unsupportedMessage, "ChooseDirectory", title);
+  }
+  if (canInvokeAndroidMethod("ChooseDirectory")) {
+    return invokeAndroid<string>(unsupportedMessage, "ChooseDirectory", title);
+  }
+  if (canInvokeAndroidMethod("ChooseOutputDir")) {
+    return invokeAndroid<string>(unsupportedMessage, "ChooseOutputDir");
+  }
+  return chooseProjectDirectory(title).then((chosen) => {
+    if (chosen !== null) return chosen;
+    throw new Error(unsupportedMessage("ChooseDirectory"));
+  });
 }
 
 export function OpenOutputDir(): Promise<void> {
@@ -768,6 +1190,26 @@ export function OpenOutputDir(): Promise<void> {
     return invokeAndroid<void>(unsupportedMessage, "OpenOutputDir");
   }
   return Promise.reject(new Error(unsupportedMessage("OpenOutputDir")));
+}
+
+export function OpenMaterialSyncDir(path: string): Promise<void> {
+  if (hasServiceMethod("OpenMaterialSyncDir")) {
+    return invokeService<void>(unsupportedMessage, "OpenMaterialSyncDir", path);
+  }
+  return openProjectMaterialSyncDir(path).then((opened) => {
+    if (opened) return;
+    return OpenOutputDir();
+  });
+}
+
+export function BuildBatchOutputPath(sourcePath: string, outputDir: string, prefix: string): Promise<string> {
+  if (hasServiceMethod("BuildBatchOutputPath")) {
+    return invokeService<string>(unsupportedMessage, "BuildBatchOutputPath", sourcePath, outputDir, prefix);
+  }
+  return buildProjectBatchOutputPath(sourcePath, outputDir, prefix).then((result) => {
+    if (result) return result;
+    throw new Error(unsupportedMessage("BuildBatchOutputPath"));
+  });
 }
 
 export function OpenExternalURL(url: string): Promise<void> {
@@ -825,9 +1267,20 @@ export async function probeCurrentUpstream(
   apiKey: string,
   proxyMode = "system",
   proxyURL = "",
-  signal?: AbortSignal,
+  apiModeOrSignal: string | AbortSignal = "responses",
+  maybeSignal?: AbortSignal,
 ): Promise<void> {
+  const apiMode = typeof apiModeOrSignal === "string" ? apiModeOrSignal : "responses";
+  const signal = typeof apiModeOrSignal === "string" ? maybeSignal : apiModeOrSignal;
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  if (apiMode === "apimart") {
+    await probeAPIMartFromBrowser(baseURL, apiKey, signal);
+    return;
+  }
+  if (apiMode === "runninghub") {
+    await probeRunningHubFromBrowser(baseURL, signal);
+    return;
+  }
   const options: ProbeUpstreamOptionsLike = { baseURL, apiKey, proxyMode, proxyURL };
   if (hasServiceMethod("ProbeUpstream")) {
     await invokeService<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);

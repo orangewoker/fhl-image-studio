@@ -4,6 +4,8 @@ import {
 } from "lucide-react";
 import { useStudioStore } from "../../state/studioStore";
 import { copyText } from "../../lib/fhlAPI";
+import { apiModeRequiresDirectAPIKey } from "../../lib/profiles";
+import { resolvePromptTextCapability } from "../../lib/promptTextProfiles";
 import { QUALITY_TIERS, STYLE_CHIPS } from "../../components/panel/panelOptions";
 import type { Mode } from "../../types/domain";
 import { AndroidModeSwitch } from "./AndroidModeSwitch";
@@ -14,9 +16,11 @@ import { AndroidPadParameterSection } from "./AndroidPadParameterSection";
 import { AndroidPadSourceSection } from "./AndroidPadSourceSection";
 import { AndroidPromptTemplateModal } from "./AndroidPromptTemplateModal";
 import {
+  aspectPresetsForAPIMode,
   availableResolutionPresets,
   deriveAspectPreset,
   deriveResolutionPreset,
+  normalizeAspectSelection,
 } from "../../components/panel/sizeCapabilities";
 import {
   buildAndroidAspectSizeSelection,
@@ -26,7 +30,7 @@ import {
 export function AndroidPadComposePanel() {
   const {
     apiKey, mode, prompt, negativePrompt, size, quality, seed, styleTag, outputFormat,
-    batchCount, sources, currentImage, isRunning, isOptimizingPrompt, apiMode, requestPolicy, baseURL, imageModelID,
+    batchCount, sources, currentImage, isRunning, isOptimizingPrompt, apiMode, requestPolicy, baseURL, textModelID, imageModelID,
     profiles, setField, selectSourceImage, removeSource, clearSources,
     openUpstreamConfig, submit, cancel, optimizePrompt, pushToast,
   } = useStudioStore();
@@ -36,17 +40,22 @@ export function AndroidPadComposePanel() {
   const { androidOrientation, androidWidthClass } = usePlatform();
   const isMediumPad = androidWidthClass === "medium";
   const isLandscapePad = androidOrientation === "landscape";
-  const needsUpstreamSetup = !apiKey.trim() || !baseURL.trim();
-  const hasUsableResponsesProfile = profiles.some(
-    (p) => p.apiMode === "responses" && p.baseURL.trim(),
-  );
-  const optimizeReady = !!(
-    prompt.trim() && (hasUsableResponsesProfile || (apiKey.trim() && baseURL.trim()))
-  );
+  const needsUpstreamSetup = !baseURL.trim() || (apiModeRequiresDirectAPIKey(apiMode) && !apiKey.trim());
+  const promptTextCapability = resolvePromptTextCapability({ apiMode, apiKey, baseURL, textModelID, profiles });
+  const optimizeReady = !!(prompt.trim() && promptTextCapability.available);
+  const optimizeTitle = optimizeReady
+    ? `AI 优化\n${promptTextCapability.label}`
+    : !prompt.trim()
+      ? "主提示词未输入"
+      : promptTextCapability.reason;
   const activeStyleLabel = STYLE_CHIPS.find((item) => item.id === styleTag)?.label ?? "默认风格";
-  const activeAspect = deriveAspectPreset(size);
+  const aspectPresets = aspectPresetsForAPIMode(apiMode, mode);
+  const activeAspect = normalizeAspectSelection(
+    deriveAspectPreset(size),
+    { apiMode, requestPolicy, imageModelID, mode },
+  );
   const activeResolution = deriveResolutionPreset(size);
-  const availableResolutions = availableResolutionPresets({ apiMode, requestPolicy, imageModelID });
+  const availableResolutions = availableResolutionPresets({ apiMode, requestPolicy, imageModelID, mode });
   const activeAspectLabel = activeAspect === "auto" ? "Auto" : activeAspect;
   const activeResolutionLabel = activeResolution === "auto" ? "自动" : activeResolution.toUpperCase();
   const activeQualityLabel = QUALITY_TIERS.find((item) => item.value === quality)?.label ?? quality;
@@ -56,7 +65,7 @@ export function AndroidPadComposePanel() {
     setField("size", buildAndroidAspectSizeSelection(
       aspect,
       activeResolution,
-      { apiMode, requestPolicy, imageModelID },
+      { apiMode, requestPolicy, imageModelID, mode },
     ));
   };
 
@@ -64,7 +73,7 @@ export function AndroidPadComposePanel() {
     setField("size", buildAndroidResolutionSizeSelection(
       activeAspect,
       resolution,
-      { apiMode, requestPolicy, imageModelID },
+      { apiMode, requestPolicy, imageModelID, mode },
     ));
   };
 
@@ -226,6 +235,7 @@ export function AndroidPadComposePanel() {
               type="button"
               onClick={handleOptimize}
               disabled={!optimizeReady || isOptimizingPrompt}
+              title={optimizeTitle}
               className={`platform-pill inline-flex min-h-[40px] items-center gap-1.5 px-3 text-[12px] ${
                 isOptimizingPrompt
                   ? "bg-[var(--accent-soft)] text-[var(--accent)]"
@@ -241,6 +251,7 @@ export function AndroidPadComposePanel() {
         <div className="android-pad-side-stack">
           <AndroidPadParameterSection
             activeAspect={activeAspect}
+            aspectPresets={aspectPresets}
             activeAspectLabel={activeAspectLabel}
             activeResolution={activeResolution}
             activeResolutionLabel={activeResolutionLabel}

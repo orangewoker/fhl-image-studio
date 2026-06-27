@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { HistoryItem } from "../../types/domain";
 
 export async function copyImageB64ToClipboard(b64: string): Promise<boolean> {
   try {
@@ -20,6 +21,34 @@ export async function copyImageURLToClipboard(url: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export type CopyHistoryImageResult = "success" | "missing_original" | "failed";
+
+export function canCopyHistoryItemImage(item: HistoryItem): boolean {
+  if (item.savedPath || item.imageId) return true;
+  if (item.previewOnly) return false;
+  return !!(item.fullUrl || item.imageB64);
+}
+
+export async function copyHistoryItemImageToClipboard(
+  item: HistoryItem,
+  materialize: (item: HistoryItem) => Promise<HistoryItem>,
+): Promise<CopyHistoryImageResult> {
+  if (!canCopyHistoryItemImage(item)) return "missing_original";
+
+  const materialized = await materialize(item).catch(() => null);
+  const candidates = [materialized, item].filter(Boolean) as HistoryItem[];
+
+  for (const candidate of candidates) {
+    if (candidate.previewOnly && !candidate.savedPath && !candidate.imageId) continue;
+    if (candidate.fullUrl && await copyImageURLToClipboard(candidate.fullUrl)) return "success";
+    if (!candidate.previewOnly && candidate.imageB64 && await copyImageB64ToClipboard(candidate.imageB64)) {
+      return "success";
+    }
+  }
+
+  return "failed";
 }
 
 // Convert a Blob/base64 PNG to an HTMLImageElement (lazy).

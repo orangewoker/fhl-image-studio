@@ -123,6 +123,38 @@ test("multi-job stream previews are accumulated by job id", () => {
   assert.equal(secondPatch.currentImage, undefined);
 });
 
+test("multi-job stream previews do not reopen a grid the user closed", () => {
+  const state = {
+    activeWorkspaceId: "ws-a",
+    workspaces: [makeWorkspace({ jobsTotal: 9, resultGridOpen: false })],
+    currentImage: { id: "img-1" },
+    streamPreview: null,
+    streamPreviews: {},
+    compareB: null,
+    resultGridOpen: false,
+    annotations: [],
+    strokes: [],
+    maskDataURL: null,
+    tool: "pan",
+    jobsTotal: 9,
+  };
+  const patch = preview.streamPreviewStatePatch(state, "job-b", {
+    imageB64: "Yg==",
+  }, {
+    workspaceId: "ws-a",
+    mode: "generate",
+    prompt: "cat",
+    size: "1024x1024",
+    quality: "medium",
+    outputFormat: "png",
+    currentImage: state.currentImage,
+    batchIndex: 1,
+  });
+
+  assert.equal(patch.resultGridOpen, false);
+  assert.equal(patch.currentImage, undefined);
+});
+
 test("workspace stream preview can be rehydrated when switching tabs", () => {
   const original = {
     id: "img-original",
@@ -165,5 +197,13 @@ test("active snapshot keeps persisted current image id when current image is onl
       "img-original",
     ),
     "img-next",
+  );
+  assert.equal(
+    preview.currentImageIdForWorkspaceSnapshot(
+      { id: "source-preview-abc" },
+      null,
+      "img-original",
+    ),
+    "img-original",
   );
 });

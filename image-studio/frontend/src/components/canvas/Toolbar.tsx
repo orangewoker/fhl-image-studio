@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Crop, FlipHorizontal, FlipVertical, RotateCcw, RotateCw } from "lucide-react";
 import { useStudioStore } from "../../state/studioStore";
+import { primaryCompareSourceFromCurrentImage } from "../../state/compareSourceSelection";
+import { currentBatchTaskViewCount } from "../../state/batchTaskRecords";
+import { isLikelyPanoramaItem, panoramaProjectOutputsForSource } from "../../panorama/core";
 import { usePlatform } from "../../platform/context";
 import { qualityLabel, sizeLabel } from "../history/historyLabels";
 import {
@@ -11,6 +14,7 @@ import {
   TransformSection,
 } from "./toolbarActionSections";
 import { Sep, ToolBtn, ToolbarGroup } from "./toolbarPrimitives";
+import { PanoramaOutputManagerModal } from "../panorama/PanoramaOutputManagerModal";
 
 export function Toolbar() {
   const {
@@ -18,27 +22,84 @@ export function Toolbar() {
     annotationKind, annotationColor,
     annotations, selectedAnnotationId,
     fullscreen,
-    jobsTotal,
+    compareB, compareMode, setCompareB, openCompareWithPrimarySource,
+    sourcePreviewReturnImage, closeSourcePreview,
+    isRunning,
+    jobsTotal, history,
+    activeWorkspaceId, workspaces, batchTasksById,
+    jobGroupsByWorkspace,
     batchResults, resultGridOpen, openResultGrid, closeResultGrid,
+    historyGalleryOpen, historyGallerySinglePreviewId, openHistoryGallery, closeHistoryGalleryToEmpty,
     setField, toggleFullscreen, saveCurrentImageAs, shareCurrentImage,
     resetMask, clearAnnotations,
     undoStack, redoStack, undo, redo,
     rotateCurrent, flipCurrent, cropToRect,
     openResultDetail,
+    openPanoramaViewer,
   } = useStudioStore();
   const selRect = annotations.find((a) => a.id === selectedAnnotationId && a.kind === "rect");
-  const { isAndroidPhone, isMac, usesFluentUI, usesAppleUI } = usePlatform();
+  const { isAndroidPhone, isMac, usesAppleUI } = usePlatform();
   const [mobileAdjustOpen, setMobileAdjustOpen] = useState(false);
+  const [panoramaOutputManagerOpen, setPanoramaOutputManagerOpen] = useState(false);
   const hasImage = !!currentImage;
-  const batchSlotCount = Math.max(jobsTotal, batchResults.length);
-  const showBatchGridToggle = batchSlotCount > 1;
-  if (isMac && !hasImage && !showBatchGridToggle) return null;
+  const canOpenPanorama = !!currentImage;
+  const panoramaOutputs = useMemo(
+    () => (currentImage ? panoramaProjectOutputsForSource(history, currentImage) : []),
+    [history, currentImage],
+  );
+  const canOpenPanoramaOutputs = !!currentImage && (
+    panoramaOutputs.length > 0
+    || !!currentImage.panoramaProject
+    || isLikelyPanoramaItem(currentImage)
+  );
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+  const batchTaskViewCount = currentBatchTaskViewCount(
+    activeWorkspaceId,
+    activeWorkspace?.batchTaskIds,
+    batchTasksById,
+    jobsTotal,
+    batchResults,
+    jobGroupsByWorkspace[activeWorkspaceId] ?? [],
+  );
+  const hasBatchTaskView = batchTaskViewCount > 0;
+  const showReturnFromHistoryGallery = !!currentImage
+    && !resultGridOpen
+    && !historyGalleryOpen
+    && historyGallerySinglePreviewId === currentImage.id;
+  const showReturnToBatchPreview = hasBatchTaskView
+    && !showReturnFromHistoryGallery
+    && !resultGridOpen
+    && !historyGalleryOpen
+    && !!currentImage;
+  const showCompareToggle = !!currentImage && !resultGridOpen && !historyGalleryOpen;
+  const showReturnFromSourcePreview = currentImage?.id?.startsWith("source-preview-") === true
+    && !resultGridOpen
+    && !historyGalleryOpen;
+  const returnFromSourcePreviewTitle = sourcePreviewReturnImage
+    ? "退出参考图，回到生成图"
+    : "退出参考图";
+  const compareSource = primaryCompareSourceFromCurrentImage(currentImage, activeWorkspace?.sources ?? []);
+  const compareActive = !!compareB;
+  const sideBySideActive = compareActive && compareMode === "sideBySide";
+  const curtainActive = compareActive && compareMode !== "sideBySide";
+  const compareDisabled = !compareActive && !compareSource;
+  const sideBySideTitle = sideBySideActive
+    ? "退出双图对比"
+    : compareDisabled
+      ? "当前图片没有可用原图可对比"
+      : "并排查看原图和成图";
+  const curtainTitle = curtainActive
+    ? "退出卷帘对比"
+    : compareDisabled
+      ? "当前图片没有可用原图可对比"
+      : "查看原图和成图的卷帘对比";
   const showToolSection = hasImage;
   const showAnnotationTools = tool === "annotate";
   const showMaskTools = tool === "mask";
   const showViewReset = tool === "pan" && hasImage;
   const showTransformSection = !!currentImage;
-  const showSecondaryBar = showBatchGridToggle || !!currentImage;
+  const showSecondaryBar = true;
+  const hasViewContent = hasImage || resultGridOpen || historyGalleryOpen;
   const mergeViewTransformSection = isMac && showViewReset && !showMaskTools && !showAnnotationTools;
   const hasContextSection = showMaskTools || showAnnotationTools || (showViewReset && !mergeViewTransformSection);
   const hasTransformTools = !!currentImage;
@@ -95,9 +156,17 @@ export function Toolbar() {
       />
     </ToolbarGroup>
   ) : null;
+  const outputManagerModal = (
+    <PanoramaOutputManagerModal
+      open={panoramaOutputManagerOpen}
+      source={currentImage}
+      onClose={() => setPanoramaOutputManagerOpen(false)}
+    />
+  );
 
   if (isMac) {
     return (
+      <>
       <div className={`canvas-toolbar border-b border-[var(--border)] bg-[var(--toolbar)] px-3 py-2 backdrop-blur-2xl ${usesAppleUI ? "liquid-glass-bar" : ""}`}>
         <div className="toolbar-row toolbar-row-primary">
           {showToolSection ? (
@@ -139,11 +208,31 @@ export function Toolbar() {
         {showSecondaryBar ? (
           <div className="toolbar-row toolbar-row-secondary">
             <ToolbarGroup className="toolbar-group-support toolbar-group-card min-w-0">
-              <ResultMetaSection
-                showBatchGridToggle={showBatchGridToggle}
-                resultGridOpen={resultGridOpen}
-                batchResultCount={batchSlotCount}
+                <ResultMetaSection
+                showCompareToggle={showCompareToggle}
+                sideBySideActive={sideBySideActive}
+                curtainActive={curtainActive}
+                compareDisabled={compareDisabled}
+                sideBySideTitle={sideBySideTitle}
+                curtainTitle={curtainTitle}
+                showReturnFromSourcePreview={showReturnFromSourcePreview}
+                returnFromSourcePreviewTitle={returnFromSourcePreviewTitle}
+                showReturnFromHistoryGallery={showReturnFromHistoryGallery}
+                showReturnToBatchPreview={showReturnToBatchPreview}
+                hasBatchTaskView={hasBatchTaskView}
                 metaBadges={currentImage && !isAndroidPhone ? [sizeLabel(currentImage.size), qualityLabel(currentImage.quality)] : []}
+                onToggleSideBySideCompare={() => {
+                  if (sideBySideActive) setCompareB(null);
+                  else if (compareB) void setCompareB(compareB, "sideBySide");
+                  else void openCompareWithPrimarySource("sideBySide");
+                }}
+                onToggleCurtainCompare={() => {
+                  if (curtainActive) setCompareB(null);
+                  else if (compareB) void setCompareB(compareB, "curtain");
+                  else void openCompareWithPrimarySource("curtain");
+                }}
+                onReturnFromSourcePreview={closeSourcePreview}
+                onReturnFromHistoryGallery={() => { void openHistoryGallery(); }}
                 onToggleResultGrid={() => (resultGridOpen ? closeResultGrid() : openResultGrid())}
               />
             </ToolbarGroup>
@@ -151,9 +240,15 @@ export function Toolbar() {
               <ActionSection
                 fullscreen={fullscreen}
                 hasImage={!!currentImage}
+                showPanoramaButton={canOpenPanorama}
+                panoramaOutputCount={panoramaOutputs.length}
+                hasViewContent={hasViewContent}
+                clearViewDisabled={isRunning}
                 onToggleFullscreen={() => void toggleFullscreen()}
+                onOpenPanorama={() => currentImage && void openPanoramaViewer(currentImage)}
+                onOpenPanoramaOutputs={canOpenPanoramaOutputs ? () => setPanoramaOutputManagerOpen(true) : undefined}
                 onOpenDetail={() => currentImage && openResultDetail(currentImage)}
-                onClearCanvas={() => setField("currentImage", null)}
+                onClearView={closeHistoryGalleryToEmpty}
                 onSaveAs={saveCurrentImageAs}
                 onShare={shareCurrentImage}
               />
@@ -161,10 +256,13 @@ export function Toolbar() {
           </div>
         ) : null}
       </div>
+      {outputManagerModal}
+      </>
     );
   }
 
   return (
+    <>
     <div className={`canvas-toolbar border-b border-[var(--border)] bg-[var(--toolbar)] px-3 py-2 backdrop-blur-2xl ${usesAppleUI ? "liquid-glass-bar" : ""}`}>
       <div className="flex flex-wrap items-center gap-1.5">
         {showToolSection ? (
@@ -238,23 +336,51 @@ export function Toolbar() {
           </div>
         ) : null}
         <ResultMetaSection
-          showBatchGridToggle={showBatchGridToggle}
-          resultGridOpen={resultGridOpen}
-          batchResultCount={batchSlotCount}
+          showCompareToggle={showCompareToggle}
+          sideBySideActive={sideBySideActive}
+          curtainActive={curtainActive}
+          compareDisabled={compareDisabled}
+          sideBySideTitle={sideBySideTitle}
+          curtainTitle={curtainTitle}
+          showReturnFromSourcePreview={showReturnFromSourcePreview}
+          returnFromSourcePreviewTitle={returnFromSourcePreviewTitle}
+          showReturnFromHistoryGallery={showReturnFromHistoryGallery}
+          showReturnToBatchPreview={showReturnToBatchPreview}
+          hasBatchTaskView={hasBatchTaskView}
           metaBadges={currentImage && !isAndroidPhone ? [sizeLabel(currentImage.size), qualityLabel(currentImage.quality)] : []}
+          onToggleSideBySideCompare={() => {
+            if (sideBySideActive) setCompareB(null);
+            else if (compareB) void setCompareB(compareB, "sideBySide");
+            else void openCompareWithPrimarySource("sideBySide");
+          }}
+          onToggleCurtainCompare={() => {
+            if (curtainActive) setCompareB(null);
+            else if (compareB) void setCompareB(compareB, "curtain");
+            else void openCompareWithPrimarySource("curtain");
+          }}
+          onReturnFromSourcePreview={closeSourcePreview}
+          onReturnFromHistoryGallery={() => { void openHistoryGallery(); }}
           onToggleResultGrid={() => (resultGridOpen ? closeResultGrid() : openResultGrid())}
         />
         <ActionSection
           fullscreen={fullscreen}
           hasImage={!!currentImage}
+          showPanoramaButton={canOpenPanorama}
+          panoramaOutputCount={panoramaOutputs.length}
+          hasViewContent={hasViewContent}
+          clearViewDisabled={isRunning}
           onToggleFullscreen={() => void toggleFullscreen()}
+          onOpenPanorama={() => currentImage && void openPanoramaViewer(currentImage)}
+          onOpenPanoramaOutputs={canOpenPanoramaOutputs ? () => setPanoramaOutputManagerOpen(true) : undefined}
           onOpenDetail={() => currentImage && openResultDetail(currentImage)}
-          onClearCanvas={() => setField("currentImage", null)}
+          onClearView={closeHistoryGalleryToEmpty}
           onSaveAs={saveCurrentImageAs}
           onShare={shareCurrentImage}
         />
         </div>
       </div>
     </div>
+    {outputManagerModal}
+    </>
   );
 }

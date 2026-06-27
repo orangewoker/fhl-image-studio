@@ -1,12 +1,21 @@
 import type { backend } from "../../wailsjs/go/models";
+import type { PanoramaPastebackMaskInput } from "../panorama/core";
 import type {
   Annotation,
   APIMode,
+  BatchProcessConfig,
+  BatchTaskRecord,
+  EditSourceMode,
+  HistoryGallerySort,
   HistoryItem,
   JobGroupSnapshot,
   KernelRuntimeMode,
+  MaterialGroup,
+  MaterialGroupKind,
+  MaterialRef,
   Mode,
   OutputFormatValue,
+  PanoramaPastebackAlignment,
   Preset,
   ProgressInfo,
   ProxyMode,
@@ -21,6 +30,7 @@ import type {
   UpstreamProfile,
   Workspace,
 } from "../types/domain";
+import type { MaterialOutputSyncResultLike } from "../platform/runtime/hostTypes";
 import type { RunningJobMeta } from "./workspaceRuntime";
 
 export interface ReversePromptImage {
@@ -39,6 +49,8 @@ export interface ModeConfig {
   imageModelID: string;
   concurrencyLimit: number;
 }
+
+export type CompareMode = "curtain" | "sideBySide";
 
 export interface PromptOptimizeRequest {
   apiKey: string;
@@ -84,6 +96,7 @@ export interface UndoEntry {
 export interface StudioState {
   apiKey: string;
   mode: Mode;
+  promptPrefix: string;
   prompt: string;
   optimizationGuidance: string;
   negativePrompt: string;
@@ -108,6 +121,7 @@ export interface StudioState {
   runningJobs: string[];
   jobsTotal: number;
   jobsCompleted: number;
+  jobsFailed: number;
   progress: ProgressInfo | null;
   streamPreview: StreamPreview | null;
   streamPreviews: StreamPreviewMap;
@@ -118,13 +132,21 @@ export interface StudioState {
   lastPayload: backend.GenerateOptions | null;
   runningJobMeta: Record<string, RunningJobMeta>;
   jobGroupsByWorkspace: Record<string, JobGroupSnapshot[]>;
+  batchTasksById: Record<string, BatchTaskRecord>;
   currentImage: HistoryItem | null;
+  sourcePreviewReturnImage: HistoryItem | null;
   history: HistoryItem[];
   historyHasMore: boolean;
   historyLoading: boolean;
   historyCursorBeforeDayStart: number | null;
   batchResults: HistoryItem[];
+  selectedBatchTaskId: string | null;
   resultGridOpen: boolean;
+  historyGalleryOpen: boolean;
+  historyGallerySinglePreviewId: string | null;
+  historyGallerySort: HistoryGallerySort;
+  materialManagerOpen: boolean;
+  materialGroups: MaterialGroup[];
   historyRailCollapsed: boolean;
   historyTimelineOpen: boolean;
   tool: "pan" | "mask" | "annotate";
@@ -137,6 +159,7 @@ export interface StudioState {
   strokes: Stroke[];
   annotations: Annotation[];
   compareB: HistoryItem | null;
+  compareMode: CompareMode;
   compareSplit: number;
   toasts: Toast[];
   recentDurations: number[];
@@ -145,6 +168,10 @@ export interface StudioState {
   fullscreen: boolean;
   promptHistory: string[];
   batchCount: number;
+  continuousGenerateTest: boolean;
+  editSourceMode: EditSourceMode;
+  batchProcess: BatchProcessConfig;
+  editAutoAspectUserLocked: boolean;
   presets: Preset[];
   theme: ThemeMode;
   fontScale: number;
@@ -175,6 +202,10 @@ export interface StudioState {
   duplicateProfile: (id: string) => Promise<string | null>;
   setActiveProfile: (id: string) => Promise<void>;
   selectSourceImage: () => Promise<void>;
+  selectBatchInputDir: () => Promise<void>;
+  selectBatchInputFiles: () => Promise<void>;
+  refreshBatchInputDir: () => Promise<void>;
+  chooseBatchOutputDir: () => Promise<void>;
   importSourceImageFile: (file: File) => Promise<void>;
   selectReversePromptImage: () => Promise<void>;
   importReversePromptImageFile: (file: File) => Promise<void>;
@@ -184,7 +215,19 @@ export interface StudioState {
   reorderSources: (from: number, to: number) => void;
   submit: () => Promise<void>;
   cancel: () => Promise<void>;
+  selectBatchTask: (taskId: string | null) => void;
+  selectBatchTaskForCancel: (taskId: string | null) => void;
+  cancelBatchTask: (taskId: string) => Promise<void>;
+  cancelQueuedBatchTasks: () => Promise<void>;
+  clearFailedBatchTasks: () => Promise<void>;
+  promoteBatchTask: (taskId: string) => Promise<void>;
+  cancelSelectedTask: () => Promise<void>;
+  recoverRunningHubResult: (taskId: string) => Promise<HistoryItem | null>;
+  recoverAPIMartResult: (taskId: string) => Promise<HistoryItem | null>;
+  recoverAPIMartTaskResult: (apimartTaskId: string, options?: { rawPath?: string }) => Promise<HistoryItem | null>;
   reuseAsSource: (item: HistoryItem) => Promise<void>;
+  repastePanoramaRoundtrip: (item: HistoryItem, options?: { selectAsCurrent?: boolean; alignment?: PanoramaPastebackAlignment | null; pasteMask?: PanoramaPastebackMaskInput | null }) => Promise<HistoryItem | null>;
+  importExternalPanoramaPastebackImage: (anchorItem: HistoryItem, file: File) => Promise<HistoryItem | null>;
   applyHistoryParams: (item: HistoryItem) => void;
   regenerateFromHistory: (item: HistoryItem) => Promise<void>;
   deleteHistoryItem: (id: string) => Promise<void>;
@@ -202,20 +245,51 @@ export interface StudioState {
   clearAnnotations: () => void;
   undo: () => void;
   redo: () => void;
-  setCompareB: (item: HistoryItem | null) => void;
+  setCompareB: (item: HistoryItem | null, mode?: CompareMode) => void;
   setCompareSplit: (v: number) => void;
+  openCompareWithPrimarySource: (mode?: CompareMode) => Promise<void>;
+  openSourcePreview: (item: HistoryItem) => void;
+  closeSourcePreview: () => void;
   openResultGrid: () => void;
   closeResultGrid: () => void;
+  selectBatchGridItem: (item: HistoryItem) => void;
   selectBatchResult: (item: HistoryItem) => Promise<void>;
-  importImageFile: (file: File) => Promise<void>;
+  openHistoryGallery: () => Promise<void>;
+  closeHistoryGallery: () => void;
+  closeHistoryGalleryToEmpty: () => void;
+  setHistoryGallerySort: (value: HistoryGallerySort) => void;
+  selectHistoryGalleryGridItem: (item: HistoryItem) => void;
+  selectHistoryGalleryResult: (item: HistoryItem) => Promise<void>;
+  openMaterialManager: () => void;
+  closeMaterialManager: () => void;
+  createMaterialGroup: (kind: MaterialGroupKind, name: string, items?: MaterialRef[], description?: string) => string;
+  renameMaterialGroup: (id: string, name: string) => void;
+  deleteMaterialGroup: (id: string) => void;
+  moveHistoryItemsToMaterialGroup: (groupId: string, historyIds: string[]) => void;
+  removeMaterialItem: (groupId: string, itemRef: MaterialRef) => void;
+  createReferenceSetFromCurrentSources: (name: string) => string | null;
+  applyMaterialReferenceSet: (groupId: string, mode: "append" | "replace") => Promise<void>;
+  syncMaterialGroupToOutput: (groupId: string) => Promise<MaterialOutputSyncResultLike | null>;
+  syncAllMaterialGroupsToOutput: () => Promise<void>;
+  openMaterialSyncDir: (path?: string) => Promise<void>;
+  importImageFile: (file: File, options?: { forcePanorama?: boolean }) => Promise<void>;
   pushToast: (text: string, kind?: Toast["kind"], ttl?: number, action?: Toast["action"]) => void;
   dismissToast: (id: string) => void;
   resultDetail: HistoryItem | null;
   openResultDetail: (item: HistoryItem) => Promise<void>;
   closeResultDetail: () => void;
+  panoramaViewerItem: HistoryItem | null;
+  openPanoramaViewer: (item: HistoryItem) => Promise<void>;
+  closePanoramaViewer: () => void;
+  panoramaAlignTarget: HistoryItem | null;
+  openPanoramaPastebackAligner: (item: HistoryItem) => void;
+  closePanoramaPastebackAligner: () => void;
   materializeCurrentImage: (item: HistoryItem) => Promise<HistoryItem>;
   loadMoreHistory: () => Promise<void>;
   retryLast: () => Promise<void>;
+  retryFailedJob: (groupId: string, jobId: string) => Promise<void>;
+  retryBatchTask: (taskId: string, options?: { independent?: boolean; automatic?: boolean; useTaskProfile?: boolean }) => Promise<void>;
+  retryFailedBatchTasks: () => Promise<void>;
   setHistoryRailCollapsed: (collapsed: boolean) => void;
   openHistoryTimeline: () => void;
   closeHistoryTimeline: () => void;
@@ -245,6 +319,9 @@ export interface StudioState {
   starPromptSource: "auto" | "manual";
   openStarPrompt: () => void;
   dismissStarPrompt: () => void;
+  resetCurrentWorkspaceDraft: () => void;
+  setContinuousPressureLimit: (limit: number) => Promise<void>;
+  runContinuousPressureTest: (count: number) => Promise<void>;
   newWorkspace: (name?: string) => void;
   switchWorkspace: (id: string) => void;
   closeWorkspace: (id: string) => void;

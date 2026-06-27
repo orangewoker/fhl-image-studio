@@ -10,6 +10,7 @@ type AndroidSizeSelectionInput = {
   apiMode: APIMode;
   requestPolicy: RequestPolicy;
   imageModelID?: string;
+  mode?: "generate" | "edit";
 };
 
 export function buildAndroidAspectSizeSelection(

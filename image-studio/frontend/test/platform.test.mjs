@@ -135,3 +135,10 @@ test("macOS keeps the Apple UI family", async () => {
     assert.equal(state.usesAppleUI, true);
   });
 });
+test("platform-vite enables Node env proxy for local preview upstream proxies", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../scripts/platform-vite.mjs", import.meta.url), "utf8");
+  assert.match(source, /NODE_USE_ENV_PROXY:\s*process\.env\.NODE_USE_ENV_PROXY\s*\|\|\s*"1"/);
+  assert.match(source, /spawn\(process\.execPath/);
+  assert.match(source, /env,/);
+});

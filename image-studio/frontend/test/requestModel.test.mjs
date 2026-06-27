@@ -7,7 +7,9 @@ import {
   buildResponsesPayload,
   describeProblem,
   isRetryableRaw,
+  normalizeOpenAIImageSize,
   normalizePartialImages,
+  repairSizeForOpenAI,
 } from "../../../shared/kernel/requestModel.js";
 
 test("Responses payload defaults partial_images to streaming preview count", () => {
@@ -75,7 +77,7 @@ test("describeProblem surfaces text-only upstream responses", () => {
     'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Please use a safer prompt."}]}]}}',
   ].join("\n");
   const message = describeProblem(raw);
-  assert.match(message, /上游没有返回图片/);
+  assert.match(message, /Text-only response/);
   assert.match(message, /Please use a safer prompt/);
 });
 
@@ -109,4 +111,35 @@ test("isRetryableRaw treats nested upstream rate limit as retryable", () => {
     '{"error":{"message":"{\\"error\\":{\\"code\\":\\"rate_limit_exceeded\\",\\"message\\":\\"Rate limit reached\\"}}","type":"invalid_request_error"}}',
   ].join("\n");
   assert.equal(isRetryableRaw(raw), true);
+});
+test("normalizeOpenAIImageSize enforces current GPT Image pixel limits", () => {
+  assert.deepEqual(normalizeOpenAIImageSize("3841x2161"), { width: 3840, height: 2160 });
+  assert.deepEqual(normalizeOpenAIImageSize("512x512"), { width: 816, height: 816 });
+});
+
+test("Responses payload repairs explicit image sizes before submit", () => {
+  const payload = buildResponsesPayload({
+    prompt: "cat",
+    size: "1793x1025",
+    quality: "low",
+    outputFormat: "png",
+    imageModelID: "gpt-image-2",
+    textModelID: "gpt-5.5",
+    requestPolicy: "openai",
+  }, []);
+  assert.equal(payload.tools[0].size, "1792x1024");
+  assert.equal(repairSizeForOpenAI({ size: "512x512" })?.size, "816x816");
+});
+
+test("Responses payload preserves size auto for GPT Image requests", () => {
+  const payload = buildResponsesPayload({
+    prompt: "cat",
+    size: "auto",
+    quality: "auto",
+    outputFormat: "png",
+    imageModelID: "gpt-image-2",
+    textModelID: "gpt-5.5",
+    requestPolicy: "openai",
+  }, []);
+  assert.equal(payload.tools[0].size, "auto");
 });

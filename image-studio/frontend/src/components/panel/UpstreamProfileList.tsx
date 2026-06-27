@@ -2,6 +2,13 @@ import { Copy, Plus, Trash2 } from "lucide-react";
 import type { UpstreamProfile } from "../../types/domain";
 import { usePlatform } from "../../platform/context";
 
+function modeBadge(apiMode: UpstreamProfile["apiMode"]): string {
+  if (apiMode === "responses") return "R";
+  if (apiMode === "apimart") return "A";
+  if (apiMode === "runninghub") return "RH";
+  return "I";
+}
+
 export function UpstreamProfileList({
   profiles,
   selectedId,
@@ -41,10 +48,11 @@ export function UpstreamProfileList({
                 <button
                   key={p.id}
                   type="button"
+                  aria-selected={isSel}
                   onClick={() => onSelectProfile(p.id)}
-                  className={`platform-card group flex min-w-0 items-center gap-2 border px-2.5 py-2 text-left transition-colors ${
+                  className={`upstream-profile-item platform-card group flex min-w-0 items-center gap-2 border px-2.5 py-2 text-left transition-colors ${
                     isSel
-                      ? "border-[color:var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] ring-2 ring-[color:var(--accent)]/35"
+                      ? "selected border-[color:var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] ring-2 ring-[color:var(--accent)]/35"
                       : "border-transparent text-zinc-700 hover:bg-black/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.04]"
                   } ${isAndroidPhone ? "min-w-[208px]" : "mb-1 w-full"} ${usesFluentUI ? "rounded-[8px]" : "rounded-[12px]"}`}
                 >
@@ -54,7 +62,7 @@ export function UpstreamProfileList({
                   />
                   <span className="min-w-0 flex-1 truncate break-words text-[13px] font-medium [overflow-wrap:anywhere]">{p.name}</span>
                   <span className="shrink-0 text-[9px] uppercase tracking-wider opacity-70">
-                    {p.apiMode === "responses" ? "R" : "I"}
+                    {modeBadge(p.apiMode)}
                   </span>
                 </button>
               );

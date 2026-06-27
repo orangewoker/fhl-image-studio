@@ -68,6 +68,7 @@ export function subscribeToAndroidJob(
   jobId: string,
   onEvent: (event: BrowserJobEvent) => void,
   onError?: (error: Error) => void,
+  _onClose?: () => void,
 ) {
   try {
     ensureAndroidJobEventHook();

@@ -4,13 +4,17 @@ import {
 } from "lucide-react";
 import { useStudioStore } from "../../state/studioStore";
 import { copyText } from "../../lib/fhlAPI";
+import { apiModeRequiresDirectAPIKey } from "../../lib/profiles";
+import { resolvePromptTextCapability } from "../../lib/promptTextProfiles";
 import { OpenFile } from "../runtime/host";
 import { Mode } from "../../types/domain";
 import { QUALITY_TIERS, STYLE_CHIPS } from "../../components/panel/panelOptions";
 import {
+  aspectPresetsForAPIMode,
   availableResolutionPresets,
   deriveAspectPreset,
   deriveResolutionPreset,
+  normalizeAspectSelection,
 } from "../../components/panel/sizeCapabilities";
 import { AndroidModeSwitch } from "./AndroidModeSwitch";
 import { AndroidPhoneAdvancedSection } from "./AndroidPhoneAdvancedSection";
@@ -28,7 +32,7 @@ export function AndroidPhoneComposePanel() {
   const {
     apiKey, mode, prompt, negativePrompt, size, quality, seed, styleTag,
     outputFormat, batchCount, sources, currentImage, errorMessage, errorRawPath,
-    isRunning, lastPayload, isOptimizingPrompt, apiMode, requestPolicy, baseURL, profiles, imageModelID,
+    isRunning, lastPayload, isOptimizingPrompt, apiMode, requestPolicy, baseURL, textModelID, profiles, imageModelID,
     progress, streamPreview, runningJobs, jobsCompleted, jobsTotal,
     setField, clearError, pushToast, selectSourceImage,
     removeSource, clearSources, openUpstreamConfig, submit, cancel, retryLast, optimizePrompt,
@@ -38,17 +42,22 @@ export function AndroidPhoneComposePanel() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const promptInputRef = useRef<HTMLTextAreaElement | null>(null);
   const promptLen = prompt.length;
-  const needsUpstreamSetup = !apiKey.trim() || !baseURL.trim();
-  const hasUsableResponsesProfile = profiles.some(
-    (p) => p.apiMode === "responses" && p.baseURL.trim(),
-  );
-  const optimizeReady = !!(
-    prompt.trim() && (hasUsableResponsesProfile || (apiKey.trim() && baseURL.trim()))
-  );
+  const needsUpstreamSetup = !baseURL.trim() || (apiModeRequiresDirectAPIKey(apiMode) && !apiKey.trim());
+  const promptTextCapability = resolvePromptTextCapability({ apiMode, apiKey, baseURL, textModelID, profiles });
+  const optimizeReady = !!(prompt.trim() && promptTextCapability.available);
+  const optimizeTitle = optimizeReady
+    ? `AI 优化\n${promptTextCapability.label}`
+    : !prompt.trim()
+      ? "主提示词未输入"
+      : promptTextCapability.reason;
   const activeStyleLabel = STYLE_CHIPS.find((item) => item.id === styleTag)?.label ?? "默认风格";
-  const activeAspect = deriveAspectPreset(size);
+  const aspectPresets = aspectPresetsForAPIMode(apiMode, mode);
+  const activeAspect = normalizeAspectSelection(
+    deriveAspectPreset(size),
+    { apiMode, requestPolicy, imageModelID, mode },
+  );
   const activeResolution = deriveResolutionPreset(size);
-  const availableResolutions = availableResolutionPresets({ apiMode, requestPolicy, imageModelID });
+  const availableResolutions = availableResolutionPresets({ apiMode, requestPolicy, imageModelID, mode });
   const activeAspectLabel = activeAspect === "auto" ? "Auto" : activeAspect;
   const activeResolutionLabel = activeResolution === "auto" ? "自动" : activeResolution.toUpperCase();
   const activeQualityLabel = QUALITY_TIERS.find((item) => item.value === quality)?.label ?? quality;
@@ -66,7 +75,7 @@ export function AndroidPhoneComposePanel() {
     setField("size", buildAndroidAspectSizeSelection(
       aspect,
       activeResolution,
-      { apiMode, requestPolicy, imageModelID },
+      { apiMode, requestPolicy, imageModelID, mode },
     ));
   };
 
@@ -74,7 +83,7 @@ export function AndroidPhoneComposePanel() {
     setField("size", buildAndroidResolutionSizeSelection(
       activeAspect,
       resolution,
-      { apiMode, requestPolicy, imageModelID },
+      { apiMode, requestPolicy, imageModelID, mode },
     ));
   };
 
@@ -122,13 +131,13 @@ export function AndroidPhoneComposePanel() {
       style={{ paddingLeft: "calc(var(--android-safe-left-value, env(safe-area-inset-left, 0px)) + 12px)", paddingRight: "calc(var(--android-safe-right-value, env(safe-area-inset-right, 0px)) + 12px)" }}
     >
       {errorMessage ? (
-        <section className="platform-card border border-red-500/18 bg-red-500/10 p-3 text-xs text-red-700 dark:text-red-200">
-          <div className="flex items-start gap-2">
-            <div className="flex-1 whitespace-pre-wrap leading-relaxed">{errorMessage}</div>
+        <section className="platform-card min-w-0 max-w-full shrink-0 border border-red-500/18 bg-red-500/10 p-3 text-xs text-red-700 dark:text-red-200">
+          <div className="flex min-w-0 items-start gap-2">
+            <div className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">{errorMessage}</div>
             <button
               type="button"
               onClick={clearError}
-              className="rounded-full p-1 text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
+              className="shrink-0 rounded-full p-1 text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
               title="关闭"
             >
               <X className="h-3.5 w-3.5" />
@@ -272,6 +281,7 @@ export function AndroidPhoneComposePanel() {
             type="button"
             onClick={handleOptimize}
             disabled={!optimizeReady || isOptimizingPrompt}
+            title={optimizeTitle}
             className={`platform-pill android-phone-action-pill inline-flex min-h-[38px] items-center gap-1.5 px-3 text-[11px] ${
               isOptimizingPrompt
                 ? "bg-[var(--accent-soft)] text-[var(--accent)]"
@@ -287,6 +297,7 @@ export function AndroidPhoneComposePanel() {
       {!needsUpstreamSetup ? (
         <AndroidPhoneParameterSection
           activeAspect={activeAspect}
+          aspectPresets={aspectPresets}
           activeAspectLabel={activeAspectLabel}
           activeResolution={activeResolution}
           activeResolutionLabel={activeResolutionLabel}

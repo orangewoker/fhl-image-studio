@@ -7,10 +7,12 @@ import type { Stroke } from "../../../state/studioStore.types";
 import { AnnotationShape } from "../../../components/canvas/AnnotationShape";
 import { BatchResultGrid, type BatchGridSlot } from "../../../components/canvas/BatchResultGrid";
 import { CompareOverlay } from "../../../components/canvas/CompareOverlay";
+import { SideBySideCompareOverlay } from "../../../components/canvas/SideBySideCompareOverlay";
 import { copyImageB64ToClipboard, copyImageURLToClipboard, useImageFromSource } from "../../../components/canvas/canvasImage";
 import { StreamPreviewBadge } from "../../../components/canvas/StreamPreviewBadge";
 import { useCanvasShortcuts } from "../../../components/canvas/useCanvasShortcuts";
 import { historyFullSrc, isTransientPreviewItem } from "../../../lib/images";
+import { isTemporarySourceCompareItem } from "../../../state/compareSourceSelection";
 import { streamPreviewItemsFromPreviews } from "../../../state/studioStore.streamPreview";
 import { vibrateForPlatform } from "../bridge";
 
@@ -34,7 +36,7 @@ export function AndroidCanvasStage() {
     setMaskDataURL,
     strokes, pushStroke,
     undo, redo,
-    compareB, compareSplit, setCompareSplit, setCompareB,
+    compareB, compareMode, compareSplit, setCompareSplit, setCompareB,
     isRunning, cancel, errorMessage, setField,
     streamPreview,
     streamPreviews,
@@ -73,6 +75,7 @@ export function AndroidCanvasStage() {
   const showingLiveBatchGrid = isRunning && visibleBatchSlotCount > 1;
   const showingCompletedBatchGrid = !isRunning && resultGridOpen && visibleBatchSlotCount > 1;
   const showingResultGrid = showingLiveBatchGrid || showingCompletedBatchGrid;
+  const compareUsesSourceImage = isTemporarySourceCompareItem(compareB);
 
   const stageRef = useRef<Konva.Stage | null>(null);
   const previewImageRef = useRef<Konva.Image | null>(null);
@@ -493,16 +496,30 @@ export function AndroidCanvasStage() {
           title={showingLiveBatchGrid ? `本批预览 · ${jobsCompleted}/${jobsTotal}` : `本批结果 · ${batchResults.length}/${visibleBatchSlotCount} 张`}
         />
       ) : null}
-      {!showingResultGrid && currentImage && compareB ? (
+      {!showingResultGrid && currentImage && compareB && compareMode === "sideBySide" ? (
+        <SideBySideCompareOverlay
+          leftBlob={compareB.imageBlob ?? null}
+          leftB64={compareB.imageB64}
+          leftUrl={compareB.fullUrl || compareB.previewUrl}
+          rightBlob={currentImage.imageBlob ?? null}
+          rightB64={currentImage.imageB64}
+          rightUrl={currentImage.fullUrl || currentImage.previewUrl}
+          leftLabel={compareUsesSourceImage ? "原图" : "对比图"}
+          rightLabel={compareUsesSourceImage ? "成图" : "当前图"}
+        />
+      ) : null}
+      {!showingResultGrid && currentImage && compareB && compareMode !== "sideBySide" ? (
         <CompareOverlay
-          aBlob={currentImage.imageBlob ?? null}
-          aB64={currentImage.imageB64}
-          aUrl={currentImage.fullUrl}
-          bBlob={compareB.imageBlob ?? null}
-          bB64={compareB.imageB64}
-          bUrl={compareB.fullUrl}
+          leftBlob={compareB.imageBlob ?? null}
+          leftB64={compareB.imageB64}
+          leftUrl={compareB.fullUrl || compareB.previewUrl}
+          rightBlob={currentImage.imageBlob ?? null}
+          rightB64={currentImage.imageB64}
+          rightUrl={currentImage.fullUrl || currentImage.previewUrl}
           split={compareSplit}
           onSplit={setCompareSplit}
+          leftLabel={compareUsesSourceImage ? "原图" : "对比图"}
+          rightLabel={compareUsesSourceImage ? "成图" : "当前图"}
         />
       ) : null}
       {!showingResultGrid && currentImage && !compareB && hostSize.w > 0 && hostSize.h > 0 ? (

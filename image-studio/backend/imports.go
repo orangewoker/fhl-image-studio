@@ -48,7 +48,11 @@ func (s *Service) ImportImageFromB64(imageB64, suggestedName string) (ImportedIm
 	if err := os.WriteFile(full, data, secureFileMode); err != nil {
 		return ImportedImage{}, fmt.Errorf("write import file: %w", err)
 	}
-	return ImportedImage{Path: full}, nil
+	width, height := 0, 0
+	if cfg, cfgErr := imageConfig(full); cfgErr == nil {
+		width, height = cfg.Width, cfg.Height
+	}
+	return ImportedImage{Path: full, Width: width, Height: height}, nil
 }
 
 // sanitiseName produces a filename-safe stem from a user-supplied filename.

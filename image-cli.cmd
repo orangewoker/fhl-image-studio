@@ -1,9 +1,9 @@
-@echo off
+﻿@echo off
 setlocal
 
 set "ROOT=%~dp0"
 if "%IMAGE_STUDIO_PUBLIC_ROOT%"=="" (
-  for %%I in ("%ROOT%..") do set "PUBLIC_ROOT=%%~fI\"
+  set "PUBLIC_ROOT=%ROOT%"
 ) else (
   for %%I in ("%IMAGE_STUDIO_PUBLIC_ROOT%") do set "PUBLIC_ROOT=%%~fI\"
 )
@@ -27,11 +27,6 @@ pushd "%PUBLIC_ROOT%" >nul
   --no-input ^
   --json ^
   --config "%CONFIG%" ^
-  --base-url "https://www.fhl.mom" ^
-  --api-mode responses ^
-  --request-policy openai ^
-  --text-model "gpt-5.5" ^
-  --image-model "gpt-image-2" ^
   --out-dir "%PUBLIC_ROOT%output" ^
   --raw-dir "%PUBLIC_ROOT%output\log" ^
   --input-dir "%PUBLIC_ROOT%input" ^
@@ -40,3 +35,4 @@ set "STATUS=%ERRORLEVEL%"
 popd >nul
 
 exit /b %STATUS%
+

@@ -12,15 +12,41 @@ import {
   normalizeAPIMode as normalizeSharedAPIMode,
   normalizeBaseURL as normalizeSharedBaseURL,
   normalizeImageModel as normalizeSharedImageModel,
+  repairSizeForOpenAI,
   normalizeTextModel as normalizeSharedTextModel,
 } from "../../../../../../shared/kernel/requestModel.js";
 import type { KernelImageSource, RemoteGeneratePayload } from "./types.ts";
 
 const FHL_BASE_URL = "https://www.fhl.mom";
 const FHL_LOCAL_PROXY_PREFIX = "/__image-studio-fhl";
+const APIMART_BASE_URL = "https://api.apimart.ai";
+const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
+const APIMART_LOCAL_PROXY_PREFIX = "/__image-studio-apimart";
+const APIMART_LEGACY_LOCAL_PROXY_PREFIX = "/__image-studio-apimart-legacy";
 const SINGLE_SOURCE_UPLOAD_COMPRESS_THRESHOLD = 2.5 * 1024 * 1024;
 const MULTI_SOURCE_UPLOAD_COMPRESS_THRESHOLD = 512 * 1024;
 const UPLOAD_COPY_JPEG_QUALITY = 0.82;
+const FHL_IMAGES_SAFE_EXACT_SIZES = new Set([
+  "1024x1024",
+  "1536x1024",
+  "1024x1536",
+  "1536x864",
+  "864x1536",
+]);
+const FHL_IMAGES_STABLE_SIZE_OVERRIDES = new Map<string, string>([
+  ["2048x1360", "1536x1024"],
+  ["3456x2304", "1536x1024"],
+  ["1360x2048", "1024x1536"],
+  ["2304x3456", "1024x1536"],
+  ["2048x1152", "1536x864"],
+  ["3840x2160", "1536x864"],
+  ["1152x2048", "864x1536"],
+  ["2160x3840", "864x1536"],
+]);
+
+export function isGPTImage2Model(modelID: string | undefined): boolean {
+  return normalizeSharedImageModel(modelID || "").toLowerCase().startsWith("gpt-image-2");
+}
 
 type LoadedUploadImage = {
   image: CanvasImageSource;
@@ -185,14 +211,55 @@ export async function compressSourceDataURLForUpload(dataURL: string, sourceCoun
 }
 
 export function normalizeBaseURL(raw: string): string {
-  const normalized = normalizeSharedBaseURL(raw);
+  const normalizedRaw = normalizeSharedBaseURL(raw);
+  const normalized = normalizedRaw.replace(/(\/v1)+$/i, "");
   if (isLocalPreviewHost() && normalized === FHL_BASE_URL) {
     return `${window.location.origin}${FHL_LOCAL_PROXY_PREFIX}`;
+  }
+  if (isLocalPreviewHost() && normalized === APIMART_BASE_URL) {
+    return `${window.location.origin}${APIMART_LOCAL_PROXY_PREFIX}`;
+  }
+  if (isLocalPreviewHost() && normalized === APIMART_LEGACY_BASE_URL) {
+    return `${window.location.origin}${APIMART_LEGACY_LOCAL_PROXY_PREFIX}`;
   }
   return normalized;
 }
 
-export function normalizeAPIMode(apiMode: string): "responses" | "images" {
+function normalizeBaseURLForRouting(raw: string): string {
+  return normalizeSharedBaseURL(raw).replace(/(\/v1)+$/i, "");
+}
+
+function normalizeExactSizeForRouting(size: string): string {
+  const trimmed = String(size || "").trim();
+  if (!trimmed || trimmed.toLowerCase() === "auto" || !/^\d+x\d+$/i.test(trimmed)) return "";
+  return repairSizeForOpenAI({ size: trimmed })?.size || trimmed;
+}
+
+export function shouldPreferResponsesForExactFHLSize(
+  payload: Pick<RemoteGeneratePayload, "apiMode" | "baseURL" | "size" | "imageModelID">,
+): boolean {
+  if (normalizeSharedAPIMode(payload.apiMode) !== "images") return false;
+  if (normalizeBaseURLForRouting(payload.baseURL) !== FHL_BASE_URL) return false;
+  if (isGPTImage2Model(payload.imageModelID)) return false;
+  const exactSize = normalizeExactSizeForRouting(payload.size);
+  if (!exactSize) return false;
+  if (FHL_IMAGES_STABLE_SIZE_OVERRIDES.has(exactSize)) return false;
+  return !FHL_IMAGES_SAFE_EXACT_SIZES.has(exactSize);
+}
+
+export function stableFHLImagesSize(
+  payload: Pick<RemoteGeneratePayload, "apiMode" | "baseURL" | "size" | "imageModelID">,
+): string {
+  if (normalizeSharedAPIMode(payload.apiMode) !== "images") return payload.size;
+  if (normalizeBaseURLForRouting(payload.baseURL) !== FHL_BASE_URL) return payload.size;
+  if (isGPTImage2Model(payload.imageModelID)) return payload.size;
+  const exactSize = normalizeExactSizeForRouting(payload.size);
+  if (!exactSize) return payload.size;
+  return FHL_IMAGES_STABLE_SIZE_OVERRIDES.get(exactSize) || exactSize;
+}
+
+export function normalizeAPIMode(apiMode: string): "responses" | "images" | "apimart" | "runninghub" {
+  if (String(apiMode || "").trim() === "runninghub") return "runninghub";
   return normalizeSharedAPIMode(apiMode);
 }
 
@@ -215,6 +282,21 @@ export function shouldUseAndroidNativeHTTP(): boolean {
 export const describeProblem = describeSharedProblem;
 export const isRetryableRaw = isRetryableRawShared;
 
+const TRANSIENT_FAILURE_RE = /\b(?:429|502|503|504|524)\b|rate[_ -]?limit|too many requests|concurrency limit|timeout|timed out|gateway|network(?:error| error)?|failed to fetch|load failed|connection reset|econnreset|econnrefused|cloudflare|busy|overloaded|service unavailable|no available compatible accounts|no final image|no image|no result|账号池.*繁忙|稍后重试|自动重试|超时|耗时|排队|未返回|没有返回|最终图缺失|终图缺失|璐﹀彿姹爘绻佸繖|绋嶅悗閲嶈瘯|鑷姩閲嶈瘯|瓒呮椂|鑰楁椂|鎺掗槦|鏈繑鍥瀨娌℃湁杩斿洖|鏈€缁堝浘缂哄け|缁堝浘缂哄け/i;
+const CONFIG_FAILURE_RE = /\b(?:400|401|403|404)\b|unauthorized|forbidden|permission|not enabled for this group|invalid api key|api key.*invalid|invalid key|insufficient|balance|quota|billing|model_not_found|model not found|not found|unsupported|bad request|invalid_request|invalid parameter|validation|aborterror|aborted|user cancelled|用户取消|取消任务|api key|密钥|权限|余额|模型不存在|参数错误|校验|鐢ㄦ埛鍙栨秷|鍙栨秷浠诲姟|api key|瀵嗛挜|鏉冮檺|浣欓|妯″瀷涓嶅瓨鍦▅鍙傛暟閿欒|鏍￠獙/i;
+
+export function isConfigurationFailureText(...parts: Array<unknown>): boolean {
+  const text = parts.map((part) => String(part || "")).join("\n");
+  return CONFIG_FAILURE_RE.test(text) && !/rate[_ -]?limit|too many requests|concurrency limit/i.test(text);
+}
+
+export function isTransientGenerationFailureText(...parts: Array<unknown>): boolean {
+  const text = parts.map((part) => String(part || "")).join("\n");
+  if (!text.trim()) return false;
+  if (isConfigurationFailureText(text)) return false;
+  return TRANSIENT_FAILURE_RE.test(text);
+}
+
 export function isTransportishError(error: unknown): boolean {
   const message = String((error as any)?.message || error || "").toLowerCase();
   return [
@@ -225,9 +307,14 @@ export function isTransportishError(error: unknown): boolean {
     "load failed",
     "i/o timeout",
     "connection reset",
+    "connection attempt failed",
+    "connectex",
+    "dial tcp",
     "econnreset",
     "econnrefused",
     "gateway",
+    "host has failed to respond",
+    "tls handshake timeout",
   ].some((marker) => message.includes(marker));
 }
 
@@ -250,7 +337,7 @@ export async function sleepWithSignal(signal: AbortSignal, ms: number): Promise<
   });
 }
 
-export function registerRawText(kind: "responses" | "images" | "optimize", attempt: number, raw: string): string | null {
+export function registerRawText(kind: "responses" | "images" | "apimart" | "runninghub" | "optimize" | "reverse", attempt: number, raw: string): string | null {
   if (!raw.trim()) return null;
   const ext = kind === "responses" ? "txt" : "json";
   return registerVirtualText(raw, `${kind}-response-attempt${attempt}.${ext}`);

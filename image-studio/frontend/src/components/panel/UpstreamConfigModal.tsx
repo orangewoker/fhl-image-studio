@@ -4,11 +4,16 @@ import { Modal } from "../common/Modal";
 import { useStudioStore } from "../../state/studioStore";
 import { GetStoredAPIKey } from "../../platform/runtime/host";
 import { normalizeAPIKeyInput, validateAPIKeyForHeader } from "../../lib/apiKey";
-import { ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
-import { keyringUserFor, requestPolicyLabel } from "../../lib/profiles";
+import { ensureFHLProfiles, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
+import { ensureAPIMartProfile, focusAPIMartAPIKeyInput } from "../../lib/apimartAPI";
+import { apiModeUsesBridgeStoredKey, keyringUserFor } from "../../lib/profiles";
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../../types/domain";
 import { FAQModal } from "./FAQModal";
 import { FHLAPIChoiceModal } from "./FHLAPIChoiceModal";
+import { APIMartAPIChoiceModal } from "./APIMartAPIChoiceModal";
+import { RunningHubAPIChoiceModal } from "./RunningHubAPIChoiceModal";
+import { FHLQuickConfigModal } from "./FHLQuickConfigModal";
+import { RunningHubQuickConfigModal } from "./RunningHubQuickConfigModal";
 import { UpstreamProfileEditor } from "./UpstreamProfileEditor";
 import { UpstreamProfileList } from "./UpstreamProfileList";
 import { usePlatform } from "../../platform/context";
@@ -37,8 +42,13 @@ export function UpstreamConfigModal({
   const [draftKey, setDraftKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [savedKeyLoaded, setSavedKeyLoaded] = useState(false);
+  const [savedKeyAvailable, setSavedKeyAvailable] = useState(false);
   const [faqOpen, setFaqOpen] = useState(false);
   const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
+  const [fhlQuickConfigOpen, setFHLQuickConfigOpen] = useState(false);
+  const [apimartChoiceOpen, setAPIMartChoiceOpen] = useState(false);
+  const [runningHubChoiceOpen, setRunningHubChoiceOpen] = useState(false);
+  const [runningHubQuickConfigOpen, setRunningHubQuickConfigOpen] = useState(false);
 
   // 打开 modal / 切 selected → 重新加载草稿与 keyring 里的 apiKey
   useEffect(() => {
@@ -50,12 +60,27 @@ export function UpstreamConfigModal({
     const p = profiles.find((x) => x.id === sid) ?? null;
     setDraft(p);
     setDraftKey("");
+    setSavedKeyAvailable(false);
     setSavedKeyLoaded(false);
     if (p) {
       GetStoredAPIKey(keyringUserFor(p.id))
-        .then(() => { setDraftKey(""); setSavedKeyLoaded(true); })
-        .catch(() => setSavedKeyLoaded(true));
+        .then((storedKey) => {
+          const activeKeyFallback = p.id === useStudioStore.getState().activeProfileId
+            ? useStudioStore.getState().apiKey
+            : "";
+          setSavedKeyAvailable(!!normalizeAPIKeyInput(storedKey || activeKeyFallback));
+          setDraftKey("");
+          setSavedKeyLoaded(true);
+        })
+        .catch(() => {
+          const activeKeyFallback = p.id === useStudioStore.getState().activeProfileId
+            ? useStudioStore.getState().apiKey
+            : "";
+          setSavedKeyAvailable(!!normalizeAPIKeyInput(activeKeyFallback));
+          setSavedKeyLoaded(true);
+        });
     } else {
+      setSavedKeyAvailable(false);
       setSavedKeyLoaded(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,7 +95,9 @@ export function UpstreamConfigModal({
   const baseURLError = useMemo(() => null, [draft?.baseURL]);
 
   const normalizedDraftKey = useMemo(() => normalizeAPIKeyInput(draftKey), [draftKey]);
+  const draftUsesBridgeStoredKey = !!draft && apiModeUsesBridgeStoredKey(draft.apiMode);
   const apiKeyError = useMemo(() => {
+    if (draftUsesBridgeStoredKey) return null;
     if (!draftKey.trim()) return null;
     try {
       validateAPIKeyForHeader(draftKey);
@@ -78,8 +105,11 @@ export function UpstreamConfigModal({
     } catch (error: any) {
       return error?.message ?? "API Key 格式不正确";
     }
-  }, [draftKey]);
-  const canSave = !!draft && !!draft.baseURL.trim() && !!normalizedDraftKey && !apiKeyError;
+  }, [draftKey, draftUsesBridgeStoredKey]);
+  const canSave = !!draft
+    && !!draft.baseURL.trim()
+    && !apiKeyError
+    && (draftUsesBridgeStoredKey || !!normalizedDraftKey || (savedKeyLoaded && savedKeyAvailable));
 
   function patchDraft(patch: Partial<UpstreamProfile>) {
     if (!draft) return;
@@ -99,18 +129,58 @@ export function UpstreamConfigModal({
     setFHLChoiceOpen(true);
   }
 
+  function refreshSavedKeyState(id: string) {
+    setSavedKeyAvailable(false);
+    setSavedKeyLoaded(false);
+    GetStoredAPIKey(keyringUserFor(id))
+      .then((storedKey) => {
+        const activeKeyFallback = id === useStudioStore.getState().activeProfileId
+          ? useStudioStore.getState().apiKey
+          : "";
+        setSavedKeyAvailable(!!normalizeAPIKeyInput(storedKey || activeKeyFallback));
+        setDraftKey("");
+        setSavedKeyLoaded(true);
+      })
+      .catch(() => {
+        const activeKeyFallback = id === useStudioStore.getState().activeProfileId
+          ? useStudioStore.getState().apiKey
+          : "";
+        setSavedKeyAvailable(!!normalizeAPIKeyInput(activeKeyFallback));
+        setSavedKeyLoaded(true);
+      });
+  }
+
   async function handleUseExistingFHLAPI() {
     setFHLChoiceOpen(false);
+    setFHLQuickConfigOpen(true);
+    return;
     const store = useStudioStore.getState();
-    const id = await ensureFHLResponsesProfile(store);
+    const pair = await ensureFHLProfiles(store);
+    const nextProfile = useStudioStore.getState().profiles.find((profile) => profile.id === pair.responsesId) ?? null;
+    setSelectedId(pair.responsesId);
+    setDraft(nextProfile);
+    refreshSavedKeyState(pair.responsesId);
+    focusFHLAPIKeyInput();
+  }
+
+  async function handleConfigureAPIMart() {
+    setAPIMartChoiceOpen(false);
+    const store = useStudioStore.getState();
+    const id = await ensureAPIMartProfile(store);
     const nextProfile = useStudioStore.getState().profiles.find((profile) => profile.id === id) ?? null;
     setSelectedId(id);
     setDraft(nextProfile);
-    setSavedKeyLoaded(false);
-    GetStoredAPIKey(keyringUserFor(id))
-      .then(() => { setDraftKey(""); setSavedKeyLoaded(true); })
-      .catch(() => setSavedKeyLoaded(true));
-    focusFHLAPIKeyInput();
+    refreshSavedKeyState(id);
+    focusAPIMartAPIKeyInput();
+  }
+
+  function handleConfigureRunningHub() {
+    setRunningHubChoiceOpen(true);
+  }
+
+  function handleUseExistingRunningHubAPI() {
+    setRunningHubChoiceOpen(false);
+    setRunningHubQuickConfigOpen(true);
   }
 
   async function handleDuplicate() {
@@ -131,25 +201,32 @@ export function UpstreamConfigModal({
 
   async function handleSave(): Promise<boolean> {
     if (!draft) return false;
-    let cleanedAPIKey = "";
-    try {
-      cleanedAPIKey = validateAPIKeyForHeader(draftKey);
-    } catch (error: any) {
-      window.alert(error?.message ?? "API Key 格式不正确");
-      return false;
-    }
-    if (cleanedAPIKey !== draftKey) setDraftKey(cleanedAPIKey);
-    await updateProfile(draft.id, {
+    const usesBridgeStoredKey = apiModeUsesBridgeStoredKey(draft.apiMode);
+    const updatePatch: Partial<Omit<UpstreamProfile, "id" | "createdAt">> & { apiKey?: string } = {
       name: draft.name,
       apiMode: draft.apiMode,
-      requestPolicy: draft.requestPolicy,
+      requestPolicy: usesBridgeStoredKey ? "openai" : draft.requestPolicy,
       baseURL: draft.baseURL,
-      textModelID: draft.textModelID,
+      textModelID: usesBridgeStoredKey ? "" : draft.textModelID,
       imageModelID: draft.imageModelID,
       concurrencyLimit: draft.concurrencyLimit,
       imagesNewAPICompat: draft.apiMode === "images" && draft.imagesNewAPICompat === true,
-      apiKey: cleanedAPIKey,
-    });
+    };
+    if (!usesBridgeStoredKey && draftKey.trim()) {
+      let cleanedAPIKey = "";
+      try {
+        cleanedAPIKey = validateAPIKeyForHeader(draftKey);
+      } catch (error: any) {
+        window.alert(error?.message ?? "API Key 格式不正确");
+        return false;
+      }
+      if (cleanedAPIKey !== draftKey) setDraftKey(cleanedAPIKey);
+      updatePatch.apiKey = cleanedAPIKey;
+    } else if (!usesBridgeStoredKey && !savedKeyAvailable) {
+      window.alert("请先填写 API Key");
+      return false;
+    }
+    await updateProfile(draft.id, updatePatch);
     // 如果当前 selected 不是 active,问要不要切;不弹了,直接什么都不做
     return true;
   }
@@ -210,6 +287,18 @@ export function UpstreamConfigModal({
                 sub: "兼容性更广，接标准 generations / edits。",
                 note: "适合只想尽快接上常规生图接口。",
               },
+              {
+                id: "apimart" as APIMode,
+                title: "APIMart 异步",
+                sub: "提交 task_id 后轮询结果,长任务更稳。",
+                note: "适合按示例模块接入 api.apimart.ai。",
+              },
+              {
+                id: "runninghub" as APIMode,
+                title: "RunningHub 桥接",
+                sub: "本地 8117 桥接，支持文生图和图生图。",
+                note: "适合复用 RunningHub PHP 模块与双模型配置。",
+              },
             ]).map((item) => (
               <button
                 key={item.id}
@@ -219,7 +308,7 @@ export function UpstreamConfigModal({
               >
                 <div className="flex items-center gap-2">
                   <span className="inline-flex h-8 min-w-[32px] items-center justify-center rounded-full bg-[var(--accent-soft)] px-2 text-[11px] font-semibold text-[var(--accent)]">
-                    {item.id === "responses" ? "R" : "I"}
+                    {item.id === "responses" ? "R" : item.id === "apimart" ? "A" : item.id === "runninghub" ? "RH" : "I"}
                   </span>
                   <span className="text-[14px] font-semibold text-zinc-900 dark:text-zinc-100">{item.title}</span>
                 </div>
@@ -235,6 +324,20 @@ export function UpstreamConfigModal({
           <div className={`flex items-start gap-2 border border-[color:var(--accent)]/18 bg-[var(--accent-soft)] px-3 py-2 text-[11px] text-[var(--accent)] ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>保存后会写入系统凭据存储。之后你可以在这里继续新增多个上游配置，再按场景切换。</span>
+          </div>
+          <div className={`flex items-start gap-2 border border-violet-300/70 bg-violet-50 px-3 py-2 text-violet-950 shadow-sm dark:border-violet-400/30 dark:bg-violet-400/10 dark:text-violet-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold tracking-[0]">RH 一键配置</div>
+              <div className="mt-0.5 text-[11px] leading-5 opacity-85">桥接地址默认 `http://127.0.0.1:8117`，可直接写入或复用桥接模块里的 RunningHub API Key。</div>
+            </div>
+            <button
+              type="button"
+              onClick={handleConfigureRunningHub}
+              className={`ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 border border-violet-500/60 bg-violet-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-violet-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+            >
+              <Sparkles className="h-4 w-4" />
+              一键配置 RH
+            </button>
           </div>
         </section>
       </Modal>
@@ -271,7 +374,7 @@ export function UpstreamConfigModal({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-[13px] font-semibold tracking-[0]">FHL 推荐配置</div>
-                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Responses API · OpenAI 标准 · gpt-5.5 / gpt-image-2</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Images API standard generations / edits - gpt-image-2</div>
                 <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">不包含 API Key，用户需要粘贴自己的 FHL API Key。</div>
               </div>
               <button
@@ -281,6 +384,40 @@ export function UpstreamConfigModal({
               >
                 <Sparkles className="h-4 w-4" />
                 一键配置 FHL
+              </button>
+            </div>
+          </div>
+          <div className={`mb-3 border border-sky-300/70 bg-sky-50 px-3 py-2 text-sky-950 shadow-sm dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[13px] font-semibold tracking-[0]">APIMart 异步配置</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Async API · gpt-image-2 · api.apimart.ai</div>
+                <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">不包含 API Key，请粘贴自己的 APIMart API Key。</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAPIMartChoiceOpen(true)}
+                className={`inline-flex h-9 shrink-0 items-center gap-1.5 border border-sky-500/60 bg-sky-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-sky-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              >
+                <Sparkles className="h-4 w-4" />
+                一键配置 APIMart
+              </button>
+            </div>
+          </div>
+          <div className={`mb-3 border border-violet-300/70 bg-violet-50 px-3 py-2 text-violet-950 shadow-sm dark:border-violet-400/30 dark:bg-violet-400/10 dark:text-violet-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-semibold tracking-[0]">RH 桥接配置</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">本地桥接 · 默认 `http://127.0.0.1:8117` · banana2 / image_g2</div>
+                <div className="mt-0.5 text-[11px] leading-5 font-semibold">Key 保存在桥接模块，不走当前桌面版的本地 keyring。</div>
+              </div>
+              <button
+                type="button"
+                onClick={handleConfigureRunningHub}
+                className={`ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 border border-violet-500/60 bg-violet-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-violet-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              >
+                <Sparkles className="h-4 w-4" />
+                一键配置 RH
               </button>
             </div>
           </div>
@@ -294,6 +431,7 @@ export function UpstreamConfigModal({
               draftKey={draftKey}
               showKey={showKey}
               savedKeyLoaded={savedKeyLoaded}
+              savedKeyAvailable={savedKeyAvailable}
               baseURLError={baseURLError}
               apiKeyError={apiKeyError}
               canSave={canSave}
@@ -315,6 +453,38 @@ export function UpstreamConfigModal({
       open={fhlChoiceOpen}
       onClose={() => setFHLChoiceOpen(false)}
       onUseExistingAPI={handleUseExistingFHLAPI}
+    />
+    <FHLQuickConfigModal
+      open={fhlQuickConfigOpen}
+      onClose={() => setFHLQuickConfigOpen(false)}
+      onOpenUpstream={(responsesId) => {
+        const nextProfile = useStudioStore.getState().profiles.find((profile) => profile.id === responsesId) ?? null;
+        setSelectedId(responsesId);
+        setDraft(nextProfile);
+        refreshSavedKeyState(responsesId);
+        setFHLQuickConfigOpen(false);
+      }}
+    />
+    <APIMartAPIChoiceModal
+      open={apimartChoiceOpen}
+      onClose={() => setAPIMartChoiceOpen(false)}
+      onUseExistingAPI={handleConfigureAPIMart}
+    />
+    <RunningHubAPIChoiceModal
+      open={runningHubChoiceOpen}
+      onClose={() => setRunningHubChoiceOpen(false)}
+      onUseExistingAPI={handleUseExistingRunningHubAPI}
+    />
+    <RunningHubQuickConfigModal
+      open={runningHubQuickConfigOpen}
+      onClose={() => setRunningHubQuickConfigOpen(false)}
+      onOpenUpstream={(banana2Id) => {
+        const nextProfile = useStudioStore.getState().profiles.find((profile) => profile.id === banana2Id) ?? null;
+        setSelectedId(banana2Id);
+        setDraft(nextProfile);
+        refreshSavedKeyState(banana2Id);
+        setRunningHubQuickConfigOpen(false);
+      }}
     />
     <FAQModal open={faqOpen} onClose={() => setFaqOpen(false)} />
     </>

@@ -11,10 +11,25 @@ function cloneSourceImage(source: SourceImage, keepBlob: boolean): SourceImage |
     path: source.path,
     name: source.name || fileNameFromPath(source.path),
     size: Number.isFinite(source.size) ? source.size : 0,
+    width: Number.isFinite(source.width) ? source.width : undefined,
+    height: Number.isFinite(source.height) ? source.height : undefined,
     previewUrl: source.previewUrl || undefined,
     imageB64,
     imageBlob: keepBlob ? source.imageBlob ?? null : null,
+    panoramaRoundtrip: source.panoramaRoundtrip,
+    panoramaProject: source.panoramaProject,
   };
+}
+
+export function sourceImagesFromPaths(paths: string[] | undefined): SourceImage[] {
+  return (paths ?? [])
+    .map((filePath) => String(filePath || "").trim())
+    .filter(Boolean)
+    .map((filePath) => ({
+      path: filePath,
+      name: fileNameFromPath(filePath),
+      size: 0,
+    }));
 }
 
 export function sourceImagesForHistory(mode: Mode | string, sources: SourceImage[]): SourceImage[] | undefined {
@@ -37,6 +52,8 @@ export function sourceImagesFromHistoryItem(item: HistoryItem): SourceImage[] {
       path: item.parentId,
       name: fileNameFromPath(item.parentId),
       size: 0,
+      width: undefined,
+      height: undefined,
       imageBlob: null,
     }];
   }

@@ -5,6 +5,7 @@
 /image-studio/build/windows/build/
 /image-studio/frontend/dist/
 /image-studio/frontend/node_modules/
+/image-studio/frontend/test-results/
 /android-shell/.gradle/
 /android-shell/.gradle-wrapper/
 /android-shell/.kotlin/
@@ -20,9 +21,15 @@
 # Generated images, raw SSE dumps, imported sources
 # (raw SSE files include request headers — may leak API keys)
 /images/
-/input/
-/output/
-/intermediate/
+/input/*
+!/input/.gitkeep
+/output/*
+!/output/.gitkeep
+!/output/log/
+/output/log/*
+!/output/log/.gitkeep
+/intermediate/*
+!/intermediate/.gitkeep
 /image-studio/build/bin/data/
 *.exe
 *.exe~
@@ -58,12 +65,14 @@ Thumbs.db
 *.local.json
 /config/*.local
 /config/*.local.json
+/config/webview/
 /image-studio/frontend/.local/
 
 # Local caches / sandboxes
 .npm-cache/
 .sandbox-home/
 .tmp/
+.tmp-*/
 
 # Frontend (wails-generated hash files)
 package-lock.json.md5

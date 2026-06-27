@@ -10,12 +10,12 @@ function Resolve-ReleaseRoot {
   if ($Value.Trim()) {
     return (Resolve-Path -LiteralPath $Value).Path
   }
-  return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
+  return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 }
 
 function Test-SkippableTextPath {
   param([string]$Path)
-  if ($Path -match "\\node_modules\\|\\.git\\") { return $true }
+  if ($Path -match "\\node_modules\\|\\.git\\|\\config\\webview\\|\\frontend\\test-results\\") { return $true }
   $ext = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
   $textExt = @(
     ".bat", ".cmd", ".cjs", ".css", ".env", ".example", ".html", ".js",
@@ -32,6 +32,8 @@ function Get-ForbiddenFiles {
     Where-Object {
       $full = $_.FullName
       ($forbiddenNames -contains $_.Name) -or
+      ($full -match "\\config\\webview\\") -or
+      ($full -match "\\frontend\\test-results\\") -or
       ($full -match "\\.local(\\|$)") -or
       ($full -match "\\ui-audit\\") -or
       ($_.Name -match "^session-.*\.(jsonl|md)$")
@@ -41,7 +43,7 @@ function Get-ForbiddenFiles {
 
 function Get-KeyPatternFiles {
   param([string]$Root)
-  $pattern = "sk-[A-Za-z0-9_-]{20,}"
+  $pattern = "(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}"
   $hits = New-Object System.Collections.Generic.HashSet[string]
   Get-ChildItem -LiteralPath $Root -Recurse -Force -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Length -lt 20MB -and -not (Test-SkippableTextPath $_.FullName) } |
@@ -56,13 +58,12 @@ function Get-KeyPatternFiles {
 
 function Test-CliEnvExample {
   param([string]$Root)
-  $programRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
-  $example = Join-Path $programRoot.Path "config\cli.env.example"
+  $example = Join-Path $Root "config\cli.env.example"
   if (-not (Test-Path -LiteralPath $example)) {
     return @("MISSING: $example")
   }
   $raw = Get-Content -LiteralPath $example -Raw
-  if ($raw -match "(?m)^IMAGE_STUDIO_API_KEY=.+$") {
+  if ($raw -match "(?m)^IMAGE_STUDIO_API_KEY=[^\s\r\n]+") {
     return @("API_KEY_NOT_EMPTY: $example")
   }
   @()
@@ -77,14 +78,16 @@ function Test-EmptyUserDirs {
       [void]$errors.Add("MISSING_DIR: $path")
       continue
     }
-    $files = Get-ChildItem -LiteralPath $path -Force -File -Recurse -ErrorAction SilentlyContinue
+    $files = Get-ChildItem -LiteralPath $path -Force -File -Recurse -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -ne ".gitkeep" }
     if ($files) { [void]$errors.Add("DIR_NOT_EMPTY: $path") }
   }
   $output = Join-Path $Root "output"
   if (-not (Test-Path -LiteralPath $output)) {
     [void]$errors.Add("MISSING_DIR: $output")
   } else {
-    $files = Get-ChildItem -LiteralPath $output -Force -File -Recurse -ErrorAction SilentlyContinue
+    $files = Get-ChildItem -LiteralPath $output -Force -File -Recurse -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -ne ".gitkeep" }
     if ($files) { [void]$errors.Add("OUTPUT_HAS_FILES: $output") }
   }
   $errors
@@ -114,13 +117,13 @@ function Test-ZipSafety {
   try {
     $errors = New-Object System.Collections.Generic.List[string]
     $badEntries = $zip.Entries | Where-Object {
-      $_.FullName -match "(^|/)(cli\.env\.local|fhl-api\.local\.json|browser-jobs\.v1\.json)$|\.local/|ui-audit/|session-.*\.(jsonl|md)$"
+      $_.FullName -match "(^|/)(cli\.env\.local|fhl-api\.local\.json|browser-jobs\.v1\.json)$|\.local/|config/webview/|frontend/test-results/|ui-audit/|session-.*\.(jsonl|md)$"
     }
     foreach ($entry in $badEntries) {
       [void]$errors.Add("ZIP_FORBIDDEN_ENTRY: $($entry.FullName)")
     }
 
-    $pattern = "sk-[A-Za-z0-9_-]{20,}"
+    $pattern = "(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}"
     foreach ($entry in (Get-ZipTextEntryNames $zip)) {
       try {
         $reader = New-Object System.IO.StreamReader($entry.Open())

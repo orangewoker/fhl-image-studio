@@ -19,6 +19,41 @@ test("captures edit-mode source images for history without blobs", () => {
   assert.equal(sourceImages[0].path, "I:\\input\\ref.png");
   assert.equal(sourceImages[0].imageB64, "abc");
   assert.equal(sourceImages[0].imageBlob, null);
+  assert.equal(sourceImages[0].width, undefined);
+  assert.equal(sourceImages[0].height, undefined);
+});
+
+test("preserves cached source dimensions when cloning history source images", () => {
+  const sourceImages = historySources.sourceImagesForHistory("edit", [
+    {
+      path: "I:\\input\\ref.png",
+      name: "ref.png",
+      size: 123,
+      width: 1536,
+      height: 864,
+      previewUrl: "/media/preview/ref",
+      imageB64: "abc",
+      imageBlob: new Blob(["abc"], { type: "image/png" }),
+    },
+  ]);
+
+  assert.equal(sourceImages.length, 1);
+  assert.equal(sourceImages[0].width, 1536);
+  assert.equal(sourceImages[0].height, 864);
+
+  const restored = historySources.sourceImagesFromHistoryItem({
+    id: "h-width",
+    prompt: "edit this",
+    mode: "edit",
+    size: "1024x1024",
+    quality: "medium",
+    createdAt: Date.now(),
+    sourceImages,
+  });
+
+  assert.equal(restored.length, 1);
+  assert.equal(restored[0].width, 1536);
+  assert.equal(restored[0].height, 864);
 });
 
 test("restores stored source images when applying edit history params", () => {

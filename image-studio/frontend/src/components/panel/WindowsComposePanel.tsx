@@ -1,22 +1,28 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { APIMode, Mode, QualityValue, RequestPolicy, SizeValue } from "../../types/domain";
+import type {
+  APIMode,
+  BatchProcessConfig,
+  EditSourceMode,
+  Mode,
+  QualityValue,
+  RequestPolicy,
+  SizeValue,
+} from "../../types/domain";
 import { DesktopComposeSections } from "./DesktopComposeSections";
-import type { AspectPreset, ResolutionPreset } from "./sizeCapabilities";
+import type { AspectPreset, AspectPresetOption, ResolutionPreset } from "./sizeCapabilities";
 
 export function WindowsComposePanel({
-  composeOpen,
-  setComposeOpen,
-  styleTag,
-  activeStyleLabel,
-  activeAspect,
-  activeAspectLabel,
-  activeResolution,
-  activeResolutionLabel,
-  activeQualityLabel,
+  apiMode,
+  aspectPresets,
   availableResolutions,
   batchCount,
+  batchProcess,
+  chooseBatchOutputDir,
   clearSources,
+  composeOpen,
+  continuousGenerateTest,
   currentImageSavedPath,
+  editSourceMode,
   handleAspectSelect,
   handleResolutionSelect,
   imageModelID,
@@ -26,25 +32,35 @@ export function WindowsComposePanel({
   pushToast,
   quality,
   requestPolicy,
+  sharedConcurrencyLimit,
+  selectBatchInputDir,
+  selectBatchInputFiles,
   selectSourceImage,
+  setBatchProcess,
+  setComposeOpen,
+  setEditSourceMode,
   setField,
   size,
   sources,
-  apiMode,
+  styleTag,
+  activeStyleLabel,
+  activeAspect,
+  activeAspectLabel,
+  activeResolution,
+  activeResolutionLabel,
+  activeQualityLabel,
 }: {
-  composeOpen: boolean;
-  setComposeOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  styleTag: string;
-  activeStyleLabel: string;
-  activeAspect: AspectPreset;
-  activeAspectLabel: string;
-  activeResolution: ResolutionPreset;
-  activeResolutionLabel: string;
-  activeQualityLabel: string;
+  apiMode: APIMode;
+  aspectPresets: AspectPresetOption[];
   availableResolutions: ResolutionPreset[];
   batchCount: number;
+  batchProcess: BatchProcessConfig;
+  chooseBatchOutputDir: () => void;
   clearSources: () => void;
+  composeOpen: boolean;
+  continuousGenerateTest: boolean;
   currentImageSavedPath?: string | null;
+  editSourceMode: EditSourceMode;
   handleAspectSelect: (aspect: AspectPreset) => void;
   handleResolutionSelect: (resolution: ResolutionPreset) => void;
   imageModelID: string;
@@ -54,30 +70,46 @@ export function WindowsComposePanel({
   pushToast: (text: string, kind?: "info" | "success" | "error" | "warn", ttl?: number) => void;
   quality: QualityValue;
   requestPolicy: RequestPolicy;
+  sharedConcurrencyLimit: number;
+  selectBatchInputDir: () => void;
+  selectBatchInputFiles: () => void;
   selectSourceImage: () => void;
+  setBatchProcess: (next: BatchProcessConfig) => void;
+  setComposeOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setEditSourceMode: (mode: EditSourceMode) => void;
   setField: (key: "styleTag" | "quality" | "batchCount" | "size", value: any) => void;
   size: SizeValue;
   sources: Array<{ path: string; name: string }>;
-  apiMode: APIMode;
+  styleTag: string;
+  activeStyleLabel: string;
+  activeAspect: AspectPreset;
+  activeAspectLabel: string;
+  activeResolution: ResolutionPreset;
+  activeResolutionLabel: string;
+  activeQualityLabel: string;
 }) {
-  const sourceLabel = mode === "edit"
-    ? sources.length > 0
-      ? `${sources.length} 张源图`
-      : currentImageSavedPath
-        ? "画板图作源图"
-        : "未添加源图"
-    : "文生图";
+  const selectedBatchSourceCount = batchProcess.discoveredSources.filter((source) => source.selected !== false).length;
+  const batchSourceSummary = batchProcess.discoveredSources.length > 0
+    ? `${selectedBatchSourceCount}/${batchProcess.discoveredSources.length} 张`
+    : "0 张";
+  const sourceLabel = editSourceMode === "batch"
+    ? `批处理 ${batchSourceSummary}`
+    : mode === "edit"
+      ? sources.length > 0
+        ? `${sources.length} 张源图`
+        : currentImageSavedPath
+          ? "画布图作源图"
+          : "未添加源图"
+      : "文生图";
+
   const summary = [
     styleTag ? activeStyleLabel : "默认风格",
     activeAspectLabel,
     activeResolutionLabel,
     activeQualityLabel,
-    `${batchCount} 张`,
+    editSourceMode === "batch" ? "批处理" : (continuousGenerateTest ? "连续生成" : `${batchCount} 张`),
     sourceLabel,
   ].join(" · ");
-  const multiSourceHint = mode === "edit" && sources.length > 1
-    ? "多参考图规则:第 1 张为主图,后续图片作为人物/风格/场景参考;失败时会自动尝试兼容模式。"
-    : "";
 
   return (
     <section className="platform-card windows-compose-panel">
@@ -98,33 +130,37 @@ export function WindowsComposePanel({
 
       {composeOpen ? (
         <div className="windows-compose-body">
-          {multiSourceHint ? (
-            <div className="mx-4 mt-3 rounded-[10px] border border-blue-400/25 bg-blue-500/[0.08] px-3 py-2 text-[12px] leading-5 text-blue-700 dark:text-blue-200">
-              {multiSourceHint}
-            </div>
-          ) : null}
           <DesktopComposeSections
             activeAspect={activeAspect}
+            aspectPresets={aspectPresets}
             activeResolution={activeResolution}
             apiMode={apiMode}
             availableResolutions={availableResolutions}
             batchCount={batchCount}
+            batchProcess={batchProcess}
             clearSources={clearSources}
+            chooseBatchOutputDir={chooseBatchOutputDir}
             currentImageSavedPath={currentImageSavedPath}
+            editSourceMode={editSourceMode}
             handleAspectSelect={handleAspectSelect}
             handleResolutionSelect={handleResolutionSelect}
             imageModelID={imageModelID}
             importSourceImageFile={importSourceImageFile}
+            usesFluentUI
             mode={mode}
             onRemoveSource={onRemoveSource}
             pushToast={pushToast}
             quality={quality}
             requestPolicy={requestPolicy}
+            sharedConcurrencyLimit={sharedConcurrencyLimit}
+            selectBatchInputDir={selectBatchInputDir}
+            selectBatchInputFiles={selectBatchInputFiles}
             selectSourceImage={selectSourceImage}
+            setBatchProcess={setBatchProcess}
+            setEditSourceMode={setEditSourceMode}
             setField={setField}
             size={size}
             sources={sources}
-            usesFluentUI
           />
         </div>
       ) : null}

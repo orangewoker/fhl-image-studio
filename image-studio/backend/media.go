@@ -35,6 +35,8 @@ type mediaAsset struct {
 	PreviewPath   string
 	FullURL       string
 	PreviewURL    string
+	Width         int
+	Height        int
 	PreviewWidth  int
 	PreviewHeight int
 }
@@ -42,7 +44,7 @@ type mediaAsset struct {
 func thumbsSubdir(root string) string   { return filepath.Join(root, "thumbs") }
 func previewsSubdir(root string) string { return filepath.Join(root, "previews") }
 
-func (s *Service) registerGeneratedMedia(fullPath, thumbPath string, width, height int) (mediaAsset, error) {
+func (s *Service) registerGeneratedMedia(fullPath, thumbPath string, previewWidth, previewHeight int) (mediaAsset, error) {
 	fullAbs, err := filepath.Abs(fullPath)
 	if err != nil {
 		return mediaAsset{}, err
@@ -54,6 +56,10 @@ func (s *Service) registerGeneratedMedia(fullPath, thumbPath string, width, heig
 			return mediaAsset{}, err
 		}
 	}
+	width, height := 0, 0
+	if cfg, cfgErr := imageConfig(fullAbs); cfgErr == nil {
+		width, height = cfg.Width, cfg.Height
+	}
 	id := mediaIDForPath(fullAbs)
 	asset := mediaAsset{
 		ID:            id,
@@ -61,8 +67,10 @@ func (s *Service) registerGeneratedMedia(fullPath, thumbPath string, width, heig
 		ThumbPath:     thumbAbs,
 		FullURL:       "/media/full/" + id,
 		PreviewURL:    "/media/thumb/" + id,
-		PreviewWidth:  width,
-		PreviewHeight: height,
+		Width:         width,
+		Height:        height,
+		PreviewWidth:  previewWidth,
+		PreviewHeight: previewHeight,
 	}
 	s.mu.Lock()
 	if s.mediaAssets == nil {
@@ -127,10 +135,16 @@ func (s *Service) RegisterImportedImageAsset(path string) (MediaAssetRef, error)
 	if err != nil {
 		return MediaAssetRef{}, err
 	}
+	width, height := 0, 0
+	if cfg, cfgErr := imageConfig(allowed); cfgErr == nil {
+		width, height = cfg.Width, cfg.Height
+	}
 	return MediaAssetRef{
 		ImageID:       asset.ID,
 		SavedPath:     allowed,
 		PreviewURL:    asset.PreviewURL,
+		Width:         width,
+		Height:        height,
 		PreviewWidth:  asset.PreviewWidth,
 		PreviewHeight: asset.PreviewHeight,
 	}, nil
@@ -147,13 +161,13 @@ func (s *Service) RegisterMediaAsset(savedPath, thumbPath string) (MediaAssetRef
 			allowedThumb = ""
 		}
 	}
-	width, height := 0, 0
+	previewWidth, previewHeight := 0, 0
 	if allowedThumb != "" {
 		if cfg, cfgErr := imageConfig(allowedThumb); cfgErr == nil {
-			width, height = cfg.Width, cfg.Height
+			previewWidth, previewHeight = cfg.Width, cfg.Height
 		}
 	}
-	asset, err := s.registerGeneratedMedia(allowedFull, allowedThumb, width, height)
+	asset, err := s.registerGeneratedMedia(allowedFull, allowedThumb, previewWidth, previewHeight)
 	if err != nil {
 		return MediaAssetRef{}, err
 	}
@@ -163,6 +177,8 @@ func (s *Service) RegisterMediaAsset(savedPath, thumbPath string) (MediaAssetRef
 		ThumbPath:     asset.ThumbPath,
 		PreviewURL:    asset.PreviewURL,
 		FullURL:       asset.FullURL,
+		Width:         asset.Width,
+		Height:        asset.Height,
 		PreviewWidth:  asset.PreviewWidth,
 		PreviewHeight: asset.PreviewHeight,
 	}, nil

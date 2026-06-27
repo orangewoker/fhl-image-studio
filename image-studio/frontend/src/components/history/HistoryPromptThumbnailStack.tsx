@@ -1,5 +1,6 @@
 import { historyPreviewSrc, useBlobURL } from "../../lib/images";
 import type { HistoryItem } from "../../types/domain";
+import { HistoryApiSourceBadge } from "./HistoryApiSourceBadge";
 import { HistoryModeBadge } from "./HistoryModeBadge";
 
 export function HistoryPromptThumbnailStack({
@@ -29,6 +30,7 @@ function HistoryPromptThumbnailStackLayer({ item, index }: { item: HistoryItem; 
     <span className={`timeline-prompt-card-layer layer-${index}`}>
       <img src={imageSrc} alt="" loading="eager" decoding="async" />
       {index === 0 ? <HistoryModeBadge mode={item.mode} className="timeline-prompt-card-mode" /> : null}
+      {index === 0 ? <HistoryApiSourceBadge source={item} className="timeline-prompt-card-api rounded-[6px]" /> : null}
     </span>
   );
 }

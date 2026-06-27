@@ -1,4 +1,4 @@
-import { ExternalLink, KeyRound } from "lucide-react";
+﻿import { ExternalLink, KeyRound } from "lucide-react";
 import { Modal } from "../common/Modal";
 import { useStudioStore } from "../../state/studioStore";
 import { copyText, FHL_REGISTER_URL } from "../../lib/fhlAPI";
@@ -53,7 +53,7 @@ export function FHLAPIChoiceModal({
         <div className={`border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
           <div className="text-[13px] font-semibold tracking-[0]">请选择你的 API 状态</div>
           <div className="mt-1 text-[12px] leading-5">
-            一键配置只设置 FHL 接口参数，不包含 API Key。已有 Key 的用户直接去输入框粘贴；没有 Key 的用户先注册获取。
+            已有 Key 的用户会先粘贴 1 个 API Key，再自动完成 `FHL-... Responses` 和 `FHL-... Images` 两套配置与真实验权；没有 Key 的用户先注册获取。
           </div>
         </div>
 
@@ -72,7 +72,7 @@ export function FHLAPIChoiceModal({
           >
             <KeyRound className="h-5 w-5" />
             <span className="text-[16px] font-bold tracking-[0]">已有 API</span>
-            <span className="text-[11px] leading-5 opacity-85">自动切到 FHL 推荐配置，并移动到 API Key 输入框。</span>
+            <span className="text-[11px] leading-5 opacity-85">先输入 1 个 Key，再自动配置 Responses / Images 并验权。</span>
           </button>
 
           <button
@@ -96,3 +96,4 @@ export function FHLAPIChoiceModal({
     </Modal>
   );
 }
+

@@ -67,7 +67,7 @@ func TestImagesAPIWithRetriesRetriesFHLNoAvailableAccount(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		if hits < 3 {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, `{"error":{"message":"无可用账号，请稍后重试","type":"upstream_error"}}`)
+			fmt.Fprint(w, `{"error":{"message":"闂佸搫鍟版慨纾嬨亹閺屻儲鍋ㄩ柕濞垮妼椤︹晠鏌涘▎蹇撴缂佽鲸绻勯幏鐘愁槹鎼存ɑ锛嗛梺鍛婅壘闁帮綁宕抽崫銉﹀珰?,"type":"upstream_error"}}`)
 			return
 		}
 		fmt.Fprintf(w, `{"data":[{"b64_json":"%s","revised_prompt":"ok"}]}`, finalB64)
@@ -110,13 +110,13 @@ func TestRequestImagesAPINewAPICompatOmitsStreamingFields(t *testing.T) {
 	defer srv.Close()
 
 	res, err := RequestImagesAPIWithPartial(context.Background(), Options{
-		APIKey:              "sk-test",
-		Prompt:              "cat",
-		BaseURL:             srv.URL,
-		APIMode:             APIModeImages,
-		ImageModelID:         "gpt-image-2",
-		PartialImages:        2,
-		ImagesNewAPICompat:  true,
+		APIKey:             "sk-test",
+		Prompt:             "cat",
+		BaseURL:            srv.URL,
+		APIMode:            APIModeImages,
+		ImageModelID:       "gpt-image-2",
+		PartialImages:      2,
+		ImagesNewAPICompat: true,
 	}, &bytes.Buffer{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -211,5 +211,16 @@ func TestBuildEditsMultipartOmitsMaskWhenEmpty(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), `name="mask"`) {
 		t.Fatal("multipart body should omit mask part when mask is empty")
+	}
+}
+
+func TestParseImagesAPIResponseBytesFormats429Error(t *testing.T) {
+	_, err := parseImagesAPIResponseBytes([]byte(`{"error":{"message":"Upstream rate limit exceeded, please retry later","type":"rate_limit_error"}}`), 429)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	want := "\u4e0a\u6e38\u8fd4\u56de 429:Upstream rate limit exceeded, please retry later"
+	if err.Error() != want {
+		t.Fatalf("err = %q, want %q", err.Error(), want)
 	}
 }

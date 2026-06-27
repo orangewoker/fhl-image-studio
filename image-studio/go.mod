@@ -10,6 +10,7 @@ require (
 	github.com/yuanhua/image-gptcodex v0.0.0-00010101000000-000000000000
 	github.com/zalando/go-keyring v0.2.6
 	golang.org/x/image v0.41.0
+	golang.org/x/sys v0.30.0
 )
 
 replace github.com/yuanhua/image-gptcodex => ../go-cli
@@ -45,7 +46,6 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 )
 

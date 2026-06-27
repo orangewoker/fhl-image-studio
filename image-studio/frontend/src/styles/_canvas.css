@@ -17,6 +17,69 @@
 .canvas-shell > .statusbar { flex: 0 0 auto; }
 .canvas-shell > .stage-host { flex: 1 1 0; min-width: 0; min-height: 0; }
 
+.side-by-side-compare-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 18px;
+  padding: 18px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.side-by-side-compare-panel {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.side-by-side-compare-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.side-by-side-compare-label {
+  position: absolute;
+  top: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.side-by-side-compare-label-left {
+  left: 8px;
+  color: #9ec5ff;
+}
+
+.side-by-side-compare-label-right {
+  right: 8px;
+  color: #cdb8ff;
+}
+
+@media (max-width: 720px) {
+  .side-by-side-compare-overlay {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .side-by-side-compare-panel {
+    border-radius: 8px;
+  }
+}
+
 /* Toolbar above the canvas. */
 .toolbar {
   display: flex; align-items: center; gap: 8px;
@@ -324,6 +387,151 @@ html.dark .source-thumb-remove {
   filter: blur(18px) saturate(0.82);
 }
 
+.canvas-api-source-badge-host {
+  position: absolute;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.canvas-api-source-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+}
+
+.canvas-panorama-pasteback-actions {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 174px;
+  height: 34px;
+  pointer-events: auto;
+}
+
+.canvas-panorama-pasteback-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid rgb(37 99 235 / 0.38);
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.88);
+  color: rgb(30 64 175);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 12px 28px rgb(15 23 42 / 0.18), 0 0 0 1px rgb(255 255 255 / 0.48) inset;
+  backdrop-filter: blur(16px);
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.canvas-panorama-pasteback-button:hover {
+  transform: translateY(-1px);
+  border-color: rgb(37 99 235 / 0.58);
+  background: rgb(255 255 255 / 0.96);
+}
+
+.canvas-panorama-pasteback-button:active {
+  transform: translateY(0);
+}
+
+.canvas-panorama-pasteback-button svg {
+  flex: 0 0 auto;
+}
+
+.canvas-panorama-pasteback-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.canvas-panorama-pasteback-file {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+html.dark .canvas-panorama-pasteback-button {
+  border-color: rgb(96 165 250 / 0.38);
+  background: rgb(15 23 42 / 0.76);
+  color: rgb(191 219 254);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.34), 0 0 0 1px rgb(255 255 255 / 0.08) inset;
+}
+
+html.dark .canvas-panorama-pasteback-button:hover {
+  border-color: rgb(147 197 253 / 0.6);
+  background: rgb(15 23 42 / 0.88);
+}
+
+.single-preview-nav-button {
+  position: absolute;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 1px solid rgb(37 99 235 / 0.34);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.82);
+  color: rgb(37 99 235);
+  box-shadow: 0 14px 36px rgb(15 23 42 / 0.18), 0 0 0 1px rgb(255 255 255 / 0.42) inset;
+  backdrop-filter: blur(16px);
+  cursor: pointer;
+  transition: transform 160ms ease, opacity 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.single-preview-nav-button-left svg { margin-left: -1px; }
+.single-preview-nav-button-right svg { margin-right: -1px; }
+
+.single-preview-nav-button:hover {
+  transform: translateY(-1px);
+  border-color: rgb(37 99 235 / 0.56);
+  background: rgb(255 255 255 / 0.94);
+}
+
+.single-preview-nav-button:active {
+  transform: translateY(0);
+}
+
+.single-preview-nav-button-disabled,
+.single-preview-nav-button-disabled:hover {
+  opacity: 0.42;
+  border-color: rgb(100 116 139 / 0.28);
+  color: rgb(100 116 139);
+  cursor: default;
+  transform: none;
+}
+
+html.dark .single-preview-nav-button {
+  border-color: rgb(96 165 250 / 0.36);
+  background: rgb(15 23 42 / 0.72);
+  color: rgb(147 197 253);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 0.34), 0 0 0 1px rgb(255 255 255 / 0.08) inset;
+}
+
+html.dark .single-preview-nav-button:hover {
+  border-color: rgb(147 197 253 / 0.56);
+  background: rgb(15 23 42 / 0.86);
+}
+
+html.dark .single-preview-nav-button-disabled,
+html.dark .single-preview-nav-button-disabled:hover {
+  color: rgb(148 163 184);
+  border-color: rgb(148 163 184 / 0.24);
+}
+
 .stream-preview-final-wait {
   display: inline-flex;
   align-items: center;
@@ -471,6 +679,90 @@ html.dark .stream-preview-badge {
   color: var(--text);
   font-size: 12px;
   font-weight: 600;
+  min-width: 0;
+}
+.batch-grid-head-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.batch-grid-sort-controls {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, #fff);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 0.05);
+}
+.batch-grid-sort-button {
+  height: 100%;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: color 120ms, background 120ms;
+}
+.batch-grid-sort-button:last-child {
+  border-right: 0;
+}
+.batch-grid-sort-button:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.batch-grid-sort-button.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 82%, #fff);
+}
+.batch-grid-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, #fff);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 0.06);
+}
+.batch-grid-zoom-button {
+  width: 30px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 120ms, background 120ms;
+}
+.batch-grid-zoom-button:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.batch-grid-zoom-button:disabled {
+  color: color-mix(in srgb, var(--text-muted) 42%, transparent);
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+.batch-grid-zoom-label {
+  min-width: 72px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-inline: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 .batch-grid-close {
   border: 1px solid var(--border);
@@ -486,23 +778,41 @@ html.dark .stream-preview-badge {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   background: var(--accent-soft);
 }
+.batch-grid-close-empty {
+  border-color: color-mix(in srgb, var(--text-muted) 30%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, #fff);
+}
 .batch-grid {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
   gap: 10px;
+  align-content: start;
+  justify-content: center;
+  overflow: auto;
+  padding-right: 2px;
 }
 .batch-grid-tile {
   position: relative;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
   background: var(--surface);
   cursor: pointer;
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.10);
   transition: border-color 120ms, box-shadow 120ms, transform 120ms;
+}
+.batch-grid-image-shell {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--canvas-bg);
 }
 .batch-grid-tile:hover {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
@@ -516,19 +826,21 @@ html.dark .stream-preview-badge {
   cursor: default;
 }
 .batch-grid-tile.previewing {
-  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-color: color-mix(in srgb, #f97316 54%, var(--border));
 }
-.batch-grid-tile.previewing img {
-  filter: blur(18px) saturate(0.82);
-  transform: scale(1.08);
+.batch-grid-tile.previewing .batch-grid-image-shell img {
+  filter: blur(26px) saturate(0.65) brightness(0.82);
+  transform: scale(1.14);
 }
 .batch-grid-tile.previewing::after {
   content: "";
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   pointer-events: none;
-  background: rgb(15 23 42 / 0.18);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+  background:
+    linear-gradient(135deg, rgb(15 23 42 / 0.42), rgb(249 115 22 / 0.18));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #f97316 46%, transparent);
 }
 .batch-grid-tile.pending {
   display: grid;
@@ -537,9 +849,54 @@ html.dark .stream-preview-badge {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--surface) 92%, var(--accent)), var(--surface));
 }
+.batch-grid-tile.task-selectable {
+  cursor: pointer;
+}
+.batch-grid-tile.task-selected {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 2px rgb(34 197 94 / 0.82), 0 14px 36px rgb(22 163 74 / 0.18);
+}
+.batch-grid-tile.task-selected::before {
+  content: "已选中";
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 3;
+  border-radius: 999px;
+  background: rgb(22 163 74 / 0.96);
+  color: #fff;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.4;
+  box-shadow: 0 6px 16px rgb(22 163 74 / 0.22);
+}
+.batch-grid-tile.pending-missing {
+  background: color-mix(in srgb, var(--surface) 88%, #fff);
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--text-muted) 28%, var(--border));
+}
+.batch-grid-tile.pending-local_queued {
+  background: color-mix(in srgb, #ecfdf5 58%, var(--surface));
+  border-style: solid;
+  border-color: color-mix(in srgb, #22c55e 42%, var(--border));
+}
+.batch-grid-tile.pending-succeeded_no_image {
+  background: color-mix(in srgb, #fef3c7 46%, var(--surface));
+  border-style: solid;
+  border-color: color-mix(in srgb, #f59e0b 48%, var(--border));
+}
+.batch-grid-tile.pending-cancelled {
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--text-muted) 32%, var(--border));
+  filter: grayscale(0.9) saturate(0.45);
+  opacity: 0.84;
+}
 .batch-grid-tile.failed {
   display: grid;
   place-items: center;
+  overflow: visible;
   cursor: default;
   background:
     linear-gradient(135deg, color-mix(in srgb, #ef4444 10%, var(--surface)), color-mix(in srgb, #fca5a5 12%, var(--surface)));
@@ -547,10 +904,12 @@ html.dark .stream-preview-badge {
   box-shadow: 0 10px 30px rgb(220 38 38 / 0.14);
 }
 .batch-grid-failed-mark {
+  position: relative;
   width: 34px;
   height: 34px;
   display: grid;
   place-items: center;
+  border: 0;
   border-radius: 999px;
   background: rgb(220 38 38 / 0.96);
   color: #fff;
@@ -558,9 +917,57 @@ html.dark .stream-preview-badge {
   font-weight: 800;
   box-shadow: 0 6px 18px rgb(220 38 38 / 0.28);
 }
+.batch-grid-failed-log-button {
+  cursor: pointer;
+  z-index: 4;
+}
+.batch-grid-failed-log-button:hover {
+  background: #b91c1c;
+  box-shadow: 0 8px 24px rgb(220 38 38 / 0.34);
+}
+.batch-grid-failed-log-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 20;
+  display: none;
+  width: min(280px, 76vw);
+  transform: translateX(-50%);
+  border: 1px solid rgb(220 38 38 / 0.24);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 16px 38px rgb(15 23 42 / 0.22);
+  color: #7f1d1d;
+  padding: 9px 10px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.55;
+  text-align: left;
+  white-space: normal;
+  backdrop-filter: blur(14px);
+}
+.batch-grid-failed-log-button:hover .batch-grid-failed-log-tooltip,
+.batch-grid-failed-log-button:focus-visible .batch-grid-failed-log-tooltip {
+  display: block;
+}
+.batch-grid-recovery-chip {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  min-height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgb(120 53 15 / 0.92);
+  color: #fff7ed;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 18px;
+  box-shadow: 0 4px 12px rgb(120 53 15 / 0.22);
+}
 .batch-grid-failed-label {
   position: absolute;
-  bottom: 10px;
+  bottom: 34px;
   left: 50%;
   transform: translateX(-50%);
   color: #b91c1c;
@@ -568,7 +975,160 @@ html.dark .stream-preview-badge {
   font-weight: 700;
   white-space: nowrap;
 }
-.batch-grid-tile img {
+.batch-grid-failure-heading {
+  position: absolute;
+  bottom: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.batch-grid-tile.failed.can-recover-runninghub .batch-grid-failed-label {
+  bottom: 58px;
+}
+.batch-grid-tile.failed.can-recover-runninghub .batch-grid-failure-heading {
+  bottom: 76px;
+}
+.batch-grid-tile.pending-succeeded_no_image .batch-grid-failure-heading {
+  color: #92400e;
+}
+.batch-grid-retry-button {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  min-width: 74px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, #dc2626 72%, #fff);
+  border-radius: 999px;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgb(220 38 38 / 0.16);
+}
+.batch-grid-recover-button {
+  position: absolute;
+  left: 50%;
+  min-width: 90px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, #2563eb 70%, #fff);
+  border-radius: 999px;
+  background: #fff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgb(37 99 235 / 0.16);
+}
+.batch-grid-recover-button.solo {
+  bottom: 8px;
+  transform: translateX(-50%);
+}
+.batch-grid-recover-button.stacked {
+  bottom: 34px;
+  transform: translateX(-50%);
+}
+.batch-grid-recover-button:hover {
+  background: #dbeafe;
+  border-color: #2563eb;
+}
+.batch-grid-recover-button:active {
+  transform: translateX(-50%) translateY(1px);
+}
+.batch-grid-retry-button:hover {
+  background: #fee2e2;
+  border-color: #dc2626;
+}
+.batch-grid-retry-button:active {
+  transform: translateX(-50%) translateY(1px);
+}
+.batch-grid-cancel-button,
+.batch-grid-promote-button {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  min-width: 74px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, #f97316 72%, #fff);
+  border-radius: 999px;
+  background: #fff;
+  color: #c2410c;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgb(249 115 22 / 0.16);
+}
+.batch-grid-promote-button {
+  bottom: 34px;
+  border-color: color-mix(in srgb, #2563eb 72%, #fff);
+  color: #1d4ed8;
+  box-shadow: 0 4px 12px rgb(37 99 235 / 0.16);
+}
+.batch-grid-cancel-button:hover {
+  background: #ffedd5;
+  border-color: #f97316;
+}
+.batch-grid-promote-button:hover {
+  background: #dbeafe;
+  border-color: #2563eb;
+}
+.batch-grid-cancel-button:active,
+.batch-grid-promote-button:active {
+  transform: translateX(-50%) translateY(1px);
+}
+.batch-grid-failure-log-modal {
+  display: grid;
+  gap: 12px;
+}
+.batch-grid-failure-log-pre {
+  max-height: 52vh;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, #dc2626 20%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, #fff 94%, #fee2e2);
+  color: #7f1d1d;
+  padding: 12px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.batch-grid-failure-log-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.batch-grid-failure-log-raw-button {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-soft) 72%, #fff);
+  color: var(--accent);
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.batch-grid-failure-log-raw-button:hover {
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 88%, #fff);
+}
+.batch-grid-image-shell img {
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -589,6 +1149,138 @@ html.dark .stream-preview-badge {
 }
 .batch-grid-index { left: 8px; }
 .batch-grid-meta { right: 8px; font-family: var(--mono-font); }
+.batch-grid-api-source {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 3;
+  max-width: calc(100% - 16px);
+  pointer-events: none;
+}
+
+.batch-grid-pixel-size {
+  right: 8px;
+  bottom: 8px;
+}
+.batch-grid-source-anchor {
+  position: absolute;
+  left: 8px;
+  top: 34px;
+  z-index: 3;
+  transform: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  min-height: 22px;
+  max-width: calc(100% - 16px);
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  background: rgb(255 255 255 / 0.9);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 0.12);
+  backdrop-filter: blur(10px);
+  cursor: zoom-in;
+}
+.batch-grid-source-popover {
+  position: fixed;
+  z-index: 9500;
+  display: grid;
+  gap: 8px;
+  width: min(210px, calc(100vw - 24px));
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--panel) 92%, #fff);
+  box-shadow: 0 18px 40px rgb(15 23 42 / 0.22);
+  opacity: 1;
+  pointer-events: none;
+}
+.batch-grid-source-popover-title {
+  display: block;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.45;
+  text-align: left;
+  word-break: break-word;
+}
+.batch-grid-source-popover-image {
+  width: 100%;
+  max-height: 150px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: var(--canvas-bg);
+}
+.batch-grid-source-popover-empty {
+  display: grid;
+  place-items: center;
+  min-height: 74px;
+  padding: 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-2) 84%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+}
+.batch-grid-source-popover-path {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+.batch-grid-status-chip {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  max-width: calc(100% - 16px);
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 26%, transparent);
+  background: rgb(255 255 255 / 0.88);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 0.12);
+  backdrop-filter: blur(10px);
+}
+.batch-grid-status-chip-processing {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--surface) 90%, #fff);
+  color: var(--accent);
+}
+.batch-grid-status-chip-queued {
+  border-color: color-mix(in srgb, #16a34a 34%, transparent);
+  background: #f0fdf4;
+  color: #15803d;
+}
+.batch-grid-status-chip-warning {
+  border-color: color-mix(in srgb, #f59e0b 38%, transparent);
+  background: #fff7ed;
+  color: #b45309;
+}
+.batch-grid-status-chip-muted {
+  border-color: color-mix(in srgb, var(--text-muted) 30%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, #fff);
+  color: var(--text-muted);
+}
+.batch-grid-tile.task-selected .batch-grid-status-chip {
+  top: 34px;
+}
 .batch-grid-preview-wait {
   position: absolute;
   left: 50%;
@@ -598,10 +1290,11 @@ html.dark .stream-preview-badge {
   max-width: calc(100% - 28px);
   padding: 8px 11px;
   border-radius: 8px;
-  background: rgb(0 0 0 / 0.62);
+  border: 1px solid rgb(255 255 255 / 0.24);
+  background: rgb(15 23 42 / 0.78);
   color: #fff;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 800;
   line-height: 1.35;
   text-align: center;
   white-space: normal;
@@ -616,25 +1309,234 @@ html.dark .stream-preview-badge {
   border-top-color: var(--accent);
   animation: stream-preview-pulse 1.2s ease-in-out infinite;
 }
+.batch-grid-pending-static-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 34%, var(--border));
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+}
+.batch-grid-pending-static-mark::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 64%, transparent);
+}
+.batch-grid-tile.pending-succeeded_no_image .batch-grid-pending-static-mark {
+  border-color: color-mix(in srgb, #f59e0b 58%, var(--border));
+  background: #fff7ed;
+}
+.batch-grid-tile.pending-succeeded_no_image .batch-grid-pending-static-mark::before {
+  background: #f59e0b;
+}
+.batch-grid-tile.pending-local_queued .batch-grid-pending-static-mark {
+  border-color: color-mix(in srgb, #16a34a 58%, var(--border));
+  background: #f0fdf4;
+}
+.batch-grid-tile.pending-local_queued .batch-grid-pending-static-mark::before {
+  background: #16a34a;
+}
 .batch-grid-pending-label {
   position: absolute;
-  bottom: 10px;
+  bottom: 36px;
   left: 50%;
   transform: translateX(-50%);
   color: var(--text-muted);
   font-size: 11px;
   white-space: nowrap;
 }
+.batch-grid-tile.can-cancel .batch-grid-pending-label {
+  bottom: 60px;
+  font-weight: 700;
+}
+.batch-grid-tile.can-promote .batch-grid-pending-label {
+  bottom: 84px;
+  font-weight: 700;
+}
+.batch-grid-tile.pending-succeeded_no_image .batch-grid-pending-label {
+  color: #b45309;
+  font-weight: 700;
+}
+.batch-grid-tile.pending-local_queued .batch-grid-pending-label {
+  color: #15803d;
+  font-weight: 700;
+}
+.batch-grid[data-density="dense"] .batch-grid-index,
+.batch-grid[data-density="dense"] .batch-grid-meta,
+.batch-grid[data-density="micro"] .batch-grid-index,
+.batch-grid[data-density="micro"] .batch-grid-meta {
+  top: 5px;
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-size: 10px;
+}
+.batch-grid[data-density="dense"] .batch-grid-index,
+.batch-grid[data-density="micro"] .batch-grid-index { left: 5px; }
+.batch-grid[data-density="dense"] .batch-grid-meta,
+.batch-grid[data-density="micro"] .batch-grid-meta { right: 5px; }
+.batch-grid[data-density="dense"] .batch-grid-api-source,
+.batch-grid[data-density="micro"] .batch-grid-api-source {
+  left: 5px;
+  bottom: 5px;
+  max-width: calc(100% - 10px);
+  font-size: 9px;
+}
+.batch-grid[data-density="dense"] .batch-grid-pixel-size,
+.batch-grid[data-density="micro"] .batch-grid-pixel-size {
+  right: 5px;
+  bottom: 5px;
+  max-width: calc(100% - 10px);
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 9px;
+}
+.batch-grid[data-density="dense"] .batch-grid-source-anchor,
+.batch-grid[data-density="micro"] .batch-grid-source-anchor {
+  left: 5px;
+  top: 27px;
+  min-width: 32px;
+  min-height: 18px;
+  max-width: calc(100% - 10px);
+  padding: 0 4px;
+  font-size: 8px;
+}
+.batch-grid[data-density="dense"] .batch-grid-source-popover,
+.batch-grid[data-density="micro"] .batch-grid-source-popover {
+  padding: 8px;
+  gap: 6px;
+}
+.batch-grid[data-density="dense"] .batch-grid-source-popover-image,
+.batch-grid[data-density="micro"] .batch-grid-source-popover-image {
+  max-height: 120px;
+}
+.batch-grid[data-density="dense"] .batch-grid-source-popover-title,
+.batch-grid[data-density="micro"] .batch-grid-source-popover-title,
+.batch-grid[data-density="dense"] .batch-grid-source-popover-path,
+.batch-grid[data-density="micro"] .batch-grid-source-popover-path,
+.batch-grid[data-density="dense"] .batch-grid-source-popover-empty,
+.batch-grid[data-density="micro"] .batch-grid-source-popover-empty {
+  font-size: 9px;
+}
+.batch-grid[data-density="dense"] .batch-grid-status-chip,
+.batch-grid[data-density="micro"] .batch-grid-status-chip {
+  right: 5px;
+  top: 5px;
+  min-height: 18px;
+  padding: 0 6px;
+  font-size: 9px;
+}
+.batch-grid[data-density="dense"] .batch-grid-tile.task-selected .batch-grid-status-chip,
+.batch-grid[data-density="micro"] .batch-grid-tile.task-selected .batch-grid-status-chip {
+  top: 28px;
+}
+.batch-grid[data-density="dense"] .batch-grid-pending-ring,
+.batch-grid[data-density="dense"] .batch-grid-pending-static-mark,
+.batch-grid[data-density="micro"] .batch-grid-pending-ring,
+.batch-grid[data-density="micro"] .batch-grid-pending-static-mark {
+  width: 26px;
+  height: 26px;
+}
+.batch-grid[data-density="dense"] .batch-grid-failed-mark,
+.batch-grid[data-density="micro"] .batch-grid-failed-mark {
+  width: 26px;
+  height: 26px;
+  font-size: 14px;
+}
+.batch-grid[data-density="dense"] .batch-grid-recovery-chip,
+.batch-grid[data-density="micro"] .batch-grid-recovery-chip {
+  top: 5px;
+  right: 5px;
+  min-height: 16px;
+  padding: 0 6px;
+  font-size: 9px;
+  line-height: 16px;
+}
+.batch-grid[data-density="dense"] .batch-grid-failed-label,
+.batch-grid[data-density="dense"] .batch-grid-pending-label,
+.batch-grid[data-density="micro"] .batch-grid-failed-label,
+.batch-grid[data-density="micro"] .batch-grid-pending-label {
+  bottom: 24px;
+  font-size: 10px;
+}
+.batch-grid[data-density="dense"] .batch-grid-failure-heading,
+.batch-grid[data-density="micro"] .batch-grid-failure-heading {
+  bottom: 38px;
+  font-size: 10px;
+}
+.batch-grid[data-density="dense"] .batch-grid-tile.failed.can-recover-runninghub .batch-grid-failed-label,
+.batch-grid[data-density="micro"] .batch-grid-tile.failed.can-recover-runninghub .batch-grid-failed-label {
+  bottom: 44px;
+}
+.batch-grid[data-density="dense"] .batch-grid-tile.failed.can-recover-runninghub .batch-grid-failure-heading,
+.batch-grid[data-density="micro"] .batch-grid-tile.failed.can-recover-runninghub .batch-grid-failure-heading {
+  bottom: 60px;
+}
+.batch-grid[data-density="dense"] .batch-grid-retry-button,
+.batch-grid[data-density="dense"] .batch-grid-recover-button,
+.batch-grid[data-density="dense"] .batch-grid-cancel-button,
+.batch-grid[data-density="dense"] .batch-grid-promote-button,
+.batch-grid[data-density="micro"] .batch-grid-retry-button,
+.batch-grid[data-density="micro"] .batch-grid-recover-button,
+.batch-grid[data-density="micro"] .batch-grid-cancel-button,
+.batch-grid[data-density="micro"] .batch-grid-promote-button {
+  bottom: 6px;
+  min-width: 66px;
+  height: 20px;
+  padding: 0 8px;
+  font-size: 10px;
+  line-height: 18px;
+}
+.batch-grid[data-density="dense"] .batch-grid-recover-button.stacked,
+.batch-grid[data-density="micro"] .batch-grid-recover-button.stacked {
+  bottom: 28px;
+}
+.batch-grid[data-density="dense"] .batch-grid-promote-button,
+.batch-grid[data-density="micro"] .batch-grid-promote-button {
+  bottom: 28px;
+}
+.batch-grid[data-density="dense"] .batch-grid-tile.can-cancel .batch-grid-pending-label,
+.batch-grid[data-density="micro"] .batch-grid-tile.can-cancel .batch-grid-pending-label {
+  bottom: 48px;
+}
+.batch-grid[data-density="dense"] .batch-grid-tile.can-promote .batch-grid-pending-label,
+.batch-grid[data-density="micro"] .batch-grid-tile.can-promote .batch-grid-pending-label {
+  bottom: 70px;
+}
+.batch-grid[data-density="micro"] .batch-grid-failed-label,
+.batch-grid[data-density="micro"] .batch-grid-pending-label,
+.batch-grid[data-density="micro"] .batch-grid-failure-heading {
+  max-width: calc(100% - 10px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Status bar pinned to bottom of canvas-shell. */
 .statusbar {
   display: flex; align-items: center; gap: 14px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   padding: 10px 14px;
   border-top: 1px solid var(--border);
   background: var(--panel-2);
   font-size: 12px;
   color: var(--text-muted);
   min-height: 38px;
+}
+.statusbar > * {
+  min-width: 0;
+}
+.statusbar > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.statusbar > svg {
+  flex: 0 0 auto;
 }
 .statusbar .progress-bar {
   flex: 1;

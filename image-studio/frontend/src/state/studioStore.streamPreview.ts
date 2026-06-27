@@ -120,7 +120,8 @@ export function streamPreviewStatePatch(
         ? {
             ...activeRuntimePatch(patch),
             compareB: null,
-            resultGridOpen: true,
+            compareMode: "curtain",
+            resultGridOpen: state.resultGridOpen,
             annotations: [],
             strokes: [],
             maskDataURL: null,
@@ -130,6 +131,7 @@ export function streamPreviewStatePatch(
             ...activeRuntimePatch(patch),
             currentImage: item,
             compareB: null,
+            compareMode: "curtain",
             resultGridOpen: false,
             annotations: [],
             strokes: [],
@@ -220,6 +222,9 @@ export function currentImageIdForWorkspaceSnapshot(
   const fallback = typeof streamPreviewsOrFallback === "string" || streamPreviewsOrFallback === null
     ? streamPreviewsOrFallback
     : fallbackCurrentImageId ?? null;
+  if (currentImage?.id?.startsWith("source-preview-") === true) {
+    return fallback;
+  }
   if (streamPreview?.jobId && currentImage?.id === `preview-${streamPreview.jobId}`) {
     return fallback;
   }

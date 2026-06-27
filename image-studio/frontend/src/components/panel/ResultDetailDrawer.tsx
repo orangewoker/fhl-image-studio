@@ -1,28 +1,97 @@
-import { ClipboardCopy, Folder, RotateCw, Save, Share2, Sparkles } from "lucide-react";
-import { useStudioStore } from "../../state/studioStore";
-import { OpenOutputDir } from "../../platform/runtime/host";
-import { submitShortcutLabel } from "../../platform";
+import { ClipboardCopy, Compass, Folder, RotateCw, Save, Share2, Sparkles } from "lucide-react";
+import type React from "react";
+import {
+  buildHistoryItemDragExport,
+  writeImageFileDragData,
+  writeInternalHistoryItemDragData,
+} from "../../lib/dragExport.ts";
 import { historyPreviewSrc, useBlobURL } from "../../lib/images";
-import { androidSaveHint, androidTarget, openOutputLocationForPlatform } from "../../platform/android/bridge";
-import { Modal } from "../common/Modal";
-import { usePlatform } from "../../platform/context";
+import { apiSourceDetailLabel } from "../history/historyApiSource";
 import { qualityLabel, sizeLabel } from "../history/historyLabels";
+import { useHistoryContextMenu } from "../history/useHistoryContextMenu";
+import { usePlatform } from "../../platform/context";
+import { submitShortcutLabel } from "../../platform";
+import { androidSaveHint, androidTarget, openOutputLocationForPlatform } from "../../platform/android/bridge";
+import { BeginNativeFileDrag, OpenOutputDir } from "../../platform/runtime/host";
+import { resolvePanoramaRoundtripRef } from "../../panorama/core";
+import { useStudioStore } from "../../state/studioStore";
+import { ContextMenu } from "../common/ContextMenu";
+import { Modal } from "../common/Modal";
+import { RawResponseModal } from "../history/RawResponseModal";
 
 export function ResultDetailDrawer() {
   const item = useStudioStore((s) => s.resultDetail);
   const close = useStudioStore((s) => s.closeResultDetail);
   const setField = useStudioStore((s) => s.setField);
   const pushToast = useStudioStore((s) => s.pushToast);
+  const currentImage = useStudioStore((s) => s.currentImage);
+  const compareB = useStudioStore((s) => s.compareB);
+  const setCompareB = useStudioStore((s) => s.setCompareB);
+  const openResultDetail = useStudioStore((s) => s.openResultDetail);
+  const openPanoramaViewer = useStudioStore((s) => s.openPanoramaViewer);
+  const applyHistoryParams = useStudioStore((s) => s.applyHistoryParams);
+  const regenerateFromHistory = useStudioStore((s) => s.regenerateFromHistory);
+  const reuseAsSource = useStudioStore((s) => s.reuseAsSource);
+  const openPanoramaPastebackAligner = useStudioStore((s) => s.openPanoramaPastebackAligner);
+  const deleteHistoryItem = useStudioStore((s) => s.deleteHistoryItem);
   const saveHistoryItemAs = useStudioStore((s) => s.saveHistoryItemAs);
   const shareHistoryItem = useStudioStore((s) => s.shareHistoryItem);
-  const { usesFluentUI } = usePlatform();
+  const { isMac, usesFluentUI } = usePlatform();
 
   if (!item) return null;
   const detail = item;
+  const canRepastePanorama = !!resolvePanoramaRoundtripRef(detail);
+  const canOpenPanorama = true;
 
   const created = new Date(detail.createdAt).toLocaleString();
   const previewURL = useBlobURL(detail.previewBlob ?? detail.imageBlob ?? null, detail.imageB64 ?? null);
   const imageSrc = historyPreviewSrc(detail, previewURL);
+  const dragSpec = buildHistoryItemDragExport(detail, imageSrc);
+  const {
+    buildMenu,
+    closeMenu,
+    closeRaw,
+    menu,
+    openMenu,
+    rawPath,
+  } = useHistoryContextMenu({
+    currentImageId: currentImage?.id ?? null,
+    compareItemId: compareB?.id ?? null,
+    onOpenDetail: openResultDetail,
+    onOpenPanorama: (target) => void openPanoramaViewer(target),
+    onApplyParams: applyHistoryParams,
+    onRegenerate: (target) => void regenerateFromHistory(target),
+    onReuseAsSource: (target) => void reuseAsSource(target),
+    onRepastePanorama: (target) => openPanoramaPastebackAligner(target),
+    onSaveOriginal: (target) => void saveHistoryItemAs(target),
+    onShare: (target) => void shareHistoryItem(target),
+    onToggleCompare: (target) => setCompareB(compareB?.id === target.id ? null : target),
+    onDelete: (target) => {
+      if (target.previewOnly) return;
+      if (window.confirm(`确定删除这条历史记录？\n\n${target.prompt?.slice(0, 60) || "(无 prompt)"}`)) {
+        void deleteHistoryItem(target.id).finally(close);
+      }
+    },
+    pushToast,
+  });
+
+  function handlePreviewDragStart(event: React.DragEvent<HTMLDivElement>) {
+    if (!dragSpec) {
+      event.preventDefault();
+      return;
+    }
+    event.stopPropagation();
+    if (isMac && detail.savedPath) {
+      event.preventDefault();
+      void BeginNativeFileDrag(detail.savedPath).catch((error) => {
+        console.error("[drag-export] native-file-drag failed", error);
+      });
+      return;
+    }
+    event.dataTransfer.effectAllowed = "copy";
+    writeInternalHistoryItemDragData(event.dataTransfer, detail);
+    writeImageFileDragData(event.dataTransfer, dragSpec);
+  }
 
   function copy(text: string, label: string) {
     navigator.clipboard.writeText(text).then(
@@ -33,39 +102,73 @@ export function ResultDetailDrawer() {
 
   function useAsNextPrompt(text: string) {
     setField("prompt", text);
-    pushToast(`已应用为下次提示词,${submitShortcutLabel} 可直接提交`, "success");
+    pushToast(`已应用为下次提示词，${submitShortcutLabel} 可直接提交`, "success");
     close();
   }
 
   function openOutputLocation() {
-    openOutputLocationForPlatform(OpenOutputDir).catch((e) => pushToast(e?.message ?? "无法打开保存位置", "warn"));
+    openOutputLocationForPlatform(OpenOutputDir).catch((error) => {
+      pushToast(error?.message ?? "无法打开保存位置", "warn");
+    });
   }
 
   return (
     <Modal open onClose={close} title="生成详情" width={720}>
       <div className="grid gap-4 md:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
         <section className={`platform-card border border-black/[0.05] bg-white/72 p-3 shadow-[var(--shadow-card)] dark:border-white/[0.06] dark:bg-white/[0.03] ${usesFluentUI ? "rounded-[12px]" : "rounded-[18px]"}`}>
-          <div className={`flex items-center justify-center border border-black/[0.08] bg-[var(--surface)] p-2 dark:border-white/[0.06] ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}>
+          <div
+            draggable={!!dragSpec}
+            onDragStart={handlePreviewDragStart}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              openMenu(detail, event.clientX, event.clientY);
+            }}
+            title={dragSpec ? "拖到文件夹导出结果图" : undefined}
+            className={`flex items-center justify-center border border-black/[0.08] bg-[var(--surface)] p-2 dark:border-white/[0.06] ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
+          >
             <img
               src={imageSrc}
               alt="生成结果"
               decoding="async"
+              draggable={false}
               className={`max-h-[300px] max-w-full object-contain ${usesFluentUI ? "rounded-[8px]" : "rounded-[12px]"}`}
             />
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
-            <Btn onClick={() => void saveHistoryItemAs(detail)}><Save className="w-3 h-3" /> 保存原图</Btn>
-            <Btn onClick={() => void shareHistoryItem(detail)}><Share2 className="w-3 h-3" /> 分享</Btn>
-            <Btn onClick={openOutputLocation}><Folder className="w-3 h-3" /> 打开文件夹</Btn>
+            {canOpenPanorama ? (
+              <Btn primary onClick={() => void openPanoramaViewer(detail)}>
+                <Compass className="h-3 w-3" />
+                进入全景查看
+              </Btn>
+            ) : null}
+            {canRepastePanorama ? (
+              <Btn onClick={() => openPanoramaPastebackAligner(detail)}>
+                <RotateCw className="h-3 w-3" />
+                手动贴回360
+              </Btn>
+            ) : null}
+            <Btn onClick={() => void saveHistoryItemAs(detail)}>
+              <Save className="h-3 w-3" />
+              保存原图
+            </Btn>
+            <Btn onClick={() => void shareHistoryItem(detail)}>
+              <Share2 className="h-3 w-3" />
+              分享
+            </Btn>
+            <Btn onClick={openOutputLocation}>
+              <Folder className="h-3 w-3" />
+              打开文件夹
+            </Btn>
           </div>
-          {androidTarget.isAndroid && (
+          {androidTarget.isAndroid ? (
             <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">{androidSaveHint()}</p>
-          )}
+          ) : null}
         </section>
 
         <div className="space-y-4">
           <Section title="参数">
             <Kv label="模式" value={detail.mode === "edit" ? "图生图" : "文生图"} />
+            {detail.apiMode ? <Kv label="生成 API" value={apiSourceDetailLabel(detail)} /> : null}
             <Kv label="尺寸" value={sizeLabel(detail.size)} />
             <Kv label="质量" value={qualityLabel(detail.quality)} />
             {detail.seed ? <Kv label="种子" value={String(detail.seed)} mono /> : null}
@@ -76,35 +179,55 @@ export function ResultDetailDrawer() {
 
           <Section title="原始提示词">
             <PromptBlock>{detail.prompt || <em className="opacity-60">(空)</em>}</PromptBlock>
-            {detail.prompt && (
+            {detail.prompt ? (
               <div className="flex flex-wrap gap-1.5">
-                <Btn onClick={() => copy(detail.prompt, "原始提示词")}><ClipboardCopy className="w-3 h-3" /> 复制</Btn>
-                <Btn onClick={() => useAsNextPrompt(detail.prompt)}><RotateCw className="w-3 h-3" /> 用作下次提示词</Btn>
+                <Btn onClick={() => copy(detail.prompt, "原始提示词")}>
+                  <ClipboardCopy className="h-3 w-3" />
+                  复制
+                </Btn>
+                <Btn onClick={() => useAsNextPrompt(detail.prompt)}>
+                  <RotateCw className="h-3 w-3" />
+                  用作下次提示词
+                </Btn>
               </div>
-            )}
+            ) : null}
           </Section>
 
-          {detail.revisedPrompt && (
+          {detail.revisedPrompt ? (
             <Section
-              title={<span className="inline-flex items-center gap-1.5"><Sparkles className="w-3 h-3 text-[var(--accent)]" /> 优化后提示词</span>}
+              title={(
+                <span className="inline-flex items-center gap-1.5">
+                  <Sparkles className="h-3 w-3 text-[var(--accent)]" />
+                  优化后提示词
+                </span>
+              )}
               hint="Responses API 模式下文本模型可能会重写你的提示词。"
             >
               <PromptBlock highlight>{detail.revisedPrompt}</PromptBlock>
               <div className="flex flex-wrap gap-1.5">
-                <Btn onClick={() => copy(detail.revisedPrompt!, "优化后提示词")}><ClipboardCopy className="w-3 h-3" /> 复制</Btn>
-                <Btn primary onClick={() => useAsNextPrompt(detail.revisedPrompt!)}><RotateCw className="w-3 h-3" /> 用作下次提示词</Btn>
+                <Btn onClick={() => copy(detail.revisedPrompt!, "优化后提示词")}>
+                  <ClipboardCopy className="h-3 w-3" />
+                  复制
+                </Btn>
+                <Btn primary onClick={() => useAsNextPrompt(detail.revisedPrompt!)}>
+                  <RotateCw className="h-3 w-3" />
+                  用作下次提示词
+                </Btn>
               </div>
             </Section>
-          )}
+          ) : null}
 
-          {detail.negativePrompt && (
+          {detail.negativePrompt ? (
             <Section title="负向提示词">
               <PromptBlock muted>{detail.negativePrompt}</PromptBlock>
               <div className="flex flex-wrap gap-1.5">
-                <Btn onClick={() => copy(detail.negativePrompt!, "负向提示词")}><ClipboardCopy className="w-3 h-3" /> 复制</Btn>
+                <Btn onClick={() => copy(detail.negativePrompt!, "负向提示词")}>
+                  <ClipboardCopy className="h-3 w-3" />
+                  复制
+                </Btn>
               </div>
             </Section>
-          )}
+          ) : null}
 
           <Section title="文件">
             {detail.savedPath ? (
@@ -112,21 +235,37 @@ export function ResultDetailDrawer() {
                 {detail.savedPath}
               </p>
             ) : (
-              <p className="text-xs italic text-zinc-500">(本次未落盘 / 路径丢失)</p>
+              <p className="text-xs italic text-zinc-500">(本次未落地 / 路径丢失)</p>
             )}
-            {detail.savedPath && (
+            {detail.savedPath ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
-                <Btn onClick={() => copy(detail.savedPath!, "文件路径")}><ClipboardCopy className="w-3 h-3" /> 复制路径</Btn>
+                <Btn onClick={() => copy(detail.savedPath!, "文件路径")}>
+                  <ClipboardCopy className="h-3 w-3" />
+                  复制路径
+                </Btn>
               </div>
-            )}
+            ) : null}
           </Section>
         </div>
       </div>
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildMenu(menu.item)}
+          onClose={closeMenu}
+        />
+      ) : null}
+      {rawPath ? <RawResponseModal path={rawPath} onClose={closeRaw} /> : null}
     </Modal>
   );
 }
 
-function Section({ title, hint, children }: {
+function Section({
+  title,
+  hint,
+  children,
+}: {
   title: React.ReactNode;
   hint?: string;
   children: React.ReactNode;
@@ -135,7 +274,7 @@ function Section({ title, hint, children }: {
   return (
     <section className={`platform-card border border-black/[0.05] bg-white/72 p-4 shadow-[var(--shadow-card)] dark:border-white/[0.06] dark:bg-white/[0.03] ${usesFluentUI ? "rounded-[12px]" : "rounded-[18px]"}`}>
       <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">{title}</h3>
-      {hint && <p className="mb-2 text-[10px] leading-relaxed text-zinc-500">{hint}</p>}
+      {hint ? <p className="mb-2 text-[10px] leading-relaxed text-zinc-500">{hint}</p> : null}
       {children}
     </section>
   );
@@ -150,26 +289,36 @@ function Kv({ label, value, mono }: { label: string; value: string; mono?: boole
   );
 }
 
-function PromptBlock({ children, muted, highlight }: {
+function PromptBlock({
+  children,
+  muted,
+  highlight,
+}: {
   children: React.ReactNode;
   muted?: boolean;
   highlight?: boolean;
 }) {
   const { usesFluentUI } = usePlatform();
   return (
-    <p className={`mb-2 whitespace-pre-wrap break-words px-3 py-2 text-xs leading-relaxed ${
-      highlight
-        ? "border border-[color:var(--accent)]/20 bg-[var(--accent-soft)] text-[var(--accent)]"
-        : muted
-          ? "border border-black/[0.06] bg-[var(--surface)] text-zinc-500 dark:border-white/[0.04]"
-          : "border border-black/[0.06] bg-[var(--surface)] text-zinc-700 dark:border-white/[0.04] dark:text-zinc-300"
-    } ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
+    <p
+      className={`mb-2 whitespace-pre-wrap break-words px-3 py-2 text-xs leading-relaxed ${
+        highlight
+          ? "border border-[color:var(--accent)]/20 bg-[var(--accent-soft)] text-[var(--accent)]"
+          : muted
+            ? "border border-black/[0.06] bg-[var(--surface)] text-zinc-500 dark:border-white/[0.04]"
+            : "border border-black/[0.06] bg-[var(--surface)] text-zinc-700 dark:border-white/[0.04] dark:text-zinc-300"
+      } ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
+    >
       {children}
     </p>
   );
 }
 
-function Btn({ children, onClick, primary }: {
+function Btn({
+  children,
+  onClick,
+  primary,
+}: {
   children: React.ReactNode;
   onClick: () => void;
   primary?: boolean;

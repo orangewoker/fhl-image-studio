@@ -43,7 +43,7 @@ func RequestAndExtractWithPartial(
 		baseURL = strings.TrimSpace(BaseURL)
 	}
 	if baseURL == "" {
-		return ImageResult{}, errors.New("未配置上游 BASE_URL,请在「设置 → 上游 BASE_URL」中填入兼容 Responses API 的中转站地址")
+		return ImageResult{}, errors.New("\u7f3a\u5c11\u4e0a\u6e38 BASE_URL\uff0c\u8bf7\u5728\u8bbe\u7f6e\u91cc\u586b\u5199\u517c\u5bb9 Responses API \u7684\u4e2d\u8f6c\u7ad9\u5730\u5740")
 	}
 	baseURL, err = ValidateBaseURL(baseURL)
 	if err != nil {
@@ -69,7 +69,7 @@ func RequestAndExtractWithPartial(
 	ticker := time.NewTicker(time.Duration(StatusIntervalSecond) * time.Second)
 	defer ticker.Stop()
 
-	lastStage := "等待接口响应"
+	lastStage := "\u7b49\u5f85\u4e0a\u6e38\u8fd4\u56de"
 	var streamErr error
 loop:
 	for {
@@ -85,7 +85,7 @@ loop:
 			break loop
 		case stage, ok := <-progressCh:
 			if !ok {
-				// Channel closed before done signal — drain.
+				// Channel closed before done signal 闂?drain.
 				continue
 			}
 			lastStage = stage
@@ -98,9 +98,8 @@ loop:
 	}
 
 	if streamErr != nil {
-		// Stream errored mid-flight。但常见场景:上游已经把 final event(含完整
-		// base64 result)发完之后,Cloudflare/上游 nginx 在 idle 阶段才把连接 reset。
-		// 这时 collector 里其实已经提取到完整图;不该浪费一次重试。
+		// If the stream ends after the final image event was already received,
+		// prefer the collected result instead of surfacing a late transport error.
 		if result, perr := collector.result(); perr == nil && result.ImageB64 != "" {
 			return result, nil
 		}
@@ -115,7 +114,7 @@ loop:
 // (sse-response-{timestamp}-attempt{N}.txt) under outputDir.
 //
 // Dispatches between the Responses API SSE flow and the standard Images API
-// based on opts.APIMode. Empty / "responses" → SSE; "images" → Images API.
+// based on opts.APIMode. Empty / "responses" 闂?SSE; "images" 闂?Images API.
 //
 // Returns the final ImageResult and the path of the last raw-response file
 // (handy for the CLI to print).
@@ -141,10 +140,16 @@ func RequestAndExtractWithRetriesAndPartial(
 	onProgress func(stage string, elapsed int, bytes int64),
 	onPartial func(PartialImage),
 ) (ImageResult, string, error) {
-	if opts.APIMode == APIModeImages {
+	switch opts.APIMode {
+	case APIModeImages:
 		return imagesAPIWithRetries(ctx, opts, outputDir, timestamp, onLog, onProgress, onPartial)
+	case APIModeApimart:
+		return apimartAPIWithRetries(ctx, opts, outputDir, timestamp, onLog, onProgress)
+	case APIModeRunningHub:
+		return runningHubAPIWithRetries(ctx, opts, outputDir, timestamp, onLog, onProgress)
+	default:
+		return responsesAPIWithRetries(ctx, transport, opts, outputDir, timestamp, onLog, onProgress, onPartial)
 	}
-	return responsesAPIWithRetries(ctx, transport, opts, outputDir, timestamp, onLog, onProgress, onPartial)
 }
 
 func responsesAPIWithRetries(
@@ -172,7 +177,7 @@ func responsesAPIWithRetries(
 		attemptOpts := stabilizeResponsesOptionsForAttempt(opts, attempt)
 		rawPath := filepath.Join(outputDir, fmt.Sprintf("sse-response-%s-attempt%d.txt", timestamp, attempt))
 		lastPath = rawPath
-		onLog(fmt.Sprintf("第 %d/%d 次请求...", attempt, MaxAttempts))
+		onLog(fmt.Sprintf("Responses API attempt %d/%d...", attempt, MaxAttempts))
 
 		f, err := os.OpenFile(rawPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 		if err != nil {
@@ -186,7 +191,6 @@ func responsesAPIWithRetries(
 			return result, rawPath, nil
 		}
 
-		// Decide whether to retry based on the body we just wrote.
 		rawBytes, _ := os.ReadFile(rawPath)
 		raw := string(rawBytes)
 
@@ -196,22 +200,19 @@ func responsesAPIWithRetries(
 			if attempt < MaxAttempts && (IsRetryable(raw) || shouldRetryNoImageResponse(raw)) {
 				onLog(reason)
 				onLog(retryHintForResponsesAttempt(attempt, opts))
-				onLog(fmt.Sprintf("这是可重试错误,%d 秒后自动重试...", RetryBackoffSeconds))
+				onLog(fmt.Sprintf("Auto retrying in %d seconds...", RetryBackoffSeconds))
 				if !sleepCtx(ctx, time.Duration(RetryBackoffSeconds)*time.Second) {
 					return ImageResult{}, lastPath, ctx.Err()
 				}
 				continue
 			}
-			// 路径不再拼进 error message;调用方通过返回值里的 lastPath
-			// 单独拿,前端用「查看日志」按钮直接打开。
 			return ImageResult{}, lastPath, fmt.Errorf("%s", reason)
 		}
 
-		// Transport-level error (network / native HTTP failure). Retry up to MaxAttempts.
 		lastErr = reqErr
 		if attempt < MaxAttempts {
 			onLog(fmt.Sprintf("%v", reqErr))
-			onLog(fmt.Sprintf("%d 秒后自动重试...", RetryBackoffSeconds))
+			onLog(fmt.Sprintf("Auto retrying in %d seconds...", RetryBackoffSeconds))
 			if !sleepCtx(ctx, time.Duration(RetryBackoffSeconds)*time.Second) {
 				return ImageResult{}, lastPath, ctx.Err()
 			}
@@ -221,11 +222,10 @@ func responsesAPIWithRetries(
 	}
 
 	if lastErr != nil {
-		return ImageResult{}, lastPath, fmt.Errorf("多次请求后仍未成功:%w", lastErr)
+		return ImageResult{}, lastPath, fmt.Errorf("request failed after retries: %w", lastErr)
 	}
-	return ImageResult{}, lastPath, fmt.Errorf("多次请求后仍未成功")
+	return ImageResult{}, lastPath, fmt.Errorf("request failed after retries")
 }
-
 func stabilizeResponsesOptionsForAttempt(opts Options, attempt int) Options {
 	if attempt <= 1 {
 		return opts
@@ -236,7 +236,9 @@ func stabilizeResponsesOptionsForAttempt(opts Options, attempt int) Options {
 		next.AllowPromptAdaptation = true
 	}
 	if attempt >= 3 {
-		next.Size = stableResponsesRetrySize(next.Size)
+		if !isGPTImage2Model(next.ImageModelID) {
+			next.Size = stableResponsesRetrySize(next.Size)
+		}
 		if next.Quality == "" || next.Quality == "auto" || next.Quality == "high" {
 			next.Quality = "medium"
 		}
@@ -244,18 +246,30 @@ func stabilizeResponsesOptionsForAttempt(opts Options, attempt int) Options {
 	return next
 }
 
+func isGPTImage2Model(modelID string) bool {
+	model := strings.TrimSpace(modelID)
+	if model == "" {
+		model = ImageModel
+	}
+	return strings.HasPrefix(strings.ToLower(model), "gpt-image-2")
+}
+
 func stableResponsesRetrySize(size string) string {
 	switch size {
 	case "2048x2048", "2880x2880":
 		return "1024x1024"
-	case "2048x1360", "3456x2304":
+	case "2048x1360", "3456x2304", "1536x1152", "1520x1216":
 		return "1536x1024"
-	case "1360x2048", "2304x3456":
+	case "1360x2048", "2304x3456", "1152x1536", "1216x1520":
 		return "1024x1536"
-	case "2048x1152", "3840x2160":
+	case "2048x1152", "3840x2160", "1536x768":
 		return "1536x864"
-	case "1152x2048", "2160x3840":
+	case "1152x2048", "2160x3840", "768x1536":
 		return "864x1536"
+	case "2208x1264", "3808x2176", "1536x512":
+		return "1664x944"
+	case "1264x2208", "2176x3808", "512x1536":
+		return "944x1664"
 	case "auto", "":
 		return "1024x1024"
 	default:
@@ -316,7 +330,7 @@ func imagesAPIWithRetries(
 	for attempt := 1; attempt <= MaxAttempts; attempt++ {
 		rawPath := filepath.Join(outputDir, fmt.Sprintf("images-response-%s-attempt%d.json", timestamp, attempt))
 		lastPath = rawPath
-		onLog(fmt.Sprintf("[Images API] 第 %d/%d 次请求...", attempt, MaxAttempts))
+		onLog(fmt.Sprintf("[Images API] attempt %d/%d...", attempt, MaxAttempts))
 
 		f, err := os.OpenFile(rawPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 		if err != nil {
@@ -333,21 +347,18 @@ func imagesAPIWithRetries(
 		raw := string(rawBytes)
 
 		lastErr = reqErr
-		// Images API has no SSE / no partial — only retry on transport-level
-		// errors and Cloudflare 5xx HTML pages.
 		if attempt < MaxAttempts && (IsRetryable(raw) || isTransportishError(reqErr)) {
 			onLog(fmt.Sprintf("%v", reqErr))
-			onLog(fmt.Sprintf("%d 秒后自动重试...", RetryBackoffSeconds))
+			onLog(fmt.Sprintf("Auto retrying in %d seconds...", RetryBackoffSeconds))
 			if !sleepCtx(ctx, time.Duration(RetryBackoffSeconds)*time.Second) {
 				return ImageResult{}, lastPath, ctx.Err()
 			}
 			continue
 		}
-		// 同上,raw 路径靠返回值带,不再嵌进 error message。
 		return ImageResult{}, lastPath, reqErr
 	}
 
-	return ImageResult{}, lastPath, fmt.Errorf("多次请求后仍未成功:%w", lastErr)
+	return ImageResult{}, lastPath, fmt.Errorf("request failed after retries: %w", lastErr)
 }
 
 // isTransportishError treats common transport-layer failures as retryable.

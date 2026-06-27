@@ -99,7 +99,7 @@ func (s *Service) CropImage(path string, x, y, w, h int) (ImageTransformResult, 
 		return ImageTransformResult{}, err
 	}
 	if result, err := transformWithGPU(allowed, out, gpuTransformRequest{
-		Kind: gpuTransformCrop,
+		Kind:  gpuTransformCrop,
 		CropX: x,
 		CropY: y,
 		CropW: rect.Dx(),

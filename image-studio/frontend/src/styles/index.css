@@ -878,6 +878,36 @@ html[data-ui-family="apple"] .select:focus {
   color: var(--accent);
 }
 
+.batch-maintenance-button,
+.retry-failed-batch-button {
+  border-color: rgb(245 158 11 / 0.86);
+  background: rgb(254 243 199 / 0.98);
+  color: #78350f;
+  box-shadow: 0 1px 2px rgb(120 53 15 / 0.1), 0 0 0 1px rgb(245 158 11 / 0.24);
+}
+
+.batch-maintenance-button:hover:not(:disabled),
+.retry-failed-batch-button:hover:not(:disabled) {
+  border-color: rgb(217 119 6 / 0.95);
+  background: rgb(253 230 138 / 0.98);
+  color: #451a03;
+}
+
+html.dark .batch-maintenance-button,
+html.dark .retry-failed-batch-button {
+  border-color: rgb(251 191 36 / 0.42);
+  background: rgb(251 191 36 / 0.18);
+  color: #fef3c7;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.16), 0 0 0 1px rgb(251 191 36 / 0.14);
+}
+
+html.dark .batch-maintenance-button:hover:not(:disabled),
+html.dark .retry-failed-batch-button:hover:not(:disabled) {
+  border-color: rgb(251 191 36 / 0.58);
+  background: rgb(251 191 36 / 0.24);
+  color: #fffbeb;
+}
+
 .fhl-api-config-btn.needs-config {
   border-color: rgb(220 38 38 / 0.72);
   background: #fee2e2;

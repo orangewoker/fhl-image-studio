@@ -4,9 +4,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -25,7 +28,14 @@ func BuildPayload(opts Options) ([]byte, error) {
 	if strings.TrimSpace(opts.Prompt) == "" {
 		return nil, ErrEmptyPrompt
 	}
-	size := opts.Size
+
+	rawSize := strings.TrimSpace(opts.Size)
+	size := ""
+	if strings.EqualFold(rawSize, "auto") {
+		size = "auto"
+	} else {
+		size = normalizeOpenAIImageSize(rawSize)
+	}
 	if size == "" {
 		size = DefaultSize
 	}
@@ -59,11 +69,11 @@ func BuildPayload(opts Options) ([]byte, error) {
 		imgModel = ImageModel
 	}
 	tool := map[string]any{
-		"type":           "image_generation",
-		"model":          imgModel,
-		"action":         action,
-		"size":           size,
-		"quality":        quality,
+		"type":          "image_generation",
+		"model":         imgModel,
+		"action":        action,
+		"size":          size,
+		"quality":       quality,
 		"output_format":  outputFormat,
 		"moderation":     "low",
 		"partial_images": 0,
@@ -87,33 +97,203 @@ func BuildPayload(opts Options) ([]byte, error) {
 	}
 	payload := map[string]any{
 		"model": textModel,
-		"input": []map[string]any{
-			{"role": "user", "content": content},
-		},
-		"tools":       []map[string]any{tool},
+		"input": []map[string]any{{"role": "user", "content": content}},
+		"tools": []map[string]any{tool},
 		"tool_choice": map[string]any{"type": "image_generation"},
-		"reasoning":   map[string]any{"effort": "xhigh"},
-		"store":       false,
-		"stream":      true,
+		"reasoning": map[string]any{"effort": "xhigh"},
+		"store": false,
+		"stream": true,
 	}
-	// The first attempt uses the official strict wording; retry paths can switch
-	// to the safer wording when upstream returns text instead of a tool result.
 	if opts.AllowPromptAdaptation {
 		payload["instructions"] = safeImageToolInstructions
 	} else {
 		payload["instructions"] = noPromptRevisionInstructions
 	}
 
-	// Use a non-escaping encoder so 中文 prompts don't get \uXXXX-mangled.
 	var buf strings.Builder
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(payload); err != nil {
 		return nil, fmt.Errorf("encode payload: %w", err)
 	}
-	// Encoder appends a trailing '\n'; strip for cleanliness.
 	out := strings.TrimRight(buf.String(), "\n")
 	return []byte(out), nil
+}
+const (
+	openAIImageMinPixels = 655_360
+	openAIImageMaxPixels = 8_294_400
+	openAIImageMaxSide   = 3_840
+	openAIImageAlignment = 16
+	openAIImageMaxAspect = 3.0
+)
+
+type parsedSizeValue struct {
+	width  int
+	height int
+}
+
+func parseSizeValue(size string) *parsedSizeValue {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(size)), "x")
+	if len(parts) != 2 {
+		return nil
+	}
+	width, err := strconv.Atoi(parts[0])
+	if err != nil || width <= 0 {
+		return nil
+	}
+	height, err := strconv.Atoi(parts[1])
+	if err != nil || height <= 0 {
+		return nil
+	}
+	return &parsedSizeValue{width: width, height: height}
+}
+
+func normalizeOpenAIImageSize(size string) string {
+	parsed := parseSizeValue(size)
+	if parsed == nil {
+		return ""
+	}
+	targetWidth := float64(parsed.width)
+	targetHeight := float64(parsed.height)
+	targetAspect := targetWidth / targetHeight
+	if targetAspect < 1.0/openAIImageMaxAspect {
+		targetAspect = 1.0 / openAIImageMaxAspect
+	}
+	if targetAspect > openAIImageMaxAspect {
+		targetAspect = openAIImageMaxAspect
+	}
+	if math.Abs((targetWidth/targetHeight)-targetAspect) > 1e-9 {
+		if targetWidth >= targetHeight {
+			targetWidth = targetHeight * targetAspect
+		} else {
+			targetHeight = targetWidth / targetAspect
+		}
+	}
+	maxSide := math.Max(targetWidth, targetHeight)
+	if maxSide > openAIImageMaxSide {
+		scale := openAIImageMaxSide / maxSide
+		targetWidth *= scale
+		targetHeight *= scale
+	}
+	pixelCount := targetWidth * targetHeight
+	if pixelCount > openAIImageMaxPixels {
+		scale := math.Sqrt(openAIImageMaxPixels / pixelCount)
+		targetWidth *= scale
+		targetHeight *= scale
+	}
+	if pixelCount < openAIImageMinPixels {
+		scale := math.Sqrt(openAIImageMinPixels / math.Max(pixelCount, 1))
+		targetWidth *= scale
+		targetHeight *= scale
+	}
+	postFloorMaxSide := math.Max(targetWidth, targetHeight)
+	if postFloorMaxSide > openAIImageMaxSide {
+		scale := openAIImageMaxSide / postFloorMaxSide
+		targetWidth *= scale
+		targetHeight *= scale
+	}
+	widthCandidates := sizeCandidateSet(targetWidth, openAIImageAlignment, openAIImageMaxSide, openAIImageAlignment)
+	heightCandidates := sizeCandidateSet(targetHeight, openAIImageAlignment, openAIImageMaxSide, openAIImageAlignment)
+	bestWidth, bestHeight := 0, 0
+	bestDistance := math.Inf(1)
+	bestAspectDistance := math.Inf(1)
+	bestAreaDistance := math.Inf(1)
+	for _, width := range widthCandidates {
+		for _, height := range heightCandidates {
+			if !sizeWithinLimits(width, height) {
+				continue
+			}
+			distance := sizeDistance(float64(width), float64(height), targetWidth, targetHeight)
+			aspectDistance := math.Abs((float64(width) / float64(height)) - (targetWidth / targetHeight))
+			areaDistance := math.Abs(float64(width*height)-targetWidth*targetHeight) / math.Max(targetWidth*targetHeight, 1)
+			if distance < bestDistance ||
+				(distance == bestDistance && aspectDistance < bestAspectDistance) ||
+				(distance == bestDistance && aspectDistance == bestAspectDistance && areaDistance < bestAreaDistance) {
+				bestWidth, bestHeight = width, height
+				bestDistance = distance
+				bestAspectDistance = aspectDistance
+				bestAreaDistance = areaDistance
+			}
+		}
+	}
+	if bestWidth == 0 || bestHeight == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%dx%d", bestWidth, bestHeight)
+}
+
+func roundAligned(value float64, mode string, alignment int) int {
+	scaled := value / float64(alignment)
+	if math.IsNaN(scaled) || math.IsInf(scaled, 0) {
+		return 0
+	}
+	switch mode {
+	case "down":
+		return int(math.Floor(scaled)) * alignment
+	case "up":
+		return int(math.Ceil(scaled)) * alignment
+	default:
+		return int(math.Round(scaled)) * alignment
+	}
+}
+
+func sizeCandidateSet(value float64, min int, max int, alignment int) []int {
+	clamped := math.Max(float64(min), math.Min(float64(max), value))
+	candidates := []int{
+		clampInt(roundAligned(clamped, "nearest", alignment), min, max),
+		clampInt(roundAligned(clamped, "down", alignment), min, max),
+		clampInt(roundAligned(clamped, "up", alignment), min, max),
+	}
+	seen := map[int]struct{}{}
+	uniq := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		uniq = append(uniq, candidate)
+	}
+	sort.Slice(uniq, func(i, j int) bool {
+		left := math.Abs(float64(uniq[i]) - clamped)
+		right := math.Abs(float64(uniq[j]) - clamped)
+		if left == right {
+			return uniq[i] > uniq[j]
+		}
+		return left < right
+	})
+	return uniq
+}
+
+func sizeWithinLimits(width int, height int) bool {
+	if width < openAIImageAlignment || height < openAIImageAlignment {
+		return false
+	}
+	if width%openAIImageAlignment != 0 || height%openAIImageAlignment != 0 {
+		return false
+	}
+	if width > openAIImageMaxSide || height > openAIImageMaxSide {
+		return false
+	}
+	pixels := width * height
+	if pixels < openAIImageMinPixels || pixels > openAIImageMaxPixels {
+		return false
+	}
+	aspect := float64(width) / float64(height)
+	return aspect <= openAIImageMaxAspect && aspect >= 1.0/openAIImageMaxAspect
+}
+
+func sizeDistance(width float64, height float64, targetWidth float64, targetHeight float64) float64 {
+	return math.Abs(width-targetWidth)/math.Max(targetWidth, 1) + math.Abs(height-targetHeight)/math.Max(targetHeight, 1)
+}
+
+func clampInt(value int, min int, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func normalizePartialImages(value int) int {
@@ -182,10 +362,10 @@ func NormalizePath(raw string) (string, error) {
 func ImageFileToDataURL(path string) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", fmt.Errorf("找不到图片文件:%s", path)
+		return "", fmt.Errorf("image file not found: %s", path)
 	}
 	if info.IsDir() {
-		return "", fmt.Errorf("路径不是文件:%s", path)
+		return "", fmt.Errorf("image path points to a directory: %s", path)
 	}
 	ext := strings.ToLower(filepath.Ext(path))
 	mime, ok := SupportedImageMime[ext]
@@ -193,12 +373,12 @@ func ImageFileToDataURL(path string) (string, error) {
 		supported := strings.Join([]string{".jpeg", ".jpg", ".png", ".webp"}, ", ")
 		extLabel := ext
 		if extLabel == "" {
-			extLabel = "(无扩展名)"
+			extLabel = "(no extension)"
 		}
-		return "", fmt.Errorf("不支持的图片格式:%s。支持:%s", extLabel, supported)
+		return "", fmt.Errorf("unsupported image extension %s; supported: %s", extLabel, supported)
 	}
 	if info.Size() > MaxInputImageBytes {
-		return "", fmt.Errorf("图片文件超过 50MB,请换一张更小的图片")
+		return "", fmt.Errorf("image file exceeds 50 MB")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -207,7 +387,6 @@ func ImageFileToDataURL(path string) (string, error) {
 	encoded := base64.StdEncoding.EncodeToString(data)
 	return fmt.Sprintf("data:%s;base64,%s", mime, encoded), nil
 }
-
 func imageDataURLFromBase64(raw, mime string) string {
 	encoded := strings.TrimSpace(raw)
 	if encoded == "" {

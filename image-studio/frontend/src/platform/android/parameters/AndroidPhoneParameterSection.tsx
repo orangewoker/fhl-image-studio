@@ -1,9 +1,11 @@
 import type { Dispatch, SetStateAction } from "react";
 import {
+  type AspectPresetOption,
   type AspectPreset,
   type ResolutionPreset,
 } from "../../../components/panel/sizeCapabilities";
 import { Modal } from "../../../components/common/Modal";
+import type { APIMode, RequestPolicy } from "../../../types/domain";
 import { vibrateForPlatform } from "../bridge";
 import {
   AndroidParameterSummary,
@@ -13,6 +15,7 @@ import { AndroidParameterEditor } from "./AndroidParameterEditor";
 
 export function AndroidPhoneParameterSection({
   activeAspect,
+  aspectPresets,
   activeAspectLabel,
   activeResolution,
   activeResolutionLabel,
@@ -32,20 +35,21 @@ export function AndroidPhoneParameterSection({
   styleTag,
 }: {
   activeAspect: AspectPreset;
+  aspectPresets: AspectPresetOption[];
   activeAspectLabel: string;
   activeResolution: ResolutionPreset;
   activeResolutionLabel: string;
   activeQualityLabel: string;
   activeStyleLabel: string;
   availableResolutions: ResolutionPreset[];
-  apiMode: "responses" | "images";
+  apiMode: APIMode;
   batchCount: number;
   handleAspectSelect: (aspect: AspectPreset) => void;
   handleResolutionSelect: (resolution: ResolutionPreset) => void;
   imageModelID: string;
   parametersOpen: boolean;
   quality: string;
-  requestPolicy: "openai" | "compat";
+  requestPolicy: RequestPolicy;
   setField: (key: "quality" | "styleTag" | "batchCount", value: any) => void;
   setParametersOpen: Dispatch<SetStateAction<boolean>>;
   styleTag: string;
@@ -79,6 +83,7 @@ export function AndroidPhoneParameterSection({
       >
         <AndroidParameterEditor
           activeAspect={activeAspect}
+          aspectPresets={aspectPresets}
           activeAspectLabel={activeAspectLabel}
           activeResolution={activeResolution}
           activeResolutionLabel={activeResolutionLabel}

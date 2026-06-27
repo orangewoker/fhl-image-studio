@@ -78,6 +78,8 @@ export type ImportedImageLike = {
   imageB64?: string;
   imageId?: string;
   previewUrl?: string;
+  width?: number;
+  height?: number;
   previewWidth?: number;
   previewHeight?: number;
 };
@@ -88,8 +90,27 @@ export type SelectFileResponseLike = {
   imageB64?: string;
   imageId?: string;
   previewUrl?: string;
+  width?: number;
+  height?: number;
   previewWidth?: number;
   previewHeight?: number;
+};
+export type BatchInputImageLike = {
+  path: string;
+  name: string;
+  size: number;
+  width?: number;
+  height?: number;
+  previewUrl?: string;
+  previewWidth?: number;
+  previewHeight?: number;
+};
+export type BatchInputDirectoryLike = {
+  directory: string;
+  images: BatchInputImageLike[];
+};
+export type SelectFilesResponseLike = {
+  files: BatchInputImageLike[];
 };
 export type MediaAssetRefLike = {
   imageId?: string;
@@ -97,8 +118,37 @@ export type MediaAssetRefLike = {
   thumbPath?: string;
   previewUrl?: string;
   fullUrl?: string;
+  width?: number;
+  height?: number;
   previewWidth?: number;
   previewHeight?: number;
+};
+
+export type MaterialOutputSyncItemLike = {
+  historyId: string;
+  savedPath: string;
+  suggestedName?: string;
+  missingReason?: string;
+};
+
+export type MaterialOutputSyncedFileLike = {
+  historyId: string;
+  source: string;
+  path: string;
+};
+
+export type MaterialOutputSyncMissingLike = {
+  historyId: string;
+  path?: string;
+  reason: string;
+};
+
+export type MaterialOutputSyncResultLike = {
+  targetDir: string;
+  synced: number;
+  missing: number;
+  files: MaterialOutputSyncedFileLike[];
+  missingItems: MaterialOutputSyncMissingLike[];
 };
 export type HostKind = "wails-desktop" | "android-shell" | "browser";
 

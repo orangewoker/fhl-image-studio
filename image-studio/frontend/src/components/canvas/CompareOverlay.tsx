@@ -1,46 +1,67 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useBlobURL } from "../../lib/images";
 
 export function CompareOverlay({
-  aBlob, aB64, aUrl, bBlob, bB64, bUrl, split, onSplit,
+  leftBlob,
+  leftB64,
+  leftUrl,
+  rightBlob,
+  rightB64,
+  rightUrl,
+  split,
+  onSplit,
+  leftLabel,
+  rightLabel,
 }: {
-  aBlob: Blob | null;
-  aB64?: string | null;
-  aUrl?: string | null;
-  bBlob: Blob | null;
-  bB64?: string | null;
-  bUrl?: string | null;
+  leftBlob: Blob | null;
+  leftB64?: string | null;
+  leftUrl?: string | null;
+  rightBlob: Blob | null;
+  rightB64?: string | null;
+  rightUrl?: string | null;
   split: number;
   onSplit: (v: number) => void;
+  leftLabel: string;
+  rightLabel: string;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const draggingRef = useRef(false);
-  const aURL = useBlobURL(aBlob, aBlob ? null : aB64);
-  const bURL = useBlobURL(bBlob, bBlob ? null : bB64);
-  const aSrc = aURL || aUrl || "";
-  const bSrc = bURL || bUrl || "";
+  const draggingPointerIdRef = useRef<number | null>(null);
+  const leftObjectURL = useBlobURL(leftBlob, leftBlob ? null : leftB64);
+  const rightObjectURL = useBlobURL(rightBlob, rightBlob ? null : rightB64);
+  const leftSrc = leftObjectURL || leftUrl || "";
+  const rightSrc = rightObjectURL || rightUrl || "";
+
+  const updateSplit = useCallback((clientX: number) => {
+    if (!wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const x = clientX - rect.left;
+    onSplit(Math.max(0, Math.min(1, x / rect.width)));
+  }, [onSplit]);
 
   useEffect(() => {
-    const move = (e: MouseEvent) => {
-      if (!draggingRef.current || !wrapRef.current) return;
-      const r = wrapRef.current.getBoundingClientRect();
-      const x = e.clientX - r.left;
-      onSplit(x / r.width);
+    const move = (event: PointerEvent) => {
+      if (draggingPointerIdRef.current !== event.pointerId) return;
+      updateSplit(event.clientX);
     };
-    const up = () => { draggingRef.current = false; };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    const stop = (event: PointerEvent) => {
+      if (draggingPointerIdRef.current === event.pointerId) draggingPointerIdRef.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
     return () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
     };
-  }, [onSplit]);
+  }, [updateSplit]);
 
   const pct = Math.round(split * 100);
   return (
-    <div ref={wrapRef} style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
+    <div ref={wrapRef} style={{ position: "absolute", inset: 0, overflow: "hidden", touchAction: "none" }}>
       <img
-        src={aSrc}
+        src={leftSrc}
         draggable={false}
         style={{
           position: "absolute", inset: 0, width: "100%", height: "100%",
@@ -49,7 +70,7 @@ export function CompareOverlay({
         }}
       />
       <img
-        src={bSrc}
+        src={rightSrc}
         draggable={false}
         style={{
           position: "absolute", inset: 0, width: "100%", height: "100%",
@@ -58,29 +79,73 @@ export function CompareOverlay({
         }}
       />
       <div
-        onMouseDown={(e) => { e.preventDefault(); draggingRef.current = true; }}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          draggingPointerIdRef.current = event.pointerId;
+          updateSplit(event.clientX);
+        }}
         style={{
           position: "absolute",
-          top: 0, bottom: 0,
+          top: 0,
+          bottom: 0,
           left: `${pct}%`,
-          width: 3, marginLeft: -1.5,
+          width: 3,
+          marginLeft: -1.5,
           background: "#7e5cff",
           cursor: "ew-resize",
-          boxShadow: "0 0 0 1px rgba(0,0,0,0.4)",
+          boxShadow: "0 0 0 1px rgba(0,0,0,0.35)",
         }}
       >
         <div style={{
           position: "absolute",
-          top: "50%", left: "50%",
+          top: "50%",
+          left: "50%",
           transform: "translate(-50%, -50%)",
-          width: 24, height: 24, borderRadius: "50%",
+          width: 28,
+          height: 28,
+          borderRadius: "50%",
           background: "#7e5cff",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          color: "#fff", fontSize: 12,
-        }}>⇆</div>
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#fff",
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: 0,
+          boxShadow: "0 8px 18px rgba(0,0,0,0.28)",
+        }}
+        >
+          {"<>"}
+        </div>
       </div>
-      <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.55)", padding: "2px 8px", borderRadius: 4, fontSize: 11, color: "#9ec5ff" }}>A · 当前图</div>
-      <div style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.55)", padding: "2px 8px", borderRadius: 4, fontSize: 11, color: "#cdb8ff" }}>B · 对比图</div>
+      <div
+        style={{
+          position: "absolute",
+          top: 8,
+          left: 8,
+          background: "rgba(0,0,0,0.55)",
+          padding: "4px 10px",
+          borderRadius: 999,
+          fontSize: 11,
+          color: "#9ec5ff",
+        }}
+      >
+        {leftLabel}
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 8,
+          background: "rgba(0,0,0,0.55)",
+          padding: "4px 10px",
+          borderRadius: 999,
+          fontSize: 11,
+          color: "#cdb8ff",
+        }}
+      >
+        {rightLabel}
+      </div>
     </div>
   );
 }

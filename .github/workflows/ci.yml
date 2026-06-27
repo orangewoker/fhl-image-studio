@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  go:
+    name: Go tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache-dependency-path: |
+            go-cli/go.sum
+            image-studio/go.sum
+      - name: Test CLI module
+        working-directory: go-cli
+        run: go test ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: image-studio/frontend/package-lock.json
+      - name: Install frontend dependencies for desktop embed
+        working-directory: image-studio/frontend
+        run: npm ci
+      - name: Build frontend assets for desktop Go tests
+        working-directory: image-studio/frontend
+        run: npm run build
+      - name: Test desktop backend module
+        working-directory: image-studio
+        run: go test ./...
+
+  frontend:
+    name: Frontend tests and build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: image-studio/frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: image-studio/frontend
+        run: npm ci
+      - name: Run frontend tests
+        working-directory: image-studio/frontend
+        run: npm test
+      - name: Build frontend
+        working-directory: image-studio/frontend
+        run: npm run build
+
+  release-hygiene:
+    name: Release hygiene
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check source package safety
+        shell: pwsh
+        run: .\scripts\check-compliance-package.ps1 -Root .

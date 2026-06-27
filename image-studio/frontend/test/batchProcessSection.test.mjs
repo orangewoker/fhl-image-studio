@@ -1,0 +1,40 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const source = readFileSync(new URL("../src/components/panel/BatchProcessSection.tsx", import.meta.url), "utf8");
+
+test("batch process section uses a switch and collapses the advanced batch controls when disabled", () => {
+  assert.match(source, /role="switch"/);
+  assert.match(source, /aria-checked=\{batchMode\}/);
+  assert.match(source, /continuous-test-switch/);
+  assert.match(source, /continuous-test-switch-thumb/);
+  assert.match(source, /sharedConcurrencyLimit: number/);
+  assert.match(source, /批量图生图开关/);
+  assert.match(source, /需要时再打开，关闭后折叠全部批处理设置，不影响普通图生图/);
+  assert.match(source, /当前跟随共享并发：/);
+  assert.match(source, /并发统一跟随上方共享并发设置/);
+  assert.match(source, /更换输出目录/);
+  assert.match(source, /已选输出目录/);
+  assert.match(source, /先选文件夹或直接加入多张图片；扫出来后可全选，也可点单张挑选/);
+  assert.match(source, /清空选择/);
+  assert.match(source, /清空队列/);
+  assert.match(source, /第 \{index \+ 1\} 张/);
+  assert.match(source, /点击选择这张/);
+  assert.match(source, /\{batchMode \? \(/);
+  assert.doesNotMatch(source, /batchSelectionHint/);
+  assert.doesNotMatch(source, /\.map\(\(source\) => source\.name\)/);
+  assert.doesNotMatch(source, /\{index \+ 1\}\. \{source\.name\}/);
+  assert.doesNotMatch(source, /title=\{source\.path\}/);
+  assert.doesNotMatch(source, /并发 \${config\.concurrency}/);
+  assert.doesNotMatch(source, /并发数/);
+  assert.doesNotMatch(source, /输入目录/);
+  assert.doesNotMatch(source, /onChange=\{\(event\) => setBatchProcess\(\{ \.\.\.batchProcess, outputDir: event\.target\.value \}\)\}/);
+  assert.doesNotMatch(source, /也可以直接输入输出目录/);
+  assert.doesNotMatch(source, /刷新扫描/);
+  assert.doesNotMatch(source, /RefreshCw/);
+  assert.doesNotMatch(source, /ToggleLeft/);
+  assert.doesNotMatch(source, /ToggleRight/);
+  assert.doesNotMatch(source, /SegItem active=\{!batchMode\}/);
+  assert.doesNotMatch(source, /SegItem active=\{batchMode\}/);
+});

@@ -19,7 +19,7 @@ var (
 	RetryBackoffSeconds  = 15
 	StatusIntervalSecond = 10
 	// Version 在构建时通过 ldflags 注入;本地未注入时回退到开发标识。
-	Version = "2.0.1"
+	Version = "2.0.2"
 )
 
 // UserAgent 返回所有上游请求统一使用的客户端标识。
@@ -101,11 +101,15 @@ const (
 //   - APIModeImages: 标准 OpenAI Images API,POST /v1/images/generations(文生图)
 //     与 /v1/images/edits(图生图,multipart),一次性 JSON 响应,无 SSE 保活,
 //     适合走 cloudflare 比较稳的中转站,或上游不支持 Responses API 的场景。
+//   - APIModeRunningHub: 本地 RunningHub 桥接模块,不读取本地 API key,
+//     通过桥接模块提交、轮询并代理下载结果图。
 type APIMode string
 
 const (
-	APIModeResponses APIMode = "responses"
-	APIModeImages    APIMode = "images"
+	APIModeResponses  APIMode = "responses"
+	APIModeImages     APIMode = "images"
+	APIModeApimart    APIMode = "apimart"
+	APIModeRunningHub APIMode = "runninghub"
 )
 
 type RequestPolicy string

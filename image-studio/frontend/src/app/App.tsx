@@ -7,6 +7,7 @@ import { useStudioStore } from "../state/studioStore";
 import { DropImportOverlay } from "./components/DropImportOverlay";
 import { PlatformWorkspace } from "./components/PlatformWorkspace";
 import { HistoryTimelineModal } from "../components/history/HistoryTimelineModal";
+import { MaterialManagerModal } from "../components/history/MaterialManagerModal";
 import { ResultDetailGate } from "./gates/ResultDetailGate";
 import { SettingsPanelGate } from "./gates/SettingsPanelGate";
 import { StarPromptGate } from "./gates/StarPromptGate";
@@ -20,12 +21,13 @@ import { useStudioBootstrap } from "./hooks/useStudioBootstrap";
 export default function App() {
   const fullscreen = useStudioStore((state) => state.fullscreen);
   const importImageFile = useStudioStore((state) => state.importImageFile);
+  const reuseAsSource = useStudioStore((state) => state.reuseAsSource);
   const settingsOpen = useStudioStore((state) => state.settingsOpen);
   const openSettings = useStudioStore((state) => state.openSettings);
   const closeSettings = useStudioStore((state) => state.closeSettings);
   const { isMac } = usePlatform();
   const { androidView, setAndroidView } = useAndroidView();
-  const { dragHover } = useGlobalImageImport(importImageFile);
+  const { dragHover } = useGlobalImageImport(importImageFile, reuseAsSource);
 
   useStudioBootstrap();
   useGlobalShortcuts({ isMac });
@@ -48,6 +50,7 @@ export default function App() {
       <UpstreamConfigGate />
       <SettingsPanelGate open={settingsOpen} onClose={closeSettings} />
       <HistoryTimelineModal />
+      <MaterialManagerModal />
       <ResultDetailGate />
       <StarPromptGate />
     </div>

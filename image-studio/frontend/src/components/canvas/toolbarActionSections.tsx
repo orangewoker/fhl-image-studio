@@ -1,6 +1,6 @@
 import {
   Brush, Crop, Eraser, FlipHorizontal, FlipVertical, Hand,
-  Info, MoveRight, Pencil, RotateCcw, RotateCw, Save, Share2, Square,
+  ArrowLeft, Compass, FolderOpen, Info, MoveRight, Pencil, RotateCcw, RotateCw, Save, Share2, Square,
   Trash2, Maximize, Minimize, Type as TypeIcon,
 } from "lucide-react";
 import { ANNOTATION_COLORS } from "../../types/domain";
@@ -214,28 +214,91 @@ export function TransformSection({
 }
 
 export function ResultMetaSection({
-  showBatchGridToggle,
-  resultGridOpen,
-  batchResultCount,
+  showCompareToggle,
+  sideBySideActive,
+  curtainActive,
+  compareDisabled,
+  sideBySideTitle,
+  curtainTitle,
+  showReturnFromSourcePreview,
+  returnFromSourcePreviewTitle,
+  showReturnFromHistoryGallery,
+  showReturnToBatchPreview,
+  hasBatchTaskView,
   metaBadges,
+  onToggleSideBySideCompare,
+  onToggleCurtainCompare,
+  onReturnFromSourcePreview,
+  onReturnFromHistoryGallery,
   onToggleResultGrid,
 }: {
-  showBatchGridToggle: boolean;
-  resultGridOpen: boolean;
-  batchResultCount: number;
+  showCompareToggle: boolean;
+  sideBySideActive: boolean;
+  curtainActive: boolean;
+  compareDisabled: boolean;
+  sideBySideTitle: string;
+  curtainTitle: string;
+  showReturnFromSourcePreview: boolean;
+  returnFromSourcePreviewTitle: string;
+  showReturnFromHistoryGallery: boolean;
+  showReturnToBatchPreview: boolean;
+  hasBatchTaskView: boolean;
   metaBadges: string[];
+  onToggleSideBySideCompare: () => void;
+  onToggleCurtainCompare: () => void;
+  onReturnFromSourcePreview: () => void;
+  onReturnFromHistoryGallery: () => void;
   onToggleResultGrid: () => void;
 }) {
-  const { usesFluentUI } = usePlatform();
   return (
     <>
-      {showBatchGridToggle ? (
+      {showReturnFromSourcePreview ? (
         <ToolbarTextButton
-          onClick={onToggleResultGrid}
-          selected={resultGridOpen}
-          title={resultGridOpen ? "返回当前图" : "查看本批多图网格"}
+          onClick={onReturnFromSourcePreview}
+          dataAuditId="return-from-source-preview"
+          title={returnFromSourcePreviewTitle}
+          tone="accent"
         >
-          {resultGridOpen ? "单图" : `网格 ${batchResultCount}`}
+          回到生成图
+        </ToolbarTextButton>
+      ) : null}
+      {showReturnFromHistoryGallery ? (
+        <ToolbarTextButton
+          onClick={onReturnFromHistoryGallery}
+          dataAuditId="return-from-history-gallery"
+          title="回到完整相册列表"
+          tone="accent"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> 回到完整相册
+        </ToolbarTextButton>
+      ) : null}
+      {showCompareToggle ? (
+        <>
+          <ToolbarTextButton
+            onClick={onToggleSideBySideCompare}
+            disabled={compareDisabled}
+            selected={sideBySideActive}
+            title={sideBySideTitle}
+          >
+            双图对比
+          </ToolbarTextButton>
+          <ToolbarTextButton
+            onClick={onToggleCurtainCompare}
+            disabled={compareDisabled}
+            selected={curtainActive}
+            title={curtainTitle}
+          >
+            卷帘对比
+          </ToolbarTextButton>
+        </>
+      ) : null}
+      {showReturnToBatchPreview ? (
+        <ToolbarTextButton
+          onClick={hasBatchTaskView ? onToggleResultGrid : undefined}
+          disabled={!hasBatchTaskView}
+          title={!hasBatchTaskView ? "暂无当前批次任务" : "回到批次预览"}
+        >
+          回到批次预览
         </ToolbarTextButton>
       ) : null}
       <HistoryMetaBadges items={metaBadges} compact className="opacity-90" />
@@ -246,33 +309,79 @@ export function ResultMetaSection({
 export function ActionSection({
   fullscreen,
   hasImage,
+  showPanoramaButton = false,
+  panoramaOutputCount = 0,
+  hasViewContent,
+  clearViewDisabled = false,
   onToggleFullscreen,
+  onOpenPanorama,
+  onOpenPanoramaOutputs,
   onOpenDetail,
-  onClearCanvas,
+  onClearView,
   onSaveAs,
   onShare,
 }: {
   fullscreen: boolean;
   hasImage: boolean;
+  showPanoramaButton?: boolean;
+  panoramaOutputCount?: number;
+  hasViewContent: boolean;
+  clearViewDisabled?: boolean;
   onToggleFullscreen: () => void;
+  onOpenPanorama?: () => void;
+  onOpenPanoramaOutputs?: () => void;
   onOpenDetail: () => void;
-  onClearCanvas: () => void;
+  onClearView: () => void;
   onSaveAs: () => void;
   onShare: () => void;
 }) {
   const { isMac, usesFluentUI, isAndroidPhone } = usePlatform();
+  const clearViewTitle = clearViewDisabled ? "运行中暂不能清空视图" : "清空当前批次，不删除历史和文件";
   return (
     <>
       <ToolBtn onClick={onToggleFullscreen} title={fullscreen ? `退出全屏 (${fullscreenShortcutLabel})` : `全屏 (${fullscreenShortcutLabel})`} label={isMac ? "全屏" : undefined}>
         {fullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
       </ToolBtn>
+      {hasViewContent ? (
+        isAndroidPhone ? (
+          <ToolBtn onClick={onClearView} disabled={clearViewDisabled} title={clearViewTitle}>
+            <Trash2 className="w-3.5 h-3.5" />
+          </ToolBtn>
+        ) : (
+          <ToolbarTextButton onClick={onClearView} disabled={clearViewDisabled} title={clearViewTitle} tone="danger">
+            <Trash2 className="w-3.5 h-3.5" />
+            清空视图
+          </ToolbarTextButton>
+        )
+      ) : null}
       {hasImage ? (
         <>
+          {onOpenPanoramaOutputs ? (
+            isAndroidPhone ? (
+              <ToolBtn onClick={onOpenPanoramaOutputs} title={`360输出管理 ${panoramaOutputCount}`}>
+                <FolderOpen className="w-3.5 h-3.5" />
+              </ToolBtn>
+            ) : (
+              <ToolbarTextButton onClick={onOpenPanoramaOutputs} title={`360输出管理 ${panoramaOutputCount}`} tone="accent">
+                <FolderOpen className="w-3.5 h-3.5" />
+                360输出管理{panoramaOutputCount > 0 ? ` ${panoramaOutputCount}` : ""}
+              </ToolbarTextButton>
+            )
+          ) : null}
+          {showPanoramaButton && onOpenPanorama ? (
+            isAndroidPhone ? (
+              <ToolBtn onClick={onOpenPanorama} title="进入360查看">
+                <Compass className="w-3.5 h-3.5" />
+              </ToolBtn>
+            ) : (
+              <ToolbarTextButton onClick={onOpenPanorama} title="进入360查看" tone="accent">
+                <Compass className="w-3.5 h-3.5" />
+                进入360查看
+              </ToolbarTextButton>
+            )
+          ) : null}
           <ToolBtn onClick={onOpenDetail} title="查看本张图的详细信息" label={isMac ? "详情" : undefined}>
             <Info className="w-3.5 h-3.5" />
-          </ToolBtn>
-          <ToolBtn onClick={onClearCanvas} title="清空画板(不删除历史)" label={isMac ? "清空画板" : undefined}>
-            <Trash2 className="w-3.5 h-3.5" />
           </ToolBtn>
           <ToolBtn onClick={onShare} title="分享图片" label={isMac ? "分享" : undefined}>
             <Share2 className="w-3.5 h-3.5" />

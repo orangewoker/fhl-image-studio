@@ -8,6 +8,11 @@ export const DEFAULT_PARTIAL_IMAGES = 1;
 export const MAX_ATTEMPTS = 3;
 export const RETRY_BACKOFF_MS = 15_000;
 export const STATUS_INTERVAL_MS = 10_000;
+export const OPENAI_IMAGE_MIN_PIXELS = 655_360;
+export const OPENAI_IMAGE_MAX_PIXELS = 8_294_400;
+export const OPENAI_IMAGE_MAX_SIDE = 3_840;
+export const OPENAI_IMAGE_ALIGNMENT = 16;
+export const OPENAI_IMAGE_MAX_ASPECT = 3;
 
 const NO_PROMPT_REVISION_INSTRUCTIONS = "You are a tool runner. Pass the user prompt to image_generation VERBATIM. DO NOT rewrite, expand, polish, or revise it in any way. Use the exact text the user gave.";
 const SAFE_IMAGE_TOOL_INSTRUCTIONS = "Use the image_generation tool and return an image result, not a text-only answer. If the user's wording is ambiguous or may trigger a safety refusal, adapt it into a policy-compliant visual prompt while preserving the creative intent.";
@@ -21,7 +26,9 @@ export function normalizeBaseURL(raw) {
 }
 
 export function normalizeAPIMode(apiMode) {
-  return apiMode === "images" ? "images" : "responses";
+  if (apiMode === "images") return "images";
+  if (apiMode === "apimart") return "apimart";
+  return "responses";
 }
 
 export function normalizeRequestPolicy(requestPolicy) {
@@ -51,6 +58,162 @@ export function normalizePartialImages(value) {
   return Math.max(0, Math.min(3, Math.floor(numeric)));
 }
 
+export function parseSizeValue(size) {
+  const match = /^(\d+)x(\d+)$/i.exec(String(size || "").trim());
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  return { width, height };
+}
+
+export function formatSizeValue(width, height) {
+  return `${Math.floor(width)}x${Math.floor(height)}`;
+}
+
+function roundAligned(value, mode = "nearest", alignment = 16) {
+  const scaled = Number(value) / alignment;
+  if (!Number.isFinite(scaled)) return 0;
+  if (mode === "down") return Math.floor(scaled) * alignment;
+  if (mode === "up") return Math.ceil(scaled) * alignment;
+  return Math.round(scaled) * alignment;
+}
+
+function withMinPixelFloor(targetWidth, targetHeight) {
+  const pixelCount = targetWidth * targetHeight;
+  if (pixelCount >= OPENAI_IMAGE_MIN_PIXELS) {
+    return { width: targetWidth, height: targetHeight };
+  }
+  const scale = Math.sqrt(OPENAI_IMAGE_MIN_PIXELS / Math.max(pixelCount, 1));
+  return {
+    width: targetWidth * scale,
+    height: targetHeight * scale,
+  };
+}
+
+function sizeCandidateSet(value, min, max, alignment = 16) {
+  const clamped = Math.max(min, Math.min(max, Number(value)));
+  return Array.from(new Set([
+    roundAligned(clamped, "nearest", alignment),
+    roundAligned(clamped, "down", alignment),
+    roundAligned(clamped, "up", alignment),
+  ].map((candidate) => Math.max(min, Math.min(max, candidate)))))
+    .filter((candidate) => candidate >= min && candidate <= max)
+    .sort((left, right) => Math.abs(left - clamped) - Math.abs(right - clamped) || right - left);
+}
+
+function sizeDistance(width, height, targetWidth, targetHeight) {
+  return Math.abs(width - targetWidth) / Math.max(targetWidth, 1)
+    + Math.abs(height - targetHeight) / Math.max(targetHeight, 1);
+}
+
+function sizeWithinLimits(width, height) {
+  if (width < OPENAI_IMAGE_ALIGNMENT || height < OPENAI_IMAGE_ALIGNMENT) return false;
+  if (width % OPENAI_IMAGE_ALIGNMENT !== 0 || height % OPENAI_IMAGE_ALIGNMENT !== 0) return false;
+  if (width > OPENAI_IMAGE_MAX_SIDE || height > OPENAI_IMAGE_MAX_SIDE) return false;
+  const pixels = width * height;
+  if (pixels < OPENAI_IMAGE_MIN_PIXELS || pixels > OPENAI_IMAGE_MAX_PIXELS) return false;
+  const aspect = width / height;
+  return aspect <= OPENAI_IMAGE_MAX_ASPECT && aspect >= (1 / OPENAI_IMAGE_MAX_ASPECT);
+}
+
+export function normalizeOpenAIImageSize(size) {
+  const parsed = typeof size === "string" ? parseSizeValue(size) : size;
+  if (!parsed) return null;
+  let targetWidth = parsed.width;
+  let targetHeight = parsed.height;
+  const aspect = Math.max(1 / OPENAI_IMAGE_MAX_ASPECT, Math.min(OPENAI_IMAGE_MAX_ASPECT, targetWidth / targetHeight));
+
+  if (targetWidth / targetHeight !== aspect) {
+    if (targetWidth >= targetHeight) targetWidth = targetHeight * aspect;
+    else targetHeight = targetWidth / aspect;
+  }
+
+  const maxSide = Math.max(targetWidth, targetHeight);
+  if (maxSide > OPENAI_IMAGE_MAX_SIDE) {
+    const scale = OPENAI_IMAGE_MAX_SIDE / maxSide;
+    targetWidth *= scale;
+    targetHeight *= scale;
+  }
+
+  const pixelCount = targetWidth * targetHeight;
+  if (pixelCount > OPENAI_IMAGE_MAX_PIXELS) {
+    const scale = Math.sqrt(OPENAI_IMAGE_MAX_PIXELS / pixelCount);
+    targetWidth *= scale;
+    targetHeight *= scale;
+  }
+
+  ({ width: targetWidth, height: targetHeight } = withMinPixelFloor(targetWidth, targetHeight));
+
+  const postFloorMaxSide = Math.max(targetWidth, targetHeight);
+  if (postFloorMaxSide > OPENAI_IMAGE_MAX_SIDE) {
+    const scale = OPENAI_IMAGE_MAX_SIDE / postFloorMaxSide;
+    targetWidth *= scale;
+    targetHeight *= scale;
+  }
+
+  const minDimension = OPENAI_IMAGE_ALIGNMENT;
+  const widthCandidates = sizeCandidateSet(targetWidth, minDimension, OPENAI_IMAGE_MAX_SIDE, OPENAI_IMAGE_ALIGNMENT);
+  const heightCandidates = sizeCandidateSet(targetHeight, minDimension, OPENAI_IMAGE_MAX_SIDE, OPENAI_IMAGE_ALIGNMENT);
+  let best = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestAspectDistance = Number.POSITIVE_INFINITY;
+  let bestAreaDistance = Number.POSITIVE_INFINITY;
+
+  for (const width of widthCandidates) {
+    for (const height of heightCandidates) {
+      if (!sizeWithinLimits(width, height)) continue;
+      const distance = sizeDistance(width, height, targetWidth, targetHeight);
+      const aspectDistance = Math.abs((width / height) - (targetWidth / targetHeight));
+      const areaDistance = Math.abs((width * height) - (targetWidth * targetHeight)) / Math.max(targetWidth * targetHeight, 1);
+      if (
+        distance < bestDistance
+        || (distance === bestDistance && aspectDistance < bestAspectDistance)
+        || (distance === bestDistance && aspectDistance === bestAspectDistance && areaDistance < bestAreaDistance)
+      ) {
+        best = { width, height };
+        bestDistance = distance;
+        bestAspectDistance = aspectDistance;
+        bestAreaDistance = areaDistance;
+      }
+    }
+  }
+
+  return best;
+}
+
+export function repairSizeForOpenAI(payload) {
+  const currentSize = String(payload?.size || "").trim();
+  const parsed = parseSizeValue(currentSize);
+  if (!parsed) return null;
+  const normalized = normalizeOpenAIImageSize(parsed);
+  if (!normalized) return null;
+  const nextSize = formatSizeValue(normalized.width, normalized.height);
+  if (nextSize === currentSize) return null;
+  return {
+    ...payload,
+    size: nextSize,
+  };
+}
+
+export function extractInvalidSize(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  const pattern = /Invalid size '(\d+x\d+)'\. Width and height must both be divisible by 16/i;
+  const direct = text.match(pattern);
+  if (direct) {
+    return { original: direct[1], reason: "divisible_by_16" };
+  }
+  try {
+    const data = JSON.parse(text);
+    const message = String(data?.error?.message || data?.message || "");
+    const nested = message.match(pattern);
+    if (!nested) return null;
+    return { original: nested[1], reason: "divisible_by_16" };
+  } catch {
+    return null;
+  }
+}
 export function isCompatRequestPolicy(requestPolicy) {
   return normalizeRequestPolicy(requestPolicy) === "compat";
 }
@@ -97,7 +260,12 @@ export function buildResponsesInputContent(prompt, sourceDataURLs) {
 }
 
 export function buildResponsesImageTool(payload, sourceDataURLs, options = {}) {
-  const size = payload.size || DEFAULT_SIZE;
+  const rawSize = String(payload.size || "").trim();
+  const parsedSize = rawSize && rawSize.toLowerCase() !== "auto" ? parseSizeValue(rawSize) : null;
+  const repairedPayload = parsedSize ? repairSizeForOpenAI({ size: rawSize }) : null;
+  const size = rawSize.toLowerCase() === "auto"
+    ? "auto"
+    : (parsedSize ? (repairedPayload?.size || rawSize) : DEFAULT_SIZE);
   const quality = payload.quality || DEFAULT_QUALITY;
   const outputFormat = payload.outputFormat || DEFAULT_OUTPUT_FORMAT;
   const negativePrompt = normalizeNegativePrompt(payload.negativePrompt);
@@ -196,15 +364,15 @@ export function retryableMarkers() {
     "service temporarily unavailable",
     "origin_gateway_timeout",
     "no available account",
-    "无可用账号",
-    "请稍后重试",
+    "account pool busy",
+    "please retry later",
   ];
 }
 
 export function isRetryableRaw(raw) {
   const text = String(raw || "").trim();
   const lower = text.toLowerCase();
-  if (retryableMarkers().some((marker) => lower.includes(marker))) return true;
+  if (retryableMarkers().some((marker) => lower.includes(marker.toLowerCase()))) return true;
   try {
     const data = JSON.parse(text);
     if (data?.retryable === true) return true;
@@ -213,8 +381,15 @@ export function isRetryableRaw(raw) {
     if (err && typeof err === "object") {
       const message = String(err.message || "").toLowerCase();
       const type = String(err.type || "").toLowerCase();
+      const code = String(err.code || "").toLowerCase();
       if (message.includes("temporarily unavailable")) return true;
+      if (message.includes("rate limit")) return true;
+      if (message.includes("too many requests")) return true;
+      if (message.includes("no available account")) return true;
+      if (message.includes("account pool busy")) return true;
+      if (message.includes("please retry later")) return true;
       if (type === "api_error" || type === "server_error") return true;
+      if (code === "rate_limit_exceeded" || code === "upstream_error") return true;
     }
   } catch {
     // ignore
@@ -223,22 +398,22 @@ export function isRetryableRaw(raw) {
 }
 
 export function describeAPIError(error) {
-  const code = String(error?.code || "");
-  const message = String(error?.message || "");
-  const type = String(error?.type || "");
+  const code = String(error?.code || '').trim();
+  const message = String(error?.message || '').trim();
+  const type = String(error?.type || '').trim();
 
   switch (code.toLowerCase()) {
-    case "moderation_blocked":
-      return "🚫 上游内容审核拦截 · 生成被拒";
-    case "content_policy_violation":
-      return "🚫 上游内容政策拦截 (content_policy_violation)";
-    case "rate_limit_exceeded":
-      return `⏱ 上游限速 (rate_limit_exceeded)\n\n${message}`;
-    case "insufficient_quota":
-    case "billing_hard_limit_reached":
-      return `💳 上游账户额度不足\n\n${message}`;
-    case "model_not_found":
-      return `🤷 上游找不到指定模型\n\n${message}`;
+    case 'moderation_blocked':
+      return 'Request blocked by moderation.';
+    case 'content_policy_violation':
+      return 'Request blocked by content policy.';
+    case 'rate_limit_exceeded':
+      return ['Rate limit exceeded (rate_limit_exceeded)', message].filter(Boolean).join('\n\n');
+    case 'insufficient_quota':
+    case 'billing_hard_limit_reached':
+      return ['Billing or quota limit reached.', message].filter(Boolean).join('\n\n');
+    case 'model_not_found':
+      return ['Model not found.', message].filter(Boolean).join('\n');
     default:
       break;
   }
@@ -248,46 +423,46 @@ export function describeAPIError(error) {
   const tail = [];
   if (code) tail.push(`code: ${code}`);
   if (type) tail.push(`type: ${type}`);
-  if (tail.length > 0) parts.push(`(${tail.join(", ")})`);
-  return parts.length > 0 ? `接口返回错误:${parts.join(" ")}` : "接口返回错误";
+  if (tail.length > 0) parts.push(`(${tail.join(', ')})`);
+  return parts.length > 0 ? `Upstream error: ${parts.join(' ')}` : 'Upstream error.';
 }
 
 function describeNestedError(value, depth = 0) {
-  if (!value || depth > 3) return "";
-  if (typeof value === "object") {
-    if (value.error && typeof value.error === "object") {
-      const nested = typeof value.error.message === "string" ? describeNestedError(value.error.message, depth + 1) : "";
+  if (!value || depth > 3) return '';
+  if (typeof value === 'object') {
+    if (value.error && typeof value.error === 'object') {
+      const nested = typeof value.error.message === 'string' ? describeNestedError(value.error.message, depth + 1) : '';
       return nested || describeAPIError(value.error);
     }
-    if (value.response?.error && typeof value.response.error === "object") {
-      const nested = typeof value.response.error.message === "string" ? describeNestedError(value.response.error.message, depth + 1) : "";
+    if (value.response?.error && typeof value.response.error === 'object') {
+      const nested = typeof value.response.error.message === 'string' ? describeNestedError(value.response.error.message, depth + 1) : '';
       return nested || describeAPIError(value.response.error);
     }
-    if (typeof value.message === "string" && (value.code || value.type)) {
+    if (typeof value.message === 'string' && (value.code || value.type)) {
       const nested = describeNestedError(value.message, depth + 1);
       return nested || describeAPIError(value);
     }
-    if (typeof value.message === "string") return describeNestedError(value.message, depth + 1);
-    return "";
+    if (typeof value.message === 'string') return describeNestedError(value.message, depth + 1);
+    return '';
   }
-  if (typeof value !== "string") return "";
+  if (typeof value !== 'string') return '';
   const text = value.trim();
-  if (!text) return "";
+  if (!text) return '';
   try {
     return describeNestedError(JSON.parse(text), depth + 1);
   } catch {
     const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return "";
+    if (!match) return '';
     try {
       return describeNestedError(JSON.parse(match[0]), depth + 1);
     } catch {
-      return "";
+      return '';
     }
   }
 }
 
 function pushTextFragment(out, value) {
-  const text = String(value || "").trim();
+  const text = String(value || '').trim();
   if (!text || text.length > 4096) return;
   out.push(text);
 }
@@ -298,15 +473,15 @@ function collectResponseText(value, out = []) {
     for (const child of value) collectResponseText(child, out);
     return out;
   }
-  if (typeof value !== "object") return out;
-  if (value.type === "output_text" || value.type === "refusal") {
+  if (typeof value !== 'object') return out;
+  if (value.type === 'output_text' || value.type === 'refusal') {
     pushTextFragment(out, value.text || value.content || value.refusal);
   }
-  if (typeof value.output_text === "string") pushTextFragment(out, value.output_text);
-  if (typeof value.message === "string") pushTextFragment(out, value.message);
-  if (typeof value.refusal === "string") pushTextFragment(out, value.refusal);
+  if (typeof value.output_text === 'string') pushTextFragment(out, value.output_text);
+  if (typeof value.message === 'string') pushTextFragment(out, value.message);
+  if (typeof value.refusal === 'string') pushTextFragment(out, value.refusal);
   for (const [key, child] of Object.entries(value)) {
-    if (key === "result" || key === "b64_json" || key === "partial_image_b64" || key === "image_url") continue;
+    if (key === 'result' || key === 'b64_json' || key === 'partial_image_b64' || key === 'image_url') continue;
     collectResponseText(child, out);
   }
   return out;
@@ -314,34 +489,34 @@ function collectResponseText(value, out = []) {
 
 function describeTextOnlyResponse(fragments) {
   const unique = [...new Set(fragments.map((part) => part.trim()).filter(Boolean))];
-  if (unique.length === 0) return "";
-  const joined = unique.join(" ").replace(/\s+/g, " ").trim();
-  if (!joined) return "";
+  if (unique.length === 0) return '';
+  const joined = unique.join(' ').replace(/\s+/g, ' ').trim();
+  if (!joined) return '';
   const preview = joined.length > 240 ? `${joined.slice(0, 240)}...` : joined;
-  return `上游没有返回图片，只返回了文字：${preview}`;
+  return `Text-only response: ${preview}`;
 }
 
 export function describeProblem(raw) {
-  const text = String(raw || "").trim();
-  if (!text) return "接口返回为空。";
+  const text = String(raw || '').trim();
+  if (!text) return 'Upstream returned an empty response.';
   const lower = text.toLowerCase();
-  if (lower.includes("error code 524") || lower.includes("524: a timeout occurred")) {
-    return "Cloudflare 524:源站在超时时间内没有返回有效响应。";
+  if (lower.includes('error code 524') || lower.includes('524: a timeout occurred')) {
+    return 'Cloudflare 524: upstream timed out.';
   }
-  if (lower.includes("error code 504") || lower.includes("gateway time-out")) {
-    return "Cloudflare 504:源站网关超时。";
+  if (lower.includes('error code 504') || lower.includes('gateway time-out')) {
+    return 'Cloudflare 504: upstream gateway timed out.';
   }
 
   try {
     const data = JSON.parse(text);
     const nestedError = describeNestedError(data);
     if (nestedError) return nestedError;
-    if (data?.error && typeof data.error === "object") return describeAPIError(data.error);
-    if (typeof data?.message === "string" && data.message.trim()) return `接口返回消息:${data.message.trim()}`;
+    if (data?.error && typeof data.error === 'object') return describeAPIError(data.error);
+    if (typeof data?.message === 'string' && data.message.trim()) return `Upstream message: ${data.message.trim()}`;
     const textOnly = describeTextOnlyResponse(collectResponseText(data));
     if (textOnly) return textOnly;
     if (data?.status && [502, 503, 504, 524].includes(Number(data.status))) {
-      return `接口返回 ${data.status}:上游服务超时。`;
+      return `Upstream returned HTTP ${data.status}.`;
     }
   } catch {
     // ignore
@@ -349,23 +524,23 @@ export function describeProblem(raw) {
 
   for (const line of text.split(/\r?\n/)) {
     const trimmedLine = line.trim();
-    const payload = line.startsWith("data: ")
+    const payload = line.startsWith('data: ')
       ? line.slice(6).trim()
-      : trimmedLine.startsWith("{")
+      : trimmedLine.startsWith('{')
         ? trimmedLine
-        : "";
-    if (!payload || payload === "[DONE]") continue;
+        : '';
+    if (!payload || payload === '[DONE]') continue;
     try {
       const event = JSON.parse(payload);
       const nestedError = describeNestedError(event);
       if (nestedError) return nestedError;
-      if (event?.error && typeof event.error === "object") return describeAPIError(event.error);
-      if (event?.response?.error && typeof event.response.error === "object") return describeAPIError(event.response.error);
+      if (event?.error && typeof event.error === 'object') return describeAPIError(event.error);
+      if (event?.response?.error && typeof event.response.error === 'object') return describeAPIError(event.response.error);
       const textOnly = describeTextOnlyResponse(collectResponseText(event));
       if (textOnly) return textOnly;
     } catch {
       // ignore
     }
   }
-  return "接口已返回内容,但没有发现 image_generation_call.result。";
+  return 'Upstream finished without returning an image_generation_call result.';
 }

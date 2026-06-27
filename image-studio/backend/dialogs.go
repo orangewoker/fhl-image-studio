@@ -13,6 +13,24 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+var supportedBatchInputExtensions = map[string]struct{}{
+	".png":  {},
+	".jpg":  {},
+	".jpeg": {},
+	".webp": {},
+}
+
+func (s *Service) BeginNativeFileDrag(path string) error {
+	allowed, err := s.ensureManagedReadablePath(path, managedImageFile)
+	if err != nil {
+		return err
+	}
+	if s.ctx != nil {
+		runtime.EventsEmit(s.ctx, "native-file-drag", allowed)
+	}
+	return beginNativeFileDrag(allowed)
+}
+
 // OpenImageDialog shows a file picker filtered to supported image types and
 // returns the selected absolute path, size, and a managed AVIF preview URL when
 // thumbnail generation succeeds.
@@ -37,6 +55,10 @@ func (s *Service) OpenImageDialog() (SelectFileResponse, error) {
 		return SelectFileResponse{}, err
 	}
 	resp := SelectFileResponse{Path: path, Size: info.Size()}
+	if cfg, cfgErr := imageConfig(path); cfgErr == nil {
+		resp.Width = cfg.Width
+		resp.Height = cfg.Height
+	}
 	if info.Size() > 0 && info.Size() <= maxDialogReadBytes {
 		if preview, previewErr := s.registerImportedPreview(path); previewErr == nil {
 			resp.ImageID = preview.ID
@@ -46,6 +68,124 @@ func (s *Service) OpenImageDialog() (SelectFileResponse, error) {
 		}
 	}
 	return resp, nil
+}
+
+func (s *Service) OpenImagesDialog() (SelectFilesResponse, error) {
+	paths, err := runtime.OpenMultipleFilesDialog(s.ctx, runtime.OpenDialogOptions{
+		Title: "选择批处理源图片",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "支持的图片 (*.png;*.jpg;*.jpeg;*.webp)", Pattern: "*.png;*.jpg;*.jpeg;*.webp"},
+			{DisplayName: "所有文件 (*.*)", Pattern: "*.*"},
+		},
+	})
+	if err != nil {
+		return SelectFilesResponse{}, err
+	}
+	if len(paths) == 0 {
+		return SelectFilesResponse{}, nil
+	}
+	files := make([]BatchInputImage, 0, len(paths))
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil || info.IsDir() {
+			continue
+		}
+		item := BatchInputImage{
+			Path: path,
+			Name: filepath.Base(path),
+			Size: info.Size(),
+		}
+		if cfg, cfgErr := imageConfig(path); cfgErr == nil {
+			item.Width = cfg.Width
+			item.Height = cfg.Height
+		}
+		if info.Size() > 0 && info.Size() <= maxDialogReadBytes {
+			if preview, previewErr := s.registerImportedPreview(path); previewErr == nil {
+				item.PreviewURL = preview.PreviewURL
+				item.PreviewWidth = preview.PreviewWidth
+				item.PreviewHeight = preview.PreviewHeight
+			}
+		}
+		files = append(files, item)
+	}
+	return SelectFilesResponse{Files: files}, nil
+}
+
+func (s *Service) ChooseBatchInputDir() (BatchInputDirectory, error) {
+	if s.ctx == nil {
+		return BatchInputDirectory{}, errors.New("服务未启动")
+	}
+	chosen, err := runtime.OpenDirectoryDialog(s.ctx, runtime.OpenDialogOptions{
+		Title: "选择批处理输入目录",
+	})
+	if err != nil {
+		return BatchInputDirectory{}, err
+	}
+	if chosen == "" {
+		return BatchInputDirectory{}, nil
+	}
+	return s.ListBatchInputImages(chosen)
+}
+
+func (s *Service) ListBatchInputImages(directory string) (BatchInputDirectory, error) {
+	clean := strings.TrimSpace(directory)
+	if clean == "" {
+		return BatchInputDirectory{}, errors.New("目标目录不能为空")
+	}
+	root, err := filepath.Abs(clean)
+	if err != nil {
+		return BatchInputDirectory{}, err
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return BatchInputDirectory{}, fmt.Errorf("读取目录失败: %w", err)
+	}
+	if !info.IsDir() {
+		return BatchInputDirectory{}, fmt.Errorf("不是目录: %s", root)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return BatchInputDirectory{}, fmt.Errorf("读取目录失败: %w", err)
+	}
+	images := make([]BatchInputImage, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if _, ok := supportedBatchInputExtensions[ext]; !ok {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		item := BatchInputImage{
+			Path: path,
+			Name: entry.Name(),
+			Size: info.Size(),
+		}
+		if cfg, cfgErr := imageConfig(path); cfgErr == nil {
+			item.Width = cfg.Width
+			item.Height = cfg.Height
+		}
+		if info.Size() > 0 && info.Size() <= maxDialogReadBytes {
+			if preview, previewErr := s.registerImportedPreview(path); previewErr == nil {
+				item.PreviewURL = preview.PreviewURL
+				item.PreviewWidth = preview.PreviewWidth
+				item.PreviewHeight = preview.PreviewHeight
+			}
+		}
+		images = append(images, item)
+	}
+	return BatchInputDirectory{
+		Directory: root,
+		Images:    images,
+	}, nil
 }
 
 // SaveImageAs prompts the user for a destination and writes the base64 PNG to disk.
@@ -151,6 +291,112 @@ func (s *Service) GetOutputDir() (string, error) {
 	return s.resolvedOutputDir()
 }
 
+// SyncMaterialGroupToOutput mirrors material-library references into a visible
+// output subfolder. It copies files only; it never moves original generated
+// files or mutates history records.
+func (s *Service) SyncMaterialGroupToOutput(groupKind, groupName string, items []MaterialOutputSyncItem) (MaterialOutputSyncResult, error) {
+	root, err := s.resolvedOutputDir()
+	if err != nil {
+		return MaterialOutputSyncResult{}, err
+	}
+	kindDir := materialSyncKindDir(groupKind)
+	targetDir := filepath.Join(root, "素材管理", kindDir, sanitizeMaterialSyncSegment(groupName, "未命名素材组"))
+	if err := os.MkdirAll(targetDir, secureDirMode); err != nil {
+		return MaterialOutputSyncResult{}, fmt.Errorf("create material sync directory: %w", err)
+	}
+	result := MaterialOutputSyncResult{
+		TargetDir:    targetDir,
+		Files:        []MaterialOutputSyncedFile{},
+		MissingItems: []MaterialOutputSyncMissing{},
+	}
+	for _, item := range items {
+		historyID := strings.TrimSpace(item.HistoryID)
+		path := strings.TrimSpace(item.SavedPath)
+		if path == "" {
+			reason := strings.TrimSpace(item.MissingReason)
+			if reason == "" {
+				reason = "历史记录没有保存路径"
+			}
+			result.MissingItems = append(result.MissingItems, MaterialOutputSyncMissing{
+				HistoryID: historyID,
+				Reason:    reason,
+			})
+			continue
+		}
+		allowed, readErr := s.ensureManagedReadablePath(path, managedImageFile)
+		if readErr != nil {
+			result.MissingItems = append(result.MissingItems, MaterialOutputSyncMissing{
+				HistoryID: historyID,
+				Path:      path,
+				Reason:    readErr.Error(),
+			})
+			continue
+		}
+		name := ensureTargetFileName(item.SuggestedName, filepath.Base(allowed))
+		dst, pathErr := uniqueTargetPath(targetDir, name)
+		if pathErr != nil {
+			result.MissingItems = append(result.MissingItems, MaterialOutputSyncMissing{
+				HistoryID: historyID,
+				Path:      path,
+				Reason:    pathErr.Error(),
+			})
+			continue
+		}
+		data, readErr := os.ReadFile(allowed)
+		if readErr != nil {
+			result.MissingItems = append(result.MissingItems, MaterialOutputSyncMissing{
+				HistoryID: historyID,
+				Path:      path,
+				Reason:    readErr.Error(),
+			})
+			continue
+		}
+		if writeErr := os.WriteFile(dst, data, secureFileMode); writeErr != nil {
+			result.MissingItems = append(result.MissingItems, MaterialOutputSyncMissing{
+				HistoryID: historyID,
+				Path:      path,
+				Reason:    writeErr.Error(),
+			})
+			continue
+		}
+		abs, _ := filepath.Abs(dst)
+		result.Files = append(result.Files, MaterialOutputSyncedFile{
+			HistoryID: historyID,
+			Source:    allowed,
+			Path:      abs,
+		})
+	}
+	result.Synced = len(result.Files)
+	result.Missing = len(result.MissingItems)
+	return result, nil
+}
+
+func (s *Service) OpenMaterialSyncDir(path string) error {
+	root, err := s.resolvedOutputDir()
+	if err != nil {
+		return err
+	}
+	clean := strings.TrimSpace(path)
+	if clean == "" {
+		clean = filepath.Join(root, "素材管理")
+	}
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return fmt.Errorf("路径无效:%w", err)
+	}
+	if err := os.MkdirAll(abs, secureDirMode); err != nil {
+		return err
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	if !isWithinRoot(abs, rootAbs) {
+		return fmt.Errorf("拒绝打开 output 之外的素材目录:%s", filepath.Base(abs))
+	}
+	return openInExplorer(abs)
+}
+
 func ensureTargetDirectory(directory string) (string, error) {
 	clean := strings.TrimSpace(directory)
 	if clean == "" {
@@ -196,6 +442,57 @@ func uniqueTargetPath(dir, fileName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("too many files named like %s in target directory", fileName)
+}
+
+func uniquePrefixedTargetPath(dir, sourceName, prefix string) (string, error) {
+	base := ensureTargetFileName(sourceName, "image.png")
+	trimmedPrefix := strings.TrimSpace(prefix)
+	if trimmedPrefix == "" {
+		return uniqueTargetPath(dir, base)
+	}
+	return uniqueTargetPath(dir, trimmedPrefix+base)
+}
+
+func materialSyncKindDir(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "referenceSet":
+		return "参考图组"
+	default:
+		return "文件夹"
+	}
+}
+
+func sanitizeMaterialSyncSegment(value, fallback string) string {
+	name := strings.TrimSpace(value)
+	if name == "" {
+		name = fallback
+	}
+	var b strings.Builder
+	for _, r := range name {
+		switch r {
+		case '<', '>', ':', '"', '/', '\\', '|', '?', '*':
+			b.WriteRune('_')
+		default:
+			if r < 32 {
+				b.WriteRune('_')
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	clean := strings.Trim(strings.TrimSpace(b.String()), ".")
+	if clean == "" {
+		clean = fallback
+	}
+	runes := []rune(clean)
+	if len(runes) > 80 {
+		clean = strings.TrimSpace(string(runes[:80]))
+		clean = strings.Trim(clean, ".")
+	}
+	if clean == "" {
+		return fallback
+	}
+	return clean
 }
 
 // OpenOutputDir reveals the output directory in the OS file explorer.

@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 export function WorkspaceTabItem({
   workspace,
   active,
+  canClose,
   editingName,
   isEditing,
   onChangeEditingName,
@@ -16,6 +17,7 @@ export function WorkspaceTabItem({
 }: {
   workspace: Workspace;
   active: boolean;
+  canClose: boolean;
   editingName: string;
   isEditing: boolean;
   onChangeEditingName: (value: string) => void;
@@ -62,7 +64,7 @@ export function WorkspaceTabItem({
           ) : null}
         </>
       )}
-      {!isEditing ? (
+      {!isEditing && canClose ? (
         <button
           type="button"
           onClick={(e) => {

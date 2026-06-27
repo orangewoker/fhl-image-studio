@@ -78,6 +78,7 @@ export function subscribeToBrowserJob(
   jobId: string,
   onEvent: (event: BrowserJobEvent) => void,
   onError?: (error: Error) => void,
+  onClose?: () => void,
 ) {
   const controller = new AbortController();
   void (async () => {
@@ -111,6 +112,7 @@ export function subscribeToBrowserJob(
       buffer += decoder.decode();
       const finalPayload = parseSSEPayload(buffer);
       if (finalPayload) onEvent(finalPayload);
+      if (!controller.signal.aborted) onClose?.();
     } catch (error) {
       if (controller.signal.aborted) return;
       onError?.(error instanceof Error ? error : new Error(String(error)));

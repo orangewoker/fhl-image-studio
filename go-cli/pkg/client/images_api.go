@@ -1,15 +1,12 @@
 package client
 
-// images_api.go — 适配标准的 OpenAI Images API:
-//   POST {base}/v1/images/generations  (JSON,文生图)
-//   POST {base}/v1/images/edits        (multipart/form-data,图生图)
+// images_api.go adapts the standard OpenAI Images API:
+//   POST {base}/v1/images/generations (JSON, text-to-image)
+//   POST {base}/v1/images/edits (multipart/form-data, image-to-image)
 //
-// 与 Responses API 路径(client.go / sse.go)的最大区别:
-//   - 结果事件形态不同;支持官方 Images API 的 stream/partial_images 时可流式预览,
-//     否则回退解析一次性 JSON 响应。
-//   - 多图编辑能力受上游约束(OpenAI 官方仅接受 1 张 image,部分中转站允许 image[] 数组),
-//     为最大兼容,这里默认只取第一张源图;如果上游支持多张,可后续扩展
-//   - 默认优先走 OpenAI 官方公开字段;若请求策略切到 compat,可附带 relay 扩展字段
+// The Responses API path lives in client.go / sse.go. This file keeps the
+// Images API compatibility flow focused on request construction, optional
+// streaming partial previews, and response parsing.
 
 import (
 	"bytes"
@@ -163,7 +160,7 @@ func RequestImagesAPIWithPartial(
 
 	baseURL := strings.TrimSpace(opts.BaseURL)
 	if baseURL == "" {
-		return ImageResult{}, errors.New("未配置上游 BASE_URL,请在「设置 → 上游 BASE_URL」中填入兼容 OpenAI Images API 的中转站地址")
+		return ImageResult{}, errors.New("missing upstream BASE_URL for OpenAI Images API")
 	}
 	baseURL, err := ValidateBaseURL(baseURL)
 	if err != nil {
@@ -174,7 +171,13 @@ func RequestImagesAPIWithPartial(
 	if model == "" {
 		model = ImageModel
 	}
-	size := opts.Size
+	rawSize := strings.TrimSpace(opts.Size)
+	size := ""
+	if strings.EqualFold(rawSize, "auto") {
+		size = "auto"
+	} else {
+		size = normalizeOpenAIImageSize(rawSize)
+	}
 	if size == "" {
 		size = DefaultSize
 	}
@@ -198,7 +201,7 @@ func RequestImagesAPIWithPartial(
 	if opts.Mode == ModeEdit {
 		paths := opts.imageSourcePathsForEdit()
 		if len(paths) == 0 {
-			return ImageResult{}, errors.New("图生图模式需要至少一张源图(请在面板里添加参考图)")
+			return ImageResult{}, errors.New("\u7f16\u8f91\u6a21\u5f0f\u81f3\u5c11\u9700\u8981\u4e00\u5f20 --image")
 		}
 		multipartBuf, mpType, err := buildEditsMultipart(paths, opts.MaskB64, opts.Prompt, model, size, quality, outputFormat, opts.NegativePrompt, opts.Seed, opts.RequestPolicy, normalizePartialImages(opts.PartialImages), useNewAPICompat)
 		if err != nil {
@@ -257,7 +260,7 @@ func RequestImagesAPIWithPartial(
 	}
 
 	startedAt := time.Now()
-	// Progress ticker — Images API has no streaming so we just tick elapsed time.
+	// Progress ticker 闂?Images API has no streaming so we just tick elapsed time.
 	stopProgress := make(chan struct{})
 	if onProgress != nil {
 		go func() {
@@ -268,7 +271,7 @@ func RequestImagesAPIWithPartial(
 				case <-stopProgress:
 					return
 				case <-tick.C:
-					onProgress("等待 Images API 返回(无 SSE 保活)", int(time.Since(startedAt).Seconds()), 0)
+					onProgress("waiting for Images API response", int(time.Since(startedAt).Seconds()), 0)
 				}
 			}
 		}()
@@ -296,7 +299,7 @@ func RequestImagesAPIWithPartial(
 				return ImageResult{}, fmt.Errorf("write raw: %w", err)
 			}
 			if extractor.consume(string(line)) && onProgress != nil {
-				onProgress("已收到 Images API 流式事件", int(time.Since(startedAt).Seconds()), rawBytes)
+				onProgress("\u7b49\u5f85 Images API \u8fd4\u56de", int(time.Since(startedAt).Seconds()), rawBytes)
 			}
 		}
 		if err := scanner.Err(); err != nil {
@@ -306,7 +309,7 @@ func RequestImagesAPIWithPartial(
 			return ImageResult{}, fmt.Errorf("read Images API stream: %w", err)
 		}
 		if resp.StatusCode/100 != 2 {
-			return ImageResult{}, fmt.Errorf("上游返回 HTTP %d", resp.StatusCode)
+			return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de HTTP %d", resp.StatusCode)
 		}
 		if result, ok := extractor.result(); ok {
 			return result, nil
@@ -326,24 +329,24 @@ func RequestImagesAPIWithPartial(
 			bodyPreview = bodyPreview[:400] + "..."
 		}
 		if resp.StatusCode/100 != 2 {
-			return ImageResult{}, fmt.Errorf("上游返回 HTTP %d: %s", resp.StatusCode, bodyPreview)
+			return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de HTTP %d: %s", resp.StatusCode, bodyPreview)
 		}
-		return ImageResult{}, fmt.Errorf("解析 Images API 响应失败:%w", err)
+		return ImageResult{}, fmt.Errorf("\u89e3\u6790 Images API \u8fd4\u56de\u5931\u8d25: %w", err)
 	}
 
-	// Non-2xx with JSON body — decode has already captured the structured error.
+	// Non-2xx with JSON body 闂?decode has already captured the structured error.
 	if resp.StatusCode/100 != 2 {
 		if parsed.Error != nil {
-			return ImageResult{}, fmt.Errorf("上游返回 %d:%s", resp.StatusCode, parsed.Error.Message)
+			return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de %d:%s", resp.StatusCode, parsed.Error.Message)
 		}
 		bodyPreview := preview.String()
 		if len(bodyPreview) > 400 {
 			bodyPreview = bodyPreview[:400] + "..."
 		}
-		return ImageResult{}, fmt.Errorf("上游返回 HTTP %d: %s", resp.StatusCode, bodyPreview)
+		return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de HTTP %d: %s", resp.StatusCode, bodyPreview)
 	}
 	if parsed.Error != nil {
-		return ImageResult{}, fmt.Errorf("上游返回错误:%s", parsed.Error.Message)
+		return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de\u9519\u8bef:%s", parsed.Error.Message)
 	}
 	if len(parsed.Data) == 0 {
 		return ImageResult{}, ErrNoImageInResponse
@@ -351,10 +354,10 @@ func RequestImagesAPIWithPartial(
 	d := parsed.Data[0]
 	if d.B64JSON == "" {
 		// Some relays return URL only. We do not download URL responses to keep
-		// behaviour predictable — surface a clear error so user can adjust the
+		// behaviour predictable 闂?surface a clear error so user can adjust the
 		// upstream config.
 		if d.URL != "" {
-			return ImageResult{}, fmt.Errorf("上游返回 URL 而非 b64_json(不支持 response_format),请联系中转站启用 b64_json")
+			return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de URL \u800c\u4e0d\u662f b64_json(\u4e0d\u652f\u6301 response_format),\u8bf7\u8054\u7cfb\u4e2d\u8f6c\u7ad9\u542f\u7528 b64_json")
 		}
 		return ImageResult{}, ErrNoImageInResponse
 	}
@@ -376,12 +379,12 @@ func parseImagesAPIResponseBytes(raw []byte, statusCode int) (ImageResult, error
 	}
 	if statusCode/100 != 2 {
 		if parsed.Error != nil {
-			return ImageResult{}, fmt.Errorf("上游返回 %d:%s", statusCode, parsed.Error.Message)
+			return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de %d:%s", statusCode, parsed.Error.Message)
 		}
-		return ImageResult{}, fmt.Errorf("上游返回 HTTP %d", statusCode)
+		return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de HTTP %d", statusCode)
 	}
 	if parsed.Error != nil {
-		return ImageResult{}, fmt.Errorf("上游返回错误:%s", parsed.Error.Message)
+		return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de\u9519\u8bef:%s", parsed.Error.Message)
 	}
 	if len(parsed.Data) == 0 || parsed.Data[0].B64JSON == "" {
 		return ImageResult{}, ErrNoImageInResponse
@@ -416,7 +419,7 @@ func (b *cappedPreviewBuffer) String() string {
 // imageSourcePathsForEdit picks the source-image paths for an Images API edit.
 // Prefers ImagePaths (raw files, no decode needed). If only data URLs are
 // provided, the caller is responsible for writing them to a temp file first
-// — see writeDataURLToTemp below.
+// 闂?see writeDataURLToTemp below.
 func (o Options) imageSourcePathsForEdit() []string {
 	paths := make([]string, 0, len(o.ImagePaths)+1)
 	for _, p := range o.ImagePaths {
@@ -427,7 +430,7 @@ func (o Options) imageSourcePathsForEdit() []string {
 	if len(paths) > 0 {
 		return paths
 	}
-	// Fallback: data URLs → temp files.
+	// Fallback: data URLs 闂?temp files.
 	for _, du := range o.EffectiveImageDataURLs() {
 		if p, err := writeDataURLToTemp(du); err == nil {
 			paths = append(paths, p)
@@ -474,8 +477,6 @@ func writeDataURLToTemp(dataURL string) (string, error) {
 }
 
 // buildEditsMultipart constructs the multipart/form-data body for /v1/images/edits.
-// 多张源图按 image[] / image[1] / ... 形式串联 —— 不同中转站对多图编辑支持不一,
-// 仅第一张是 OpenAI 官方接受的最小可用形态,其余作为兼容性 best-effort。
 func buildEditsMultipart(
 	paths []string, maskB64, prompt, model, size, quality, outputFormat, negativePrompt string, seed int64, requestPolicy RequestPolicy, partialImages int, useNewAPICompat bool,
 ) (*bytes.Buffer, string, error) {
@@ -485,7 +486,7 @@ func buildEditsMultipart(
 	for i, p := range paths {
 		fieldName := "image"
 		if i > 0 {
-			// Some relays accept multiple `image` fields, others want image[] —
+			// Some relays accept multiple `image` fields, others want image[] 闂?
 			// we send both to maximise compatibility. The extra field is cheap.
 			fieldName = "image[]"
 		}
@@ -549,7 +550,7 @@ func writeMultipartFile(w *multipart.Writer, fieldName, path string) error {
 		return err
 	}
 	if st.Size() > MaxInputImageBytes {
-		return fmt.Errorf("源图过大(%dB > %dB 上限)", st.Size(), MaxInputImageBytes)
+		return fmt.Errorf("\u8f93\u5165\u6587\u4ef6\u8fc7\u5927(%dB > %dB \u9650\u5236)", st.Size(), MaxInputImageBytes)
 	}
 	h := make(textproto.MIMEHeader)
 	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, fieldName, filepath.Base(path)))

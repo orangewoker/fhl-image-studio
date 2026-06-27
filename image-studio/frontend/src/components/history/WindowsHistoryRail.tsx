@@ -3,7 +3,7 @@ import {
   Search, Settings2, Split,
 } from "lucide-react";
 import { historyPreviewSrc, useBlobURL, useImageLoadState } from "../../lib/images";
-import type { APIMode, HistoryItem, JobGroupSnapshot, Mode, QualityValue, SizeValue } from "../../types/domain";
+import type { APIMode, BatchTaskRecord, HistoryItem, JobGroupSnapshot, Mode, QualityValue, SizeValue } from "../../types/domain";
 import { ContextMenu } from "../common/ContextMenu";
 import { RawResponseModal } from "./RawResponseModal";
 import type { DateFilter, ModeFilter } from "./HistoryRail";
@@ -14,12 +14,60 @@ import { HistoryTile } from "./HistoryTile";
 import { WindowsHistoryPromptGroup } from "./WindowsHistoryPromptGroup";
 import { qualityLabel, sizeLabel } from "./historyLabels";
 import type { MenuItem } from "../common/ContextMenu";
+import { apiModeLabel, apiModeRequiresDirectAPIKey } from "../../lib/profiles";
+import { apiSourceShortLabel } from "./historyApiSource";
+import { normalizeRuntimeText } from "../../lib/runtimeText.ts";
+
+type WindowsBatchPendingState = "queued" | "running" | "awaiting_result" | "missing";
+type WindowsBatchFailureState = "failed" | "cancelled" | "interrupted" | "missing";
 
 export type WindowsHistoryBatchQueueSlot =
-  | { type: "result"; index: number; item: HistoryItem }
-  | { type: "preview"; index: number; item: HistoryItem }
-  | { type: "failed"; index: number; id: string; message?: string }
-  | { type: "pending"; index: number; id: string };
+  | { type: "result"; index: number; item: HistoryItem; task?: BatchTaskRecord | null }
+  | { type: "preview"; index: number; item: HistoryItem; task?: BatchTaskRecord | null }
+  | { type: "failed"; index: number; id: string; message?: string; task?: BatchTaskRecord | null; state: WindowsBatchFailureState }
+  | { type: "pending"; index: number; id: string; task?: BatchTaskRecord | null; state: WindowsBatchPendingState };
+
+function pendingStateLabel(state: WindowsBatchPendingState): string {
+  switch (state) {
+    case "running":
+      return "正在生成";
+    case "awaiting_result":
+      return "等待返回";
+    case "missing":
+      return "未返回";
+    default:
+      return "排队中";
+  }
+}
+
+function failureStateLabel(state: WindowsBatchFailureState): string {
+  switch (state) {
+    case "cancelled":
+      return "已取消";
+    case "interrupted":
+      return "已中断";
+    case "missing":
+      return "未返回";
+    default:
+      return "失败";
+  }
+}
+
+function queueSlotMode(slot: WindowsHistoryBatchQueueSlot, fallback: Mode): Mode {
+  return slot.task?.mode ?? fallback;
+}
+
+function queueSlotSize(slot: WindowsHistoryBatchQueueSlot, fallback: SizeValue): SizeValue {
+  return slot.task?.size ?? fallback;
+}
+
+function queueSlotQuality(slot: WindowsHistoryBatchQueueSlot, fallback: QualityValue): QualityValue {
+  return slot.task?.quality ?? fallback;
+}
+
+function apiSourceMetaLabel(source?: Pick<HistoryItem, "apiMode" | "apiProfileId" | "apiProfileName"> | Pick<BatchTaskRecord, "apiMode" | "apiProfileId" | "apiProfileName"> | Pick<JobGroupSnapshot, "apiMode" | "apiProfileId" | "apiProfileName"> | null): string {
+  return source ? apiSourceShortLabel(source) : "";
+}
 
 export function WindowsHistoryRail({
   activeProfileId,
@@ -54,6 +102,8 @@ export function WindowsHistoryRail({
   modeF,
   loadMoreHistory,
   openHistoryTimeline,
+  openHistoryGallery,
+  openMaterialManager,
   openMenu,
   openUpstreamConfig,
   profiles,
@@ -103,6 +153,8 @@ export function WindowsHistoryRail({
   modeF: ModeFilter;
   loadMoreHistory: () => void | Promise<void>;
   openHistoryTimeline: () => void;
+  openHistoryGallery: () => void | Promise<void>;
+  openMaterialManager: () => void;
   openMenu: (item: HistoryItem, x: number, y: number) => void;
   openUpstreamConfig: (source?: "app" | "settings") => void;
   profiles: Array<{ id: string; name: string; apiMode: APIMode }>;
@@ -120,6 +172,7 @@ export function WindowsHistoryRail({
   testAPIKey: () => void | Promise<void>;
   onOpenPromptGroup: (group: HistoryPromptGroup) => void;
 }) {
+  const upstreamReady = !!baseURL.trim() && (!apiModeRequiresDirectAPIKey(apiMode) || !!apiKey.trim());
   const latest = filtered[0] ?? null;
   const list = historyRailCollapsed ? [] : entries.slice(0, 18);
   const historyById = new Map(history.map((item) => [item.id, item]));
@@ -136,9 +189,9 @@ export function WindowsHistoryRail({
           <div className="windows-history-card-head">
             <div className="windows-history-title-row">
               <span className="windows-history-title">上游</span>
-              <span className={`windows-status-dot ${apiKey && baseURL ? "ready" : "missing"}`} />
-              <span className={apiKey && baseURL ? "text-[var(--accent)]" : "text-red-400"}>
-                {apiKey && baseURL ? "已配置" : "未配置"}
+              <span className={`windows-status-dot ${upstreamReady ? "ready" : "missing"}`} />
+              <span className={upstreamReady ? "text-[var(--accent)]" : "text-red-400"}>
+                {upstreamReady ? "已配置" : "未配置"}
               </span>
             </div>
             <span className="windows-history-muted">当前连接</span>
@@ -160,7 +213,7 @@ export function WindowsHistoryRail({
             >
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name} · {profile.apiMode === "responses" ? "Responses" : "Images"}
+                  {profile.name} · {apiModeLabel(profile.apiMode).replace(" API", "")}
                 </option>
               ))}
               <option value="__manage__">管理配置...</option>
@@ -176,14 +229,14 @@ export function WindowsHistoryRail({
             <button
               type="button"
               onClick={() => void testAPIKey()}
-              disabled={!apiKey.trim() || !baseURL.trim() || isTestingKey}
+              disabled={!upstreamReady || isTestingKey}
               className="platform-action-btn"
             >
               {isTestingKey ? "检查中..." : "测试"}
             </button>
           </div>
           <span className="windows-history-api-mode">
-            {apiMode === "responses" ? "Responses API" : "Images API"}
+            {apiModeLabel(apiMode)}
           </span>
         </section>
 
@@ -237,7 +290,7 @@ export function WindowsHistoryRail({
           <section className="platform-card windows-history-feature">
             <div className="windows-history-section-head">
               <span><Clock3 className="h-3.5 w-3.5" /> 最近作品</span>
-              <button type="button" onClick={openHistoryTimeline}>完整历史</button>
+              <button type="button" onClick={openMaterialManager}>素材管理</button>
             </div>
             <HistoryTile
               item={latest}
@@ -257,7 +310,18 @@ export function WindowsHistoryRail({
           <section className="platform-card windows-history-results">
             <div className="windows-history-section-head">
               <span><Filter className="h-3.5 w-3.5" /> 结果</span>
-              <span>{resultCountLabel}</span>
+              <span className="windows-history-results-actions">
+                <button
+                  type="button"
+                  className="windows-history-gallery-button"
+                  onClick={() => void openHistoryGallery()}
+                  disabled={history.length === 0}
+                  title="在工作区查看全部历史结果图"
+                >
+                  查看完整相册
+                </button>
+                <span>{resultCountLabel}</span>
+              </span>
             </div>
 
             {recentJobGroups.length > 0 ? (
@@ -308,8 +372,8 @@ export function WindowsHistoryRail({
             ) : null}
 
             {entries.length > list.length ? (
-              <button type="button" onClick={openHistoryTimeline} className="windows-history-more">
-                查看更多历史
+              <button type="button" onClick={openMaterialManager} className="windows-history-more">
+                打开素材管理
               </button>
             ) : null}
             {historyHasMore ? (
@@ -379,7 +443,7 @@ function slotDisplayLabel(slot: JobGroupSnapshot["slots"][number]) {
 }
 
 function slotDisplayMessage(slot: JobGroupSnapshot["slots"][number]) {
-  const raw = (slot.errorMessage || slot.stage || "").trim();
+  const raw = normalizeRuntimeText(slot.errorMessage || slot.stage);
   if (slot.fallbackMode === "contact_sheet") {
     if (slot.status === "succeeded") return "多参考图直传失败后，已用合成参考图完成。";
     if (slot.status === "running") return "多参考图直传失败，正在使用合成参考图兼容模式。";
@@ -413,13 +477,14 @@ function WindowsJobGroupCard({
   onSelect: (item: HistoryItem) => void | Promise<void>;
 }) {
   const slots = [...group.slots].sort((a, b) => a.batchIndex - b.batchIndex);
+  const groupApiSource = apiSourceMetaLabel(group);
   return (
     <div className="rounded-[16px] border border-black/[0.06] bg-white/70 p-3 shadow-[var(--shadow-card)] dark:border-white/[0.06] dark:bg-white/[0.03]">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-1 flex items-center gap-2">
             <HistoryModeBadge mode={group.mode} />
-            <HistoryMetaBadges items={[sizeLabel(group.size), qualityLabel(group.quality), `${group.batchCount} 张`]} compact />
+            <HistoryMetaBadges items={[groupApiSource, sizeLabel(group.size), qualityLabel(group.quality), `${group.batchCount} 张`].filter(Boolean)} compact />
           </div>
           <p className="line-clamp-2 text-[12px] leading-5 text-zinc-700 dark:text-zinc-200">
             {group.prompt || "(无 prompt)"}
@@ -551,12 +616,17 @@ function WindowsBatchQueue({
   total: number;
 }) {
   const successCount = slots.filter((slot) => slot.type === "result").length;
-  const failedCount = slots.filter((slot) => slot.type === "failed").length;
+  const failedCount = slots.filter((slot) => slot.type === "failed" && slot.state !== "cancelled").length;
+  const cancelledCount = slots.filter((slot) => slot.type === "failed" && slot.state === "cancelled").length;
+  const runningCount = slots.filter((slot) => slot.type === "pending" && slot.state === "running").length;
+  const queuedCount = slots.filter((slot) => slot.type === "pending" && slot.state === "queued").length;
+  const waitingFinalCount = slots.filter((slot) => slot.type === "pending" && slot.state === "awaiting_result").length;
   const pendingCount = slots.filter((slot) => slot.type === "pending" || slot.type === "preview").length;
-  const statusText = running
-    ? `运行中 ${completed}/${Math.max(total, slots.length)}`
-    : failedCount > 0
-      ? `${successCount} 成功 · ${failedCount} 失败`
+  const hasActiveWork = runningCount > 0 || queuedCount > 0 || waitingFinalCount > 0 || (running && pendingCount > 0);
+  const statusText = hasActiveWork
+    ? `运行中 ${successCount}/${Math.max(total, slots.length)}${runningCount > 0 ? ` · 处理中 ${runningCount}` : ""}${queuedCount > 0 ? ` · 排队 ${queuedCount}` : ""}${waitingFinalCount > 0 ? ` · 等待返回 ${waitingFinalCount}` : ""}`
+    : failedCount > 0 || cancelledCount > 0
+      ? `${successCount} 成功${failedCount > 0 ? ` · ${failedCount} 失败` : ""}${cancelledCount > 0 ? ` · ${cancelledCount} 取消` : ""}`
       : `${successCount} 成功`;
 
   return (
@@ -602,10 +672,19 @@ function WindowsBatchQueueImageSlot({
   slot: Extract<WindowsHistoryBatchQueueSlot, { type: "result" | "preview" }>;
 }) {
   const item = slot.item;
+  const promptText = item.prompt || slot.task?.prompt || "";
   const previewURL = useBlobURL(item.previewBlob ?? item.imageBlob ?? null, item.imageB64 ?? null);
   const imageSrc = historyPreviewSrc(item, previewURL);
   const imageLoadState = useImageLoadState(imageSrc || null);
   const isPreview = slot.type === "preview";
+  const slotMode = slot.task?.mode ?? item.mode;
+  const slotSize = slot.task?.size ?? item.size;
+  const slotQuality = slot.task?.quality ?? item.quality;
+  const slotApiSource = apiSourceMetaLabel({
+    apiMode: slot.task?.apiMode ?? item.apiMode,
+    apiProfileId: slot.task?.apiProfileId ?? item.apiProfileId,
+    apiProfileName: slot.task?.apiProfileName ?? item.apiProfileName,
+  });
   return (
     <button
       type="button"
@@ -614,21 +693,21 @@ function WindowsBatchQueueImageSlot({
         if (!isPreview) void onSelect(item);
       }}
       disabled={isPreview}
-      title={item.prompt}
+      title={promptText}
     >
       <span className="windows-history-batch-index">{slot.index + 1}</span>
       <span className="windows-history-batch-thumb">
         {imageSrc && imageLoadState === "ready" ? (
-          <img src={imageSrc} alt={item.prompt || `batch ${slot.index + 1}`} loading="eager" decoding="async" />
+          <img src={imageSrc} alt={promptText || `batch ${slot.index + 1}`} loading="eager" decoding="async" />
         ) : (
           <span className="history-thumb-fallback" aria-hidden="true" />
         )}
       </span>
       <span className="windows-history-batch-main">
-        <span className="windows-history-batch-prompt">{item.prompt || "(无 prompt)"}</span>
+        <span className="windows-history-batch-prompt">{promptText || "(无 prompt)"}</span>
         <span className="windows-history-batch-meta">
-          <HistoryModeBadge mode={item.mode} />
-          <HistoryMetaBadges items={[sizeLabel(item.size), qualityLabel(item.quality)]} compact />
+          <HistoryModeBadge mode={slotMode} />
+          <HistoryMetaBadges items={[slotApiSource, sizeLabel(slotSize), qualityLabel(slotQuality)].filter(Boolean)} compact />
           <span className="windows-history-batch-state">{isPreview ? "等待 final" : "成功"}</span>
         </span>
       </span>
@@ -648,24 +727,28 @@ function WindowsBatchQueueStateSlot({
   slot: Extract<WindowsHistoryBatchQueueSlot, { type: "failed" | "pending" }>;
 }) {
   const failed = slot.type === "failed";
-  const failureMessage = failed ? slot.message?.trim() || "" : "";
+  const slotMode = queueSlotMode(slot, mode);
+  const slotSize = queueSlotSize(slot, size);
+  const slotQuality = queueSlotQuality(slot, quality);
+  const slotApiSource = apiSourceMetaLabel(slot.task);
+  const statusLabel = failed ? failureStateLabel(slot.state) : pendingStateLabel(slot.state);
+  const detailText = normalizeRuntimeText(slot.type === "failed" ? slot.message : "") || normalizeRuntimeText(slot.task?.lastLogLine);
+  const titleText = `第 ${slot.index + 1} 张${statusLabel === "未返回" ? "未返回最终结果" : statusLabel}`;
   return (
     <div className={`windows-history-batch-slot ${failed ? "failed" : "pending"}`}>
       <span className="windows-history-batch-index">{slot.index + 1}</span>
       <span className="windows-history-batch-placeholder">{failed ? "!" : "..."}</span>
       <span className="windows-history-batch-main">
-        <span className="windows-history-batch-prompt">
-          第 {slot.index + 1} 张{failed ? "生成失败 / 未返回" : "等待返回"}
-        </span>
-        {failureMessage ? (
-          <span className="windows-history-batch-error" title={failureMessage}>
-            {failureMessage}
+        <span className="windows-history-batch-prompt">{titleText}</span>
+        {detailText ? (
+          <span className="windows-history-batch-error" title={detailText}>
+            {detailText}
           </span>
         ) : null}
         <span className="windows-history-batch-meta">
-          <HistoryModeBadge mode={mode} />
-          <HistoryMetaBadges items={[sizeLabel(size), qualityLabel(quality)]} compact />
-          <span className="windows-history-batch-state">{failed ? "失败" : "队列中"}</span>
+          <HistoryModeBadge mode={slotMode} />
+          <HistoryMetaBadges items={[slotApiSource, sizeLabel(slotSize), qualityLabel(slotQuality)].filter(Boolean)} compact />
+          <span className="windows-history-batch-state">{statusLabel}</span>
         </span>
       </span>
     </div>

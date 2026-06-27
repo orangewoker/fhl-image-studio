@@ -25,6 +25,10 @@ import { WindowsHistoryRail, type WindowsHistoryBatchQueueSlot } from "./Windows
 import { qualityLabel, sizeLabel } from "./historyLabels";
 import { toPreviewOnlyHistoryItem } from "../../state/studioStore.runtime";
 import { streamPreviewItemsFromPreviews } from "../../state/studioStore.streamPreview";
+import { sortedBatchTasksForWorkspace } from "../../state/batchTaskRecords";
+import { patchWorkspaceRuntime } from "../../state/workspaceRuntime";
+import { apiModeLabel, apiModeRequiresDirectAPIKey } from "../../lib/profiles";
+import { normalizeRuntimeText } from "../../lib/runtimeText.ts";
 
 export type ModeFilter = "all" | Mode;
 export type DateFilter = RelativeHistoryDateFilter;
@@ -34,14 +38,16 @@ export function HistoryRail() {
     history, currentImage, reuseAsSource, deleteHistoryItem, setField,
     compareB, setCompareB, pushToast, fullscreen,
     applyHistoryParams, regenerateFromHistory,
+    openPanoramaPastebackAligner,
     openResultDetail, saveHistoryItemAs, shareHistoryItem, apiKey, baseURL, apiMode,
     profiles, activeProfileId, setActiveProfile,
-    openUpstreamConfig, openHistoryTimeline, testAPIKey, isTestingKey,
+    openUpstreamConfig, openHistoryTimeline, openMaterialManager, testAPIKey, isTestingKey,
     historyRailCollapsed, setHistoryRailCollapsed,
     activeWorkspaceId, mode, prompt, size, quality, outputFormat,
     batchResults, streamPreviews, runningJobs, jobsTotal, jobsCompleted, isRunning, errorMessage,
+    workspaces, batchTasksById,
     jobGroupsByWorkspace,
-    historyHasMore, historyLoading, loadMoreHistory,
+    historyHasMore, historyLoading, loadMoreHistory, openHistoryGallery,
   } = useStudioStore();
 
   const [q, setQ] = useState("");
@@ -89,44 +95,126 @@ export function HistoryRail() {
     && batchResults.length === 0
     && streamPreviewItems.length === 0
     && errorMessage
-      ? errorMessage
+      ? normalizeRuntimeText(errorMessage)
       : "";
+  const upstreamReady = !!baseURL.trim() && (!apiModeRequiresDirectAPIKey(apiMode) || !!apiKey.trim());
   const recentJobGroups = useMemo(
     () => jobGroupsByWorkspace[activeWorkspaceId] ?? [],
     [activeWorkspaceId, jobGroupsByWorkspace],
   );
+  const activeWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
+    [activeWorkspaceId, workspaces],
+  );
+  const workspaceBatchTasks = useMemo(
+    () => sortedBatchTasksForWorkspace(
+      activeWorkspaceId,
+      activeWorkspace?.batchTaskIds ?? [],
+      batchTasksById,
+    ),
+    [activeWorkspace?.batchTaskIds, activeWorkspaceId, batchTasksById],
+  );
+  const workspaceTaskBySlotIndex = useMemo(
+    () => new Map(workspaceBatchTasks.map((task) => [task.slotIndex, task])),
+    [workspaceBatchTasks],
+  );
   const visibleBatchSlotCount = Math.max(
     jobsTotal,
+    workspaceBatchTasks.reduce((max, task) => Math.max(max, task.slotIndex + 1), 0),
     batchResults.length + runningJobs.length,
     batchResults.length + streamPreviewItems.length,
     singleFailureMessage ? 1 : 0,
   );
   const batchQueueSlots = useMemo<WindowsHistoryBatchQueueSlot[]>(() => {
     if (visibleBatchSlotCount <= 1 && !singleFailureMessage) return [];
-    const slots: WindowsHistoryBatchQueueSlot[] = Array.from(
-      { length: visibleBatchSlotCount },
-      (_, index) => ({ type: "pending", index, id: `pending-${index}` }),
-    );
+    const slots: WindowsHistoryBatchQueueSlot[] = Array.from({ length: visibleBatchSlotCount }, (_, index) => {
+      const task = workspaceTaskBySlotIndex.get(index) ?? null;
+      if (!task) {
+        return {
+          type: "pending",
+          index,
+          id: `pending-${index}`,
+          task: null,
+          state: isRunning ? "queued" : "missing",
+        };
+      }
+      if (task.status === "cancelled" || task.status === "failed" || task.status === "interrupted") {
+        return {
+          type: "failed",
+          index,
+          id: task.id,
+          task,
+          state: task.status,
+          message: normalizeRuntimeText(task.errorMessage) || normalizeRuntimeText(task.lastLogLine),
+        };
+      }
+      if (task.status === "succeeded") {
+        return {
+          type: "pending",
+          index,
+          id: task.id,
+          task,
+          state: "awaiting_result",
+        };
+      }
+      return {
+        type: "pending",
+        index,
+        id: task.id,
+        task,
+        state: task.status === "running" || (task.status === "queued" && !!task.jobId) ? "running" : "queued",
+      };
+    });
+    const fallbackSlotIndex = () => slots.findIndex((slot) => slot.type === "pending");
+    const resolveSlotIndex = (value: unknown) => {
+      const index = Number(value);
+      if (Number.isFinite(index) && index >= 0 && index < slots.length) return index;
+      return fallbackSlotIndex();
+    };
     for (const item of batchResults) {
-      const index = typeof item.batchIndex === "number"
-        ? item.batchIndex
-        : slots.findIndex((slot) => slot.type === "pending");
-      if (index >= 0 && index < slots.length) slots[index] = { type: "result", index, item };
+      const index = resolveSlotIndex(item.batchIndex);
+      if (index >= 0 && index < slots.length) {
+        slots[index] = {
+          type: "result",
+          index,
+          item,
+          task: workspaceTaskBySlotIndex.get(index) ?? null,
+        };
+      }
     }
     for (const item of streamPreviewItems) {
-      const index = typeof item.batchIndex === "number"
-        ? item.batchIndex
-        : slots.findIndex((slot) => slot.type === "pending");
+      const index = resolveSlotIndex(item.batchIndex);
       if (index >= 0 && index < slots.length && slots[index].type === "pending") {
-        slots[index] = { type: "preview", index, item };
+        slots[index] = {
+          type: "preview",
+          index,
+          item,
+          task: workspaceTaskBySlotIndex.get(index) ?? null,
+        };
       }
     }
     return isRunning
       ? slots
       : slots.map((slot, index) => (
-          slot.type === "pending" ? { type: "failed", index, id: `failed-${index}`, message: singleFailureMessage || undefined } : slot
+          slot.type === "pending" && slot.state !== "running" && slot.state !== "queued"
+            ? {
+                type: "failed",
+                index,
+                id: slot.id,
+                task: slot.task ?? null,
+                state: "missing",
+                message: singleFailureMessage || normalizeRuntimeText(slot.task?.errorMessage) || normalizeRuntimeText(slot.task?.lastLogLine) || undefined,
+              }
+            : slot
         ));
-  }, [batchResults, isRunning, singleFailureMessage, streamPreviewItems, visibleBatchSlotCount]);
+  }, [
+    batchResults,
+    isRunning,
+    singleFailureMessage,
+    streamPreviewItems,
+    visibleBatchSlotCount,
+    workspaceTaskBySlotIndex,
+  ]);
   const desktopFilterThreshold = isMac ? 8 : 4;
   const showHistoryFilters = !isMac && (history.length > desktopFilterThreshold || q.trim().length > 0 || modeF !== "all" || dateF !== "all");
   const historyFiltersActive = q.trim().length > 0 || modeF !== "all" || dateF !== "all";
@@ -135,6 +223,8 @@ export function HistoryRail() {
 
   async function selectCurrent(h: HistoryItem) {
     const myEpoch = ++selectEpochRef.current;
+    const promptGroup = promptEntries.find((entry) => entry.group.items.some((item) => item.id === h.id))?.group ?? null;
+    const groupBatchResults = promptGroup && promptGroup.items.length > 1 ? promptGroup.items : [];
     // 2) 关键:从历史栏选图 = 显式单图选择,退出批量结果网格 overlay。否则
     //    刚生成完 9 张批量,grid 一直罩在画板上,用户在历史栏怎么点都只是
     //    切 grid 里的高亮项,视觉上像「卡在第一张」。grid 可以从工具栏的
@@ -142,8 +232,29 @@ export function HistoryRail() {
     if (useStudioStore.getState().resultGridOpen) {
       useStudioStore.getState().closeResultGrid();
     }
+    if (useStudioStore.getState().historyGalleryOpen) {
+      useStudioStore.getState().closeHistoryGallery();
+    }
     const previewItem = toPreviewOnlyHistoryItem(h);
-    setField("currentImage", previewItem);
+    if (groupBatchResults.length > 1) {
+      const state = useStudioStore.getState();
+      useStudioStore.setState({
+        batchResults: groupBatchResults,
+        currentImage: previewItem,
+        resultGridOpen: false,
+        historyGalleryOpen: false,
+        workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
+          batchResultIds: groupBatchResults.map((item) => item.id),
+          batchSinglePreviewOpen: true,
+          currentImageId: h.id,
+          historyGalleryOpen: false,
+          resultGridOpen: false,
+          selectedBatchTaskId: null,
+        }),
+      });
+    } else {
+      setField("currentImage", previewItem);
+    }
     try {
       const full = await useStudioStore.getState().materializeCurrentImage?.(h);
       if (selectEpochRef.current === myEpoch && full && useStudioStore.getState().currentImage?.id === h.id) {
@@ -165,9 +276,11 @@ export function HistoryRail() {
     currentImageId: currentImage?.id ?? null,
     compareItemId: compareB?.id ?? null,
     onOpenDetail: openResultDetail,
+    onOpenPanorama: (item) => void useStudioStore.getState().openPanoramaViewer(item),
     onApplyParams: applyHistoryParams,
     onRegenerate: (item) => void regenerateFromHistory(item),
     onReuseAsSource: (item) => void reuseAsSource(item),
+    onRepastePanorama: (item) => openPanoramaPastebackAligner(item),
     onSaveOriginal: (item) => void saveHistoryItemAs(item),
     onShare: (item) => void shareHistoryItem(item),
     onToggleCompare: (item) => setCompareB(compareB?.id === item.id ? null : item),
@@ -217,6 +330,8 @@ export function HistoryRail() {
           modeF={modeF}
           loadMoreHistory={loadMoreHistory}
           openHistoryTimeline={openHistoryTimeline}
+          openMaterialManager={openMaterialManager}
+          openHistoryGallery={openHistoryGallery}
           openMenu={openMenu}
           openUpstreamConfig={openUpstreamConfig}
           profiles={profiles}
@@ -484,9 +599,9 @@ export function HistoryRail() {
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-200">
               上游
             </h3>
-            <span className={`h-1.5 w-1.5 rounded-full ${apiKey && baseURL ? "bg-[var(--accent)] shadow-[0_0_6px_rgb(0_122_255_/_0.55)]" : "bg-red-500"}`} />
-            <span className={`text-[11px] font-medium ${apiKey && baseURL ? "text-[var(--accent)]" : "text-red-400"}`}>
-              {apiKey && baseURL ? "已配置" : "未配置"}
+            <span className={`h-1.5 w-1.5 rounded-full ${upstreamReady ? "bg-[var(--accent)] shadow-[0_0_6px_rgb(0_122_255_/_0.55)]" : "bg-red-500"}`} />
+            <span className={`text-[11px] font-medium ${upstreamReady ? "text-[var(--accent)]" : "text-red-400"}`}>
+              {upstreamReady ? "已配置" : "未配置"}
             </span>
           </div>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400">当前连接</span>
@@ -509,7 +624,7 @@ export function HistoryRail() {
             >
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name} · {profile.apiMode === "responses" ? "Responses" : "Images"}
+                  {profile.name} · {apiModeLabel(profile.apiMode).replace(" API", "")}
                 </option>
               ))}
               <option value="__manage__">⚙ 管理配置...</option>
@@ -531,7 +646,7 @@ export function HistoryRail() {
           </button>
           <button
             onClick={testAPIKey}
-            disabled={!apiKey.trim() || !baseURL.trim() || isTestingKey}
+            disabled={!upstreamReady || isTestingKey}
             title="验证当前配置是否可连通"
             className={`platform-action-btn inline-flex min-h-[34px] min-w-[84px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 text-[12px] font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.08] dark:text-zinc-300 ${isAndroidPhone ? "py-1.5" : isMac ? "py-2.5" : "py-2"} ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
           >
@@ -542,7 +657,7 @@ export function HistoryRail() {
         {!isAndroidPhone ? (
           <div className="mt-2 flex items-center justify-between gap-2">
             <p className="min-w-0 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-300">
-              {apiMode === "responses" ? "Responses API" : "Images API"}
+              {apiModeLabel(apiMode)}
             </p>
           </div>
         ) : null}

@@ -1,6 +1,10 @@
-import {
-  OpenImageDialog,
+﻿import {
+  ChooseBatchInputDir,
+  ChooseDirectory,
   ImportImageFromB64,
+  ListBatchInputImages,
+  OpenImageDialog,
+  OpenImagesDialog,
   RegisterImportedImageAsset,
   SaveImageAs,
   SaveImagePathAs,
@@ -10,10 +14,15 @@ import {
 import { shareImageForPlatform, shareImagePathForPlatform, saveImageForPlatform } from "../platform/android/bridge";
 import { base64ToBlob } from "../lib/images";
 import { suggestImageFileName, suggestManualSaveImageFileName } from "../lib/imageFileNames";
-import { removeHistoryItem } from "../lib/storage";
+import { persistHistoryItem, removeHistoryItem } from "../lib/storage";
+import { buildPanoramaProjectRef, isLikelyPanoramaItem } from "../panorama/core";
 import type { HistoryItem, SourceImage } from "../types/domain";
 import type { StudioState } from "./studioStore.types";
 import { sourceImagesFromHistoryItem } from "./historySourceImages";
+import {
+  persistMaterialGroups,
+  removeHistoryRefsFromMaterialGroups,
+} from "./materialLibrary";
 import {
   ensureFullHistoryItem,
   fileToBase64,
@@ -22,18 +31,60 @@ import {
   withMediaAssetRef,
 } from "./studioStore.runtime";
 import { patchWorkspaceRuntime } from "./workspaceRuntime";
-import { genId } from "./studioStore.shared";
+import { genId, persistTrimmedHistory, trimHistory } from "./studioStore.shared";
+import {
+  setSharedEditAutoAspectLock,
+  syncSharedEditAutoAspect,
+} from "./sharedEditAutoAspect";
 
 type StateAdapter = {
   getState: () => StudioState;
   setState: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void;
 };
 
+type ImportImageFileOptions = {
+  forcePanorama?: boolean;
+};
+
+function directoryFromPath(filePath: string): string {
+  const normalized = String(filePath || "").trim();
+  const index = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  return index >= 0 ? normalized.slice(0, index) : "";
+}
+
+function commonDirectoryFromPaths(paths: string[]): string {
+  const dirs = Array.from(new Set(paths.map(directoryFromPath).filter(Boolean)));
+  return dirs.length === 1 ? dirs[0] : "";
+}
+
 export function createImageActions(store: StateAdapter) {
   async function materializeForShare(item: HistoryItem): Promise<HistoryItem> {
     return await ensureFullHistoryItem(item, {
       setState: (fn) => store.setState((state) => fn(state)),
     }) ?? item;
+  }
+
+  function mapBatchSource(source: {
+    path: string;
+    name: string;
+    size: number;
+    width?: number;
+    height?: number;
+    previewUrl?: string;
+    previewWidth?: number;
+    previewHeight?: number;
+  }, selected = true) {
+    return {
+      path: source.path,
+      name: source.name,
+      size: source.size,
+      width: source.width,
+      height: source.height,
+      previewUrl: source.previewUrl,
+      previewWidth: source.previewWidth,
+      previewHeight: source.previewHeight,
+      selected,
+    };
   }
 
   async function shareHistoryImage(item: HistoryItem) {
@@ -76,7 +127,7 @@ export function createImageActions(store: StateAdapter) {
         const baseName = res.path.split(/[\\/]/).pop() ?? res.path;
         const existing = store.getState().sources;
         if (existing.some((source) => source.path === res.path)) {
-          store.setState({ mode: "edit", errorMessage: null, errorRawPath: null });
+          store.setState({ mode: "edit", editSourceMode: "manual", errorMessage: null, errorRawPath: null });
           return;
         }
         store.setState({
@@ -84,23 +135,118 @@ export function createImageActions(store: StateAdapter) {
             path: res.path,
             name: baseName,
             size: res.size,
+            width: Number.isFinite(Number(res.previewWidth)) ? Number(res.previewWidth) : undefined,
+            height: Number.isFinite(Number(res.previewHeight)) ? Number(res.previewHeight) : undefined,
             imageB64: res.imageB64 || undefined,
             imageBlob: res.imageB64 ? base64ToBlob(res.imageB64) : null,
             previewUrl: res.previewUrl,
           }],
           mode: "edit",
+          editSourceMode: "manual",
           errorMessage: null,
           errorRawPath: null,
         });
+        void syncSharedEditAutoAspect(store);
       } catch (error: any) {
-        store.setState({ errorMessage: `选择图片失败:${error?.message ?? error}`, errorRawPath: null });
+        store.setState({ errorMessage: `选择图片失败: ${error?.message ?? error}`, errorRawPath: null });
+      }
+    },
+
+    async selectBatchInputDir() {
+      try {
+        const result = await ChooseBatchInputDir();
+        if (!result?.directory) return;
+        store.setState((state) => ({
+          mode: "edit",
+          editSourceMode: "batch",
+          batchProcess: {
+            ...state.batchProcess,
+            inputDir: result.directory,
+            discoveredSources: (result.images ?? []).map((item) => mapBatchSource(item, false)),
+          },
+          errorMessage: null,
+          errorRawPath: null,
+        }));
+        void syncSharedEditAutoAspect(store);
+      } catch (error: any) {
+        store.setState({ errorMessage: `选择批处理输入目录失败: ${error?.message ?? error}`, errorRawPath: null });
+      }
+    },
+
+    async selectBatchInputFiles() {
+      try {
+        const result = await OpenImagesDialog();
+        const files = result?.files ?? [];
+        if (files.length === 0) return;
+        store.setState((state) => {
+          const existing = new Map(state.batchProcess.discoveredSources.map((item) => [item.path, item]));
+          for (const file of files) {
+            existing.set(file.path, mapBatchSource(file, true));
+          }
+          const inferredDirectory = commonDirectoryFromPaths(Array.from(existing.keys()));
+          return {
+            mode: "edit",
+            editSourceMode: "batch",
+            batchProcess: {
+              ...state.batchProcess,
+              inputDir: inferredDirectory || state.batchProcess.inputDir,
+              discoveredSources: Array.from(existing.values()),
+            },
+            errorMessage: null,
+            errorRawPath: null,
+          };
+        });
+        void syncSharedEditAutoAspect(store);
+      } catch (error: any) {
+        store.setState({ errorMessage: `选择批处理图片失败: ${error?.message ?? error}`, errorRawPath: null });
+      }
+    },
+
+    async refreshBatchInputDir() {
+      const { batchProcess } = store.getState();
+      if (!batchProcess.inputDir.trim()) return;
+      try {
+        const result = await ListBatchInputImages(batchProcess.inputDir);
+        store.setState((state) => ({
+          batchProcess: {
+            ...state.batchProcess,
+            inputDir: result.directory || state.batchProcess.inputDir,
+            discoveredSources: (result.images ?? []).map((item) => {
+              const existing = state.batchProcess.discoveredSources.find((source) => source.path === item.path);
+              return mapBatchSource(item, existing?.selected !== false);
+            }),
+          },
+          errorMessage: null,
+          errorRawPath: null,
+        }));
+        void syncSharedEditAutoAspect(store);
+      } catch (error: any) {
+        store.setState({ errorMessage: `刷新批处理输入目录失败: ${error?.message ?? error}`, errorRawPath: null });
+      }
+    },
+
+    async chooseBatchOutputDir() {
+      try {
+        const chosen = await ChooseDirectory("选择批处理输出目录");
+        if (!String(chosen || "").trim()) return;
+        store.setState((state) => ({
+          batchProcess: {
+            ...state.batchProcess,
+            outputMode: "custom_dir",
+            outputDir: String(chosen).trim(),
+          },
+          errorMessage: null,
+          errorRawPath: null,
+        }));
+      } catch (error: any) {
+        store.setState({ errorMessage: `选择批处理输出目录失败: ${error?.message ?? error}`, errorRawPath: null });
       }
     },
 
     async importSourceImageFile(file: File) {
       try {
         if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
-          store.setState({ errorMessage: `不支持的图片类型:${file.type || "(未知)"},请用 PNG/JPG/WebP`, errorRawPath: null });
+          store.setState({ errorMessage: `不支持的图片类型: ${file.type || "(未知)"}，请用 PNG/JPG/WebP`, errorRawPath: null });
           return;
         }
         const b64 = await fileToBase64(file);
@@ -117,17 +263,21 @@ export function createImageActions(store: StateAdapter) {
                 path: result.path,
                 name: file.name,
                 size: file.size,
+                width: Number.isFinite(Number(result.previewWidth)) ? Number(result.previewWidth) : undefined,
+                height: Number.isFinite(Number(result.previewHeight)) ? Number(result.previewHeight) : undefined,
                 imageB64: legacyB64 || undefined,
                 imageBlob: legacyB64 ? base64ToBlob(legacyB64) : null,
                 previewUrl,
               }],
           mode: "edit",
+          editSourceMode: "manual",
           errorMessage: null,
           errorRawPath: null,
         });
+        void syncSharedEditAutoAspect(store);
         store.getState().pushToast(alreadyIn ? "参考图已存在" : "已导入参考图", alreadyIn ? "warn" : "success", 2200);
       } catch (error: any) {
-        store.setState({ errorMessage: `导入参考图失败:${error?.message ?? error}`, errorRawPath: null });
+        store.setState({ errorMessage: `导入参考图失败: ${error?.message ?? error}`, errorRawPath: null });
       }
     },
 
@@ -149,14 +299,14 @@ export function createImageActions(store: StateAdapter) {
           errorRawPath: null,
         });
       } catch (error: any) {
-        store.setState({ errorMessage: `选择反推图片失败:${error?.message ?? error}`, errorRawPath: null });
+        store.setState({ errorMessage: `选择反推图片失败: ${error?.message ?? error}`, errorRawPath: null });
       }
     },
 
     async importReversePromptImageFile(file: File) {
       try {
         if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
-          store.setState({ errorMessage: `不支持的图片类型:${file.type || "(未知)"},请用 PNG/JPG/WebP`, errorRawPath: null });
+          store.setState({ errorMessage: `不支持的图片类型: ${file.type || "(未知)"}，请用 PNG/JPG/WebP`, errorRawPath: null });
           return;
         }
         const b64 = await fileToBase64(file);
@@ -178,7 +328,7 @@ export function createImageActions(store: StateAdapter) {
         });
         store.getState().pushToast("已导入反推图片", "success", 2200);
       } catch (error: any) {
-        store.setState({ errorMessage: `导入反推图片失败:${error?.message ?? error}`, errorRawPath: null });
+        store.setState({ errorMessage: `导入反推图片失败: ${error?.message ?? error}`, errorRawPath: null });
       }
     },
 
@@ -188,11 +338,17 @@ export function createImageActions(store: StateAdapter) {
 
     removeSource(index: number) {
       const next = store.getState().sources.filter((_, i) => i !== index);
-      store.setState({ sources: next, mode: next.length > 0 ? "edit" : "generate" });
+      store.setState({ sources: next, mode: next.length > 0 ? "edit" : "generate", editSourceMode: "manual" });
+      if (next.length === 0) {
+        setSharedEditAutoAspectLock(store, false);
+      } else {
+        void syncSharedEditAutoAspect(store);
+      }
     },
 
     clearSources() {
-      store.setState({ sources: [], mode: "generate" });
+      store.setState({ sources: [], mode: "generate", editSourceMode: "manual" });
+      setSharedEditAutoAspectLock(store, false);
     },
 
     reorderSources(from: number, to: number) {
@@ -201,13 +357,14 @@ export function createImageActions(store: StateAdapter) {
       const [moved] = list.splice(from, 1);
       list.splice(to, 0, moved);
       store.setState({ sources: list });
+      void syncSharedEditAutoAspect(store);
     },
 
     async reuseAsSource(item: HistoryItem) {
       let localItem = await materializeHistoryItem(item, {
         setState: (fn) => store.setState((state) => fn(state)),
       }).catch((e: any) => {
-        store.setState({ errorMessage: `源图准备失败:${e?.message ?? e}`, errorRawPath: null });
+        store.setState({ errorMessage: `源图准备失败: ${e?.message ?? e}`, errorRawPath: null });
         return null;
       });
       if (!localItem?.savedPath) return;
@@ -219,21 +376,33 @@ export function createImageActions(store: StateAdapter) {
       const baseName = savedPath.split(/[\\/]/).pop() ?? "source.png";
       const existing = store.getState().sources;
       const alreadyIn = existing.some((source) => source.path === savedPath);
-      store.setState({
+      store.setState((state) => ({
         mode: "edit",
+        editSourceMode: "manual",
         currentImage: toPreviewOnlyHistoryItem(localItem),
         resultGridOpen: false,
+        historyGalleryOpen: false,
         sources: alreadyIn
           ? existing
           : [...existing, {
               path: savedPath,
               name: baseName,
               size: 0,
+              width: Number.isFinite(Number(localItem.previewWidth)) ? Number(localItem.previewWidth) : undefined,
+              height: Number.isFinite(Number(localItem.previewHeight)) ? Number(localItem.previewHeight) : undefined,
               imageBlob: localItem.previewUrl ? null : (localItem.previewBlob ?? localItem.imageBlob ?? null),
               imageB64: localItem.previewUrl ? undefined : localItem.imageB64,
               previewUrl: localItem.previewUrl,
+              panoramaRoundtrip: localItem.panoramaRoundtrip,
+              panoramaProject: localItem.panoramaProject,
             }],
-      });
+        workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
+          currentImageId: localItem.id,
+          resultGridOpen: false,
+          historyGalleryOpen: false,
+        }),
+      }));
+      void syncSharedEditAutoAspect(store);
     },
 
     applyHistoryParams(item: HistoryItem) {
@@ -241,6 +410,7 @@ export function createImageActions(store: StateAdapter) {
       const patch: Partial<StudioState> = {
         prompt: item.prompt ?? "",
         mode: item.mode,
+        editSourceMode: item.mode === "edit" ? "manual" : store.getState().editSourceMode,
         size: item.size,
         quality: item.quality,
         sources: sourceImages,
@@ -250,8 +420,8 @@ export function createImageActions(store: StateAdapter) {
       if (item.styleTag !== undefined) patch.styleTag = item.styleTag;
       if (item.outputFormat) patch.outputFormat = item.outputFormat;
       store.setState(patch);
-      const sourceNote = item.mode === "edit" && sourceImages.length > 0 ? `和 ${sourceImages.length} 张输入图` : "";
-      store.getState().pushToast(`已应用此图的参数${sourceNote}到控制台`, "success");
+      const sourceNote = item.mode === "edit" && sourceImages.length > 0 ? `，并带上 ${sourceImages.length} 张输入图` : "";
+      store.getState().pushToast(`已应用此图的参数到控制台${sourceNote}`, "success");
     },
 
     async regenerateFromHistory(item: HistoryItem) {
@@ -270,6 +440,14 @@ export function createImageActions(store: StateAdapter) {
       if (nextBatch.length <= 1) patch.resultGridOpen = false;
       store.setState((state) => ({
         history: state.history.filter((entry) => entry.id !== id),
+        resultDetail: state.resultDetail?.id === id ? null : state.resultDetail,
+        panoramaViewerItem: state.panoramaViewerItem?.id === id ? null : state.panoramaViewerItem,
+        panoramaAlignTarget: state.panoramaAlignTarget?.id === id ? null : state.panoramaAlignTarget,
+        materialGroups: (() => {
+          const next = removeHistoryRefsFromMaterialGroups(state.materialGroups, [id]);
+          persistMaterialGroups(next);
+          return next;
+        })(),
         ...(patch as any),
         workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
           currentImageId: wasCurrent ? null : currentBefore?.id ?? null,
@@ -286,7 +464,7 @@ export function createImageActions(store: StateAdapter) {
         const saved = await saveHistoryImageToAlbum(current);
         if (saved) store.getState().pushToast("已保存", "success");
       } catch (e: any) {
-        const msg = `保存失败:${e?.message ?? e}`;
+        const msg = `保存失败: ${e?.message ?? e}`;
         store.setState({ errorMessage: msg, errorRawPath: null });
         store.getState().pushToast(msg, "error");
       }
@@ -297,7 +475,7 @@ export function createImageActions(store: StateAdapter) {
         const saved = await saveHistoryImageToAlbum(item);
         if (saved) store.getState().pushToast("已保存", "success");
       } catch (e: any) {
-        const msg = `保存失败:${e?.message ?? e}`;
+        const msg = `保存失败: ${e?.message ?? e}`;
         store.setState({ errorMessage: msg, errorRawPath: null });
         store.getState().pushToast(msg, "error");
       }
@@ -310,7 +488,7 @@ export function createImageActions(store: StateAdapter) {
         await shareHistoryImage(current);
         store.getState().pushToast("已打开系统分享", "success");
       } catch (e: any) {
-        const msg = `分享失败:${e?.message ?? e}`;
+        const msg = `分享失败: ${e?.message ?? e}`;
         store.setState({ errorMessage: msg, errorRawPath: null });
         store.getState().pushToast(msg, "error");
       }
@@ -321,7 +499,7 @@ export function createImageActions(store: StateAdapter) {
         await shareHistoryImage(item);
         store.getState().pushToast("已打开系统分享", "success");
       } catch (e: any) {
-        const msg = `分享失败:${e?.message ?? e}`;
+        const msg = `分享失败: ${e?.message ?? e}`;
         store.setState({ errorMessage: msg, errorRawPath: null });
         store.getState().pushToast(msg, "error");
       }
@@ -329,8 +507,9 @@ export function createImageActions(store: StateAdapter) {
 
     async importImageFile(file: File) {
       try {
+        const options = arguments[1] as ImportImageFileOptions | undefined;
         if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
-          store.setState({ errorMessage: `不支持的图片类型:${file.type || "(未知)"},请用 PNG/JPG/WebP`, errorRawPath: null });
+          store.setState({ errorMessage: `不支持的图片类型: ${file.type || "(未知)"}，请用 PNG/JPG/WebP`, errorRawPath: null });
           return;
         }
         const b64 = await fileToBase64(file);
@@ -338,6 +517,8 @@ export function createImageActions(store: StateAdapter) {
         const ref = await RegisterImportedImageAsset(result.path).catch(() => null);
         const legacyB64 = result.previewUrl || ref?.previewUrl ? "" : (result.imageB64 || b64);
         const legacyBlob = legacyB64 ? base64ToBlob(legacyB64) : null;
+        const importedWidth = Number.isFinite(Number(result.previewWidth)) ? Number(result.previewWidth) : undefined;
+        const importedHeight = Number.isFinite(Number(result.previewHeight)) ? Number(result.previewHeight) : undefined;
         const transientItem: HistoryItem = {
           id: genId(),
           imageB64: legacyB64 || undefined,
@@ -349,30 +530,60 @@ export function createImageActions(store: StateAdapter) {
           quality: "medium",
           createdAt: Date.now(),
           savedPath: result.path,
+          width: importedWidth,
+          height: importedHeight,
+          previewWidth: importedWidth,
+          previewHeight: importedHeight,
         };
-        const importedItem = ref ? withMediaAssetRef(transientItem, ref) : transientItem;
+        let importedItem = ref ? withMediaAssetRef(transientItem, ref) : transientItem;
+        const isPanoramaImport = options?.forcePanorama === true || isLikelyPanoramaItem(importedItem);
+        if (isPanoramaImport) {
+          importedItem = {
+            ...importedItem,
+            panoramaProject: buildPanoramaProjectRef(importedItem, "source"),
+          };
+        }
         const existingSources = store.getState().sources;
         const alreadyIn = existingSources.some((source) => source.path === result.path);
-        store.setState({
+        store.setState((state) => ({
           currentImage: ref ? { ...importedItem, previewOnly: true } : importedItem,
-          batchResults: [],
-          resultGridOpen: false,
+          history: isPanoramaImport
+            ? trimHistory([importedItem, ...state.history.filter((entry) => entry.id !== importedItem.id)])
+            : state.history,
+          ...(isPanoramaImport ? { batchResults: [importedItem] } : {}),
+          resultGridOpen: isPanoramaImport,
+          historyGalleryOpen: false,
           mode: "edit",
+          editSourceMode: "manual",
           sources: alreadyIn
             ? existingSources
             : [...existingSources, {
                 path: result.path,
                 name: file.name,
                 size: file.size,
+                width: Number.isFinite(Number(result.previewWidth)) ? Number(result.previewWidth) : undefined,
+                height: Number.isFinite(Number(result.previewHeight)) ? Number(result.previewHeight) : undefined,
                 imageBlob: legacyBlob,
                 imageB64: legacyB64 || undefined,
                 previewUrl: importedItem.previewUrl,
+                panoramaProject: importedItem.panoramaProject,
               }],
           errorMessage: null,
           errorRawPath: null,
-        });
+          workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
+            currentImageId: importedItem.id,
+            ...(isPanoramaImport ? { batchResultIds: [importedItem.id] } : {}),
+            resultGridOpen: isPanoramaImport,
+            historyGalleryOpen: false,
+          }),
+        }));
+        if (isPanoramaImport) {
+          await persistHistoryItem(importedItem).catch(() => undefined);
+          persistTrimmedHistory(store.getState().history);
+        }
+        void syncSharedEditAutoAspect(store);
       } catch (e: any) {
-        store.setState({ errorMessage: `导入失败:${e?.message ?? e}`, errorRawPath: null });
+        store.setState({ errorMessage: `导入失败: ${e?.message ?? e}`, errorRawPath: null });
       }
     },
   };

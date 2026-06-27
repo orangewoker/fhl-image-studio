@@ -226,33 +226,99 @@ export function useImageElement(source?: Blob | string | null): HTMLImageElement
   return img;
 }
 
+function validImageDimensions(w: number, h: number): { w: number; h: number } | null {
+  return w > 0 && h > 0 && w < 20000 && h < 20000 ? { w, h } : null;
+}
+
+function imageDimensionsFromBytes(bytes: Uint8Array): { w: number; h: number } | null {
+  if (bytes.length < 10) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const ascii = (offset: number, length: number) => String.fromCharCode(...bytes.slice(offset, offset + length));
+
+  if (
+    bytes.length >= 24
+    && bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+    && ascii(12, 4) === "IHDR"
+  ) {
+    return validImageDimensions(view.getUint32(16, false), view.getUint32(20, false));
+  }
+
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+      const marker = bytes[offset];
+      offset += 1;
+      if (marker === 0xd9 || marker === 0xda) break;
+      if (offset + 2 > bytes.length) break;
+      const length = view.getUint16(offset, false);
+      if (length < 2 || offset + length > bytes.length) break;
+      const isSOF = (marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf);
+      if (isSOF && length >= 7) {
+        const h = view.getUint16(offset + 3, false);
+        const w = view.getUint16(offset + 5, false);
+        return validImageDimensions(w, h);
+      }
+      offset += length;
+    }
+  }
+
+  if (bytes.length >= 30 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+    const chunk = ascii(12, 4);
+    const payload = 20;
+    if (chunk === "VP8X" && bytes.length >= payload + 10) {
+      const w = 1 + bytes[payload + 4] + (bytes[payload + 5] << 8) + (bytes[payload + 6] << 16);
+      const h = 1 + bytes[payload + 7] + (bytes[payload + 8] << 8) + (bytes[payload + 9] << 16);
+      return validImageDimensions(w, h);
+    }
+    if (chunk === "VP8L" && bytes.length >= payload + 5 && bytes[payload] === 0x2f) {
+      const b1 = bytes[payload + 1];
+      const b2 = bytes[payload + 2];
+      const b3 = bytes[payload + 3];
+      const b4 = bytes[payload + 4];
+      const w = 1 + (((b2 & 0x3f) << 8) | b1);
+      const h = 1 + (((b4 & 0x0f) << 10) | (b3 << 2) | ((b2 & 0xc0) >> 6));
+      return validImageDimensions(w, h);
+    }
+    if (chunk === "VP8 " && bytes.length >= payload + 10 && bytes[payload + 3] === 0x9d && bytes[payload + 4] === 0x01 && bytes[payload + 5] === 0x2a) {
+      const w = view.getUint16(payload + 6, true) & 0x3fff;
+      const h = view.getUint16(payload + 8, true) & 0x3fff;
+      return validImageDimensions(w, h);
+    }
+  }
+
+  return null;
+}
+
 export async function getImageDimensionsFromBlob(blob: Blob): Promise<{ w: number; h: number } | null> {
   try {
-    const buf = await blob.arrayBuffer();
-    const view = new DataView(buf);
-    if (buf.byteLength >= 24) {
-      const w = view.getUint32(16, false);
-      const h = view.getUint32(20, false);
-      if (w > 0 && h > 0 && w < 20000 && h < 20000) return { w, h };
-    }
+    return imageDimensionsFromBytes(new Uint8Array(await blob.arrayBuffer()));
   } catch {
-    // ignore
+    return null;
   }
-  return null;
 }
 
 export function getImageDimensionsFromBase64(b64: string): { w: number; h: number } | null {
   try {
-    const bin = atob(b64.slice(0, 64));
-    const view = new DataView(new ArrayBuffer(bin.length));
-    for (let i = 0; i < bin.length; i++) view.setUint8(i, bin.charCodeAt(i));
-    const w = view.getUint32(16, false);
-    const h = view.getUint32(20, false);
-    if (w > 0 && h > 0 && w < 20000 && h < 20000) return { w, h };
+    const clean = b64.includes(",") ? b64.slice(b64.indexOf(",") + 1) : b64;
+    const maxHeaderChars = 384 * 1024;
+    const prefixLength = Math.min(clean.length, maxHeaderChars);
+    const safeLength = prefixLength === clean.length ? prefixLength : prefixLength - (prefixLength % 4);
+    if (safeLength <= 0) return null;
+    const bin = atob(clean.slice(0, safeLength));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return imageDimensionsFromBytes(bytes);
   } catch {
-    // ignore
+    return null;
   }
-  return null;
 }
 
 export async function getImageDimensions(

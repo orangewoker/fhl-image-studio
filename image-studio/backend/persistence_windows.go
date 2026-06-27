@@ -61,6 +61,9 @@ func platformLegacyImportDirs() []string {
 }
 
 func WindowsWebviewUserDataPath() (string, error) {
+	if root, ok := portablePackageRoot(); ok {
+		return filepath.Join(root, "config", "webview"), nil
+	}
 	root, err := windowsPersistentDataRoot()
 	if err != nil {
 		return "", err

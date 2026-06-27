@@ -132,6 +132,39 @@ func (s *Service) ChooseOutputDir() (string, error) {
 	return chosen, nil
 }
 
+func (s *Service) ChooseDirectory(title string) (string, error) {
+	if s.ctx == nil {
+		return "", errors.New("服务未启动")
+	}
+	dialogTitle := strings.TrimSpace(title)
+	if dialogTitle == "" {
+		dialogTitle = "选择目录"
+	}
+	chosen, err := runtime.OpenDirectoryDialog(s.ctx, runtime.OpenDialogOptions{
+		Title: dialogTitle,
+	})
+	if err != nil || chosen == "" {
+		return "", err
+	}
+	return filepath.Abs(chosen)
+}
+
+func (s *Service) BuildBatchOutputPath(sourcePath, outputDir, prefix string) (string, error) {
+	cleanSource := strings.TrimSpace(sourcePath)
+	if cleanSource == "" {
+		return "", errors.New("源文件不能为空")
+	}
+	targetRoot := strings.TrimSpace(outputDir)
+	if targetRoot == "" {
+		targetRoot = filepath.Dir(cleanSource)
+	}
+	root, err := ensureTargetDirectory(targetRoot)
+	if err != nil {
+		return "", err
+	}
+	return uniquePrefixedTargetPath(root, filepath.Base(cleanSource), prefix)
+}
+
 // --- Generation entry points -----------------------------------------------
 
 // Generate starts a text-to-image job and returns its ID immediately. Progress
@@ -169,7 +202,7 @@ func (s *Service) OptimizePrompt(opts PromptOptimizeOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	refPaths, cleanup, err := prepareUploadSourcePaths(opts.collectPaths())
+	refPaths, _, cleanup, err := prepareTextModelUploadSourcePaths(opts.collectPaths(), "optimize")
 	if err != nil {
 		return "", err
 	}
@@ -198,7 +231,7 @@ func (s *Service) ReversePrompt(opts PromptReverseOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	refPaths, cleanup, err := prepareUploadSourcePaths(opts.collectPaths())
+	refPaths, _, cleanup, err := prepareTextModelUploadSourcePaths(opts.collectPaths(), "reverse")
 	if err != nil {
 		return "", err
 	}
@@ -315,24 +348,24 @@ func (s *Service) runJob(ctx context.Context, jobID string, opts GenerateOptions
 	}
 
 	clientOpts := client.Options{
-		APIKey:           opts.APIKey,
-		Prompt:           opts.Prompt,
-		Mode:             mode,
-		Size:             opts.Size,
-		Quality:          opts.Quality,
-		OutputFormat:     opts.OutputFormat,
-		MaskB64:          opts.MaskB64,
-		Seed:             opts.Seed,
-		NegativePrompt:   opts.NegativePrompt,
-		BaseURL:          opts.BaseURL,
-		TextModelID:      opts.TextModelID,
-		ImageModelID:     opts.ImageModelID,
-		Proxy:            client.ProxyConfig{Mode: opts.ProxyMode, URL: opts.ProxyURL},
-		APIMode:          apiMode,
-		RequestPolicy:    client.RequestPolicy(strings.TrimSpace(opts.RequestPolicy)),
+		APIKey:             opts.APIKey,
+		Prompt:             opts.Prompt,
+		Mode:               mode,
+		Size:               opts.Size,
+		Quality:            opts.Quality,
+		OutputFormat:       opts.OutputFormat,
+		MaskB64:            opts.MaskB64,
+		Seed:               opts.Seed,
+		NegativePrompt:     opts.NegativePrompt,
+		BaseURL:            opts.BaseURL,
+		TextModelID:        opts.TextModelID,
+		ImageModelID:       opts.ImageModelID,
+		Proxy:              client.ProxyConfig{Mode: opts.ProxyMode, URL: opts.ProxyURL},
+		APIMode:            apiMode,
+		RequestPolicy:      client.RequestPolicy(strings.TrimSpace(opts.RequestPolicy)),
 		ImagesNewAPICompat: opts.ImagesNewAPICompat,
-		NoPromptRevision: opts.NoPromptRevision,
-		PartialImages:    opts.PartialImages,
+		NoPromptRevision:   opts.NoPromptRevision,
+		PartialImages:      opts.PartialImages,
 	}
 	if mode == client.ModeEdit {
 		paths, cleanup, prepErr := prepareUploadSourcePaths(opts.collectPaths())
@@ -490,6 +523,8 @@ func (s *Service) runJob(ctx context.Context, jobID string, opts GenerateOptions
 		ThumbPath:     asset.ThumbPath,
 		PreviewURL:    asset.PreviewURL,
 		FullURL:       asset.FullURL,
+		Width:         asset.Width,
+		Height:        asset.Height,
 		PreviewWidth:  asset.PreviewWidth,
 		PreviewHeight: asset.PreviewHeight,
 		RawPath:       absRaw,

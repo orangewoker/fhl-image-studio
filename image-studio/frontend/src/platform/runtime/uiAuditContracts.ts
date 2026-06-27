@@ -42,6 +42,7 @@ export interface UIAuditStateSnapshot {
   runningJobIds: string[];
   jobsTotal: number;
   jobsCompleted: number;
+  jobsFailed: number;
   activeProfileId: string;
   activeProfileName: string;
   settingsOpen: boolean;

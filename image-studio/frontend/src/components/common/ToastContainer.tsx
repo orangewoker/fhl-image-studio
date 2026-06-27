@@ -46,7 +46,6 @@ function ToastItem({ t, onClose }: { t: Toast; onClose: () => void }) {
   return (
     <div
       className={`flex items-center gap-2 border px-3 py-2 backdrop-blur-2xl shadow-[var(--shadow-card-hover)] animate-[toast-in_180ms_ease-out] ${toneClasses(t.kind)} ${usesAppleUI ? "liquid-glass-panel" : ""} ${usesFluentUI ? "rounded-[10px]" : "rounded-[18px]"}`}
-      style={{ animation: "toast-in 180ms ease-out" }}
     >
       <ToneIcon kind={t.kind} />
       <span
@@ -75,7 +74,6 @@ function ToastItem({ t, onClose }: { t: Toast; onClose: () => void }) {
       >
         <X className="w-3 h-3" />
       </button>
-      <style>{`@keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }`}</style>
     </div>
   );
 }

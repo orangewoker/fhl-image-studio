@@ -60,6 +60,7 @@ export type RemoteJobResult = {
   rawPath: string | null;
   prompt: string;
   mode: string;
+  apimartTaskId?: string;
 };
 
 export type RemotePromptOptimizeInput = {
@@ -90,9 +91,11 @@ export type RemotePromptReverseInput = {
 export const MAX_ATTEMPTS = 3;
 export const RETRY_BACKOFF_MS = 15_000;
 export const STATUS_INTERVAL_MS = 10_000;
+export const PARTIAL_FINAL_MATCH_MESSAGE = "上游返回的最终图与中间预览帧一致，已拦截保存，请重新生成。";
 
 export class RemoteKernelError extends Error {
   rawPath: string | null;
+  apimartTaskId?: string;
 
   constructor(message: string, rawPath: string | null = null) {
     super(message);
@@ -112,3 +115,17 @@ export type ExtractedImageResult = {
   revisedPrompt: string;
   sourceEvent: string;
 };
+
+export function imagePayloadFingerprint(imageB64: string | null | undefined): string {
+  return typeof imageB64 === "string" ? imageB64.replace(/\s+/g, "").trim() : "";
+}
+
+export function rejectIfFinalMatchesPartial(
+  finalImageB64: string | null | undefined,
+  partialFingerprints: Set<string>,
+  rawPath: string | null = null,
+) {
+  const fingerprint = imagePayloadFingerprint(finalImageB64);
+  if (!fingerprint || !partialFingerprints.has(fingerprint)) return;
+  throw new RemoteKernelError(PARTIAL_FINAL_MATCH_MESSAGE, rawPath);
+}

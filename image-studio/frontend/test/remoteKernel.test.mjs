@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import test from "node:test";
 
 const realFetch = globalThis.fetch;
@@ -14,6 +14,7 @@ const realCreateObjectURL = globalThis.URL?.createObjectURL;
 const realRevokeObjectURL = globalThis.URL?.revokeObjectURL;
 const realAtob = globalThis.atob;
 const realBtoa = globalThis.btoa;
+const realCreateImageBitmap = globalThis.createImageBitmap;
 const PROMPT_OPTIMIZE_BASE_INSTRUCTIONS = "Rewrite the user's image prompt into a clearer, more detailed prompt for image generation. Keep the meaning, preserve the requested subject, and only return the improved prompt text. Do not add explanations, labels, markdown, or quotes.";
 
 function installBase64() {
@@ -131,6 +132,7 @@ async function withPatchedGlobals(setup, run) {
     if (globalThis.URL && realRevokeObjectURL) globalThis.URL.revokeObjectURL = realRevokeObjectURL;
     globalThis.atob = realAtob;
     globalThis.btoa = realBtoa;
+    globalThis.createImageBitmap = realCreateImageBitmap;
   }
 }
 
@@ -184,6 +186,63 @@ test("runRemoteImageJob retries retryable responses and returns parsed SSE image
     assert.equal(result.revisedPrompt, "rev");
     assert.equal(result.sourceEvent, "final");
     assert.ok(result.rawPath?.startsWith("memory://text/"));
+  });
+});
+
+test("runRemoteImageJob staggers repeated upstream concurrency limit retries", async () => {
+  let calls = 0;
+  const logs = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async () => {
+      calls += 1;
+      if (calls < 6) {
+        return new Response(JSON.stringify({
+          error: {
+            code: "rate_limit_exceeded",
+            message: "Concurrency limit exceeded for user, please retry later",
+            type: "invalid_request_error",
+          },
+        }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(
+        'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"ZmFsbGJhY2s=","revised_prompt":"ok"}}\n',
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "pressure prompt",
+          size: "1024x1024",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://upstream.example",
+          textModelID: "gpt-5.5",
+          imageModelID: "gpt-image-2",
+          apiMode: "responses",
+          noPromptRevision: true,
+        },
+      },
+      {
+        signal: new AbortController().signal,
+        onLog: (line) => logs.push(line),
+      },
+    );
+    assert.equal(calls, 6);
+    assert.equal(result.imageB64, "ZmFsbGJhY2s=");
+    assert.equal(logs.some((line) => line.includes("staggered retry")), true);
   });
 });
 
@@ -289,7 +348,218 @@ test("runRemoteImageJob emits Responses API partial image previews", async () =>
   });
 });
 
-test("runRemoteImageJob accepts partial-only Responses results like official app", async () => {
+test("runRemoteImageJob routes RunningHub text-to-image through bridge task polling", async () => {
+  const calls = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), method: init.method || "GET", body: init.body });
+      if (String(url).endsWith("/api/generate")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          task: { id: "rh-task-1", status: "queued" },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (String(url).includes("/api/task?id=rh-task-1")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          task: {
+            id: "rh-task-1",
+            status: "succeeded",
+            images: [{ url: "https://cdn.example/runninghub-result.png" }],
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (String(url).startsWith("http://127.0.0.1:8117/api/image?url=")) {
+        return new Response(Buffer.from("runninghub-result"), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "",
+          mode: "generate",
+          prompt: "panorama room",
+          size: "9:16@4k",
+          quality: "medium",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "http://127.0.0.1:8117",
+          textModelID: "",
+          imageModelID: "banana2",
+          apiMode: "runninghub",
+          requestPolicy: "openai",
+          noPromptRevision: true,
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+
+    assert.equal(result.sourceEvent, "runninghub_async");
+    assert.equal(result.imageB64, Buffer.from("runninghub-result").toString("base64"));
+
+    const submitCall = calls.find((call) => call.url.endsWith("/api/generate"));
+    assert.ok(submitCall);
+    assert.deepEqual(JSON.parse(submitCall.body), {
+      model: "banana2",
+      mode: "text-to-image",
+      prompt: "panorama room",
+      aspect_ratio: "9:16",
+      resolution: "4k",
+    });
+  });
+});
+
+test("runRemoteImageJob routes RunningHub image-to-image through upload then bridge polling", async () => {
+  const calls = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), method: init.method || "GET", body: init.body });
+      if (String(url).endsWith("/api/upload")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          upload: { imageUrl: "https://cdn.example/source-upload.png" },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (String(url).endsWith("/api/generate")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          task: { id: "rh-task-2", status: "queued" },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (String(url).includes("/api/task?id=rh-task-2")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          task: {
+            id: "rh-task-2",
+            status: "succeeded",
+            images: [{ url: "https://cdn.example/edit-result.png" }],
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (String(url).startsWith("http://127.0.0.1:8117/api/image?url=")) {
+        return new Response(Buffer.from("runninghub-edit"), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "",
+          mode: "edit",
+          prompt: "edit the room lighting",
+          size: "9:16@2k",
+          quality: "medium",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "http://127.0.0.1:8117",
+          textModelID: "",
+          imageModelID: "image_g2",
+          apiMode: "runninghub",
+          requestPolicy: "openai",
+          noPromptRevision: true,
+        },
+        sourceImages: [
+          { imageB64: "c291cmNlLWltYWdl", name: "source.png", mimeType: "image/png" },
+        ],
+      },
+      { signal: new AbortController().signal },
+    );
+
+    assert.equal(result.sourceEvent, "runninghub_async");
+    assert.equal(result.imageB64, Buffer.from("runninghub-edit").toString("base64"));
+
+    const uploadCall = calls.find((call) => call.url.endsWith("/api/upload"));
+    assert.ok(uploadCall);
+    assert.equal(uploadCall.body instanceof FormData, true);
+
+    const submitCall = calls.find((call) => call.url.endsWith("/api/generate"));
+    assert.ok(submitCall);
+    assert.deepEqual(JSON.parse(submitCall.body), {
+      model: "image_g2",
+      mode: "image-to-image",
+      prompt: "edit the room lighting",
+      aspect_ratio: "9:16",
+      resolution: "2k",
+      image_urls: ["https://cdn.example/source-upload.png"],
+    });
+  });
+});
+
+test("runRemoteImageJob rejects Responses final images that repeat a partial preview", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async () => new Response(
+      'data: {"type":"response.image_generation_call.partial_image","partial_image_index":0,"partial_image_b64":"c2FtZQ==","revised_prompt":"partial rev"}\n' +
+      'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"c2FtZQ==","revised_prompt":"final rev"}}\n',
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    await assert.rejects(
+      () => kernel.runRemoteImageJob(
+        {
+          payload: {
+            apiKey: "key",
+            mode: "generate",
+            prompt: "cat",
+            size: "1024x1024",
+            quality: "low",
+            outputFormat: "png",
+            imagePaths: [],
+            imagePath: "",
+            maskB64: "",
+            seed: 0,
+            negativePrompt: "",
+            baseURL: "https://upstream.example",
+            textModelID: "gpt-5.5",
+            imageModelID: "gpt-image-2",
+            apiMode: "responses",
+            requestPolicy: "openai",
+            noPromptRevision: true,
+            partialImages: 1,
+          },
+        },
+        { signal: new AbortController().signal },
+      ),
+      /最终图与中间预览帧一致/
+    );
+  });
+});
+
+test("runRemoteImageJob rejects partial-only Responses results instead of saving preview frames", async () => {
   const capturedBodies = [];
   const logs = [];
   await withPatchedGlobals(async () => {
@@ -302,44 +572,135 @@ test("runRemoteImageJob accepts partial-only Responses results like official app
     };
   }, async () => {
     const kernel = await loadRemoteKernel();
-    const result = await kernel.runRemoteImageJob(
-      {
-        payload: {
-          apiKey: "key",
-          mode: "generate",
-          prompt: "cat",
-          size: "2048x2048",
-          quality: "high",
-          outputFormat: "png",
-          imagePaths: [],
-          imagePath: "",
-          maskB64: "",
-          seed: 0,
-          negativePrompt: "",
-          baseURL: "https://upstream.example",
-          textModelID: "gpt-5.5",
-          imageModelID: "gpt-image-2",
-          apiMode: "responses",
-          requestPolicy: "openai",
-          noPromptRevision: true,
-          partialImages: 1,
+    await assert.rejects(
+      () => kernel.runRemoteImageJob(
+        {
+          payload: {
+            apiKey: "key",
+            mode: "generate",
+            prompt: "cat",
+            size: "2048x2048",
+            quality: "high",
+            outputFormat: "png",
+            imagePaths: [],
+            imagePath: "",
+            maskB64: "",
+            seed: 0,
+            negativePrompt: "",
+            baseURL: "https://upstream.example",
+            textModelID: "gpt-5.5",
+            imageModelID: "gpt-image-2",
+            apiMode: "responses",
+            requestPolicy: "openai",
+            noPromptRevision: true,
+            partialImages: 1,
+          },
         },
-      },
-      {
-        signal: new AbortController().signal,
-        onLog: (line) => logs.push(line),
-      },
+        {
+          signal: new AbortController().signal,
+          onLog: (line) => logs.push(line),
+        },
+      ),
+      /image_generation_call result/
     );
-    assert.equal(capturedBodies.length, 1);
+    assert.equal(capturedBodies.length, 3);
     assert.equal(capturedBodies[0].tools[0].partial_images, 1);
     assert.equal(capturedBodies[0].tools[0].size, "2048x2048");
     assert.equal(capturedBodies[0].tools[0].quality, "high");
     assert.ok(capturedBodies[0].instructions.includes("VERBATIM"));
-    assert.equal(result.imageB64, "cGFydGlhbA==");
-    assert.equal(result.revisedPrompt, "partial rev");
-    assert.equal(result.sourceEvent, "partial");
-    assert.equal(logs.some((line) => line.includes("disabling partial previews")), false);
-    assert.equal(logs.some((line) => line.includes("Auto downgrade retry")), false);
+    assert.equal(capturedBodies[1].tools[0].partial_images, 0);
+    assert.equal(capturedBodies[2].tools[0].partial_images, 0);
+    assert.equal(capturedBodies[2].tools[0].size, "2048x2048");
+    assert.equal(capturedBodies[2].tools[0].quality, "medium");
+    assert.equal(logs.some((line) => line.includes("disabling partial previews")), true);
+    assert.equal(logs.some((line) => line.includes("Auto retry") && line.includes("2048x2048")), true);
+  });
+});
+
+test("runRemoteImageJob keeps gpt-image-2 9:16 size on retries", async () => {
+  const capturedBodies = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (_url, init) => {
+      capturedBodies.push(JSON.parse(init.body));
+      throw new TypeError("Failed to fetch");
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    await assert.rejects(
+      () => kernel.runRemoteImageJob(
+        {
+          payload: {
+            apiKey: "key",
+            mode: "generate",
+            prompt: "portrait",
+            size: "2160x3840",
+            quality: "high",
+            outputFormat: "png",
+            imagePaths: [],
+            imagePath: "",
+            maskB64: "",
+            seed: 0,
+            negativePrompt: "",
+            baseURL: "https://upstream.example",
+            textModelID: "gpt-5.5",
+            imageModelID: "gpt-image-2",
+            apiMode: "responses",
+            requestPolicy: "openai",
+            noPromptRevision: true,
+            partialImages: 1,
+          },
+        },
+        { signal: new AbortController().signal },
+      ),
+    );
+    assert.equal(capturedBodies.length, 3);
+    assert.equal(capturedBodies[2].tools[0].size, "2160x3840");
+    assert.equal(capturedBodies[2].tools[0].quality, "medium");
+  });
+});
+
+test("runRemoteImageJob rejects partial-only Images API streams instead of saving preview frames", async () => {
+  const partials = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async () => new Response(
+      'data: {"type":"image_generation.partial_image","partial_image_index":0,"b64_json":"cGFydGlhbA=="}\n',
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    await assert.rejects(
+      () => kernel.runRemoteImageJob(
+        {
+          payload: {
+            apiKey: "key",
+            mode: "generate",
+            prompt: "bird",
+            size: "1024x1024",
+            quality: "medium",
+            outputFormat: "png",
+            imagePaths: [],
+            imagePath: "",
+            maskB64: "",
+            seed: 0,
+            negativePrompt: "",
+            baseURL: "https://upstream.example",
+            textModelID: "",
+            imageModelID: "gpt-image-2",
+            apiMode: "images",
+            requestPolicy: "openai",
+            noPromptRevision: false,
+            partialImages: 1,
+          },
+        },
+        {
+          signal: new AbortController().signal,
+          onPartialImage: (partial) => partials.push(partial),
+        },
+      ),
+      /没有返回可用图片/
+    );
+    assert.equal(partials.length, 3);
+    assert.equal(partials[0].sourceEvent, "images_partial");
   });
 });
 
@@ -387,6 +748,157 @@ test("runRemoteImageJob parses Images API JSON mode", async () => {
     assert.equal(captured.body.prompt, "bird");
     assert.equal(result.imageB64, "img-data");
     assert.equal(result.revisedPrompt, "img-rev");
+    assert.equal(result.sourceEvent, "images_api");
+  });
+});
+
+test("runRemoteImageJob preserves FHL gpt-image-2 large sizes on Images API", async () => {
+  const cases = [
+    { input: "2160x3840" },
+    { input: "1152x2048" },
+    { input: "2048x1152" },
+  ];
+  const captured = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init) => {
+      captured.push({
+        url: String(url),
+        body: JSON.parse(init.body),
+      });
+      return new Response('{"data":[{"b64_json":"cm91dGU0aw==","revised_prompt":"ok"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    for (const item of cases) {
+      const result = await kernel.runRemoteImageJob(
+        {
+          payload: {
+            apiKey: "key",
+            mode: "generate",
+            prompt: "tower",
+            size: item.input,
+            quality: "high",
+            outputFormat: "png",
+            imagePaths: [],
+            imagePath: "",
+            maskB64: "",
+            seed: 0,
+            negativePrompt: "",
+            baseURL: "https://www.fhl.mom",
+            textModelID: "gpt-5.5",
+            imageModelID: "gpt-image-2",
+            apiMode: "images",
+            requestPolicy: "openai",
+            noPromptRevision: true,
+            partialImages: 1,
+          },
+        },
+        {
+          signal: new AbortController().signal,
+        },
+      );
+      assert.equal(result.imageB64, "cm91dGU0aw==");
+      assert.equal(result.sourceEvent, "images_api");
+    }
+    assert.equal(captured.length, cases.length);
+    for (let i = 0; i < cases.length; i += 1) {
+      assert.equal(captured[i].url, "https://www.fhl.mom/v1/images/generations");
+      assert.equal(captured[i].body.size, cases[i].input);
+    }
+  });
+});
+
+test("runRemoteImageJob keeps FHL gpt-image-2 exact sizes on Images API", async () => {
+  let captured = null;
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init) => {
+      captured = {
+        url: String(url),
+        body: JSON.parse(init.body),
+      };
+      return new Response('{"data":[{"b64_json":"d2lkZQ==","revised_prompt":"ok"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "cinematic panorama",
+          size: "1664x944",
+          quality: "medium",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://www.fhl.mom",
+          textModelID: "gpt-5.5",
+          imageModelID: "gpt-image-2",
+          apiMode: "images",
+          requestPolicy: "openai",
+          noPromptRevision: true,
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(captured.url, "https://www.fhl.mom/v1/images/generations");
+    assert.equal(captured.body.size, "1664x944");
+    assert.equal(result.imageB64, "d2lkZQ==");
+  });
+});
+
+test("runRemoteImageJob keeps Android-safe FHL 1K sizes on Images API", async () => {
+  let captured = null;
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init) => {
+      captured = {
+        url: String(url),
+        body: JSON.parse(init.body),
+      };
+      return new Response('{"data":[{"b64_json":"c2FmZQ==","revised_prompt":"ok"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "portrait",
+          size: "864x1536",
+          quality: "medium",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://www.fhl.mom",
+          textModelID: "gpt-5.5",
+          imageModelID: "gpt-image-2",
+          apiMode: "images",
+          requestPolicy: "openai",
+          noPromptRevision: true,
+          partialImages: 1,
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(captured.url, "https://www.fhl.mom/v1/images/generations");
+    assert.equal(captured.body.size, "864x1536");
+    assert.equal(result.imageB64, "c2FmZQ==");
     assert.equal(result.sourceEvent, "images_api");
   });
 });
@@ -448,6 +960,46 @@ test("runRemoteImageJob emits Images API stream partial image previews", async (
         sourceEvent: "images_partial",
       },
     ]);
+  });
+});
+
+test("runRemoteImageJob rejects Images API final images that repeat a partial preview", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async () => new Response(
+      'data: {"type":"image_generation.partial_image","partial_image_index":0,"b64_json":"c2FtZQ=="}\n' +
+      'data: {"type":"image_generation.completed","b64_json":"c2FtZQ=="}\n',
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    await assert.rejects(
+      () => kernel.runRemoteImageJob(
+        {
+          payload: {
+            apiKey: "key",
+            mode: "generate",
+            prompt: "bird",
+            size: "1024x1024",
+            quality: "medium",
+            outputFormat: "png",
+            imagePaths: [],
+            imagePath: "",
+            maskB64: "",
+            seed: 0,
+            negativePrompt: "",
+            baseURL: "https://upstream.example",
+            textModelID: "gpt-5.5",
+            imageModelID: "gpt-image-2",
+            apiMode: "images",
+            requestPolicy: "openai",
+            noPromptRevision: true,
+            partialImages: 1,
+          },
+        },
+        { signal: new AbortController().signal },
+      ),
+      /最终图与中间预览帧一致/
+    );
   });
 });
 
@@ -628,6 +1180,7 @@ test("optimizePromptRemote extracts output_text", async () => {
     };
   }, async () => {
     const kernel = await loadRemoteKernel();
+    const largeImageB64 = Buffer.alloc(3 * 1024 * 1024, 1).toString("base64");
     const text = await kernel.optimizePromptRemote({
       apiKey: "key",
       prompt: "cat",
@@ -727,6 +1280,62 @@ test("optimizePromptRemote extracts chat-completion compatible text", async () =
   });
 });
 
+test("optimizePromptRemote compresses browser fallback source images", async () => {
+  let capturedBody = null;
+  const largeImageB64 = Buffer.alloc(3 * 1024 * 1024, 1).toString("base64");
+  await withPatchedGlobals(async () => {
+    globalThis.createImageBitmap = async () => ({
+      width: 2400,
+      height: 1200,
+      close() {},
+    });
+    globalThis.document.createElement = (tag) => {
+      if (tag === "canvas") {
+        return {
+          width: 0,
+          height: 0,
+          getContext() {
+            return {
+              fillStyle: "",
+              fillRect() {},
+              drawImage() {},
+              imageSmoothingEnabled: false,
+              imageSmoothingQuality: "",
+            };
+          },
+          toBlob(callback, mimeType) {
+            callback(new Blob(["compressed"], { type: mimeType }));
+          },
+        };
+      }
+      return {};
+    };
+    globalThis.fetch = async (_url, init) => {
+      capturedBody = JSON.parse(init.body);
+      return new Response(JSON.stringify({ output_text: "optimized prompt" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const text = await kernel.optimizePromptRemote({
+      apiKey: "key",
+      prompt: "cat",
+      optimizationGuidance: "",
+      mode: "edit",
+      baseURL: "https://upstream.example",
+      textModelID: "gpt-5.5",
+      imagePaths: [],
+      imagePath: "",
+      sourceImages: [{ name: "cat.png", imageB64: largeImageB64, mimeType: "image/png" }],
+    }, new AbortController().signal);
+    assert.equal(text, "optimized prompt");
+    assert.equal(capturedBody.input[0].content[1].type, "input_image");
+    assert.match(capturedBody.input[0].content[1].image_url, /^data:image\/jpeg;base64,/);
+  });
+});
+
 test("reversePromptRemote sends image and extracts output_text", async () => {
   let capturedBody = null;
   let capturedAccept = "";
@@ -763,8 +1372,8 @@ test("reversePromptRemote sends image and extracts output_text", async () => {
 test("reversePromptRemote extracts streamed output_text delta", async () => {
   await withPatchedGlobals(async () => {
     globalThis.fetch = async () => new Response([
-      'data: {"type":"response.output_text.delta","delta":"中文反推"}',
-      'data: {"type":"response.output_text.delta","delta":"提示词"}',
+      'data: {"type":"response.output_text.delta","delta":"A calm cat"}',
+      'data: {"type":"response.output_text.delta","delta":" beside a window"}',
       "data: [DONE]",
     ].join("\n"), {
       status: 200,
@@ -780,7 +1389,7 @@ test("reversePromptRemote extracts streamed output_text delta", async () => {
       imagePath: "",
       sourceImages: [{ name: "cat.png", imageB64: "iVBORw0KGgo=", mimeType: "image/png" }],
     }, new AbortController().signal);
-    assert.equal(text, "中文反推提示词");
+    assert.equal(text, "A calm cat beside a window");
   });
 });
 
@@ -898,11 +1507,666 @@ test("reversePromptRemote rejects when no image is available", async () => {
         imagePaths: [],
         imagePath: "",
       }, new AbortController().signal),
-      /No image available for reverse prompt/,
+      /请先导入一张反推图片/
     );
   });
 });
 
+test("runRemoteImageJob submits and polls APIMart async text-to-image", async () => {
+  const requests = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init = {}) => {
+      requests.push({ url: String(url), init });
+      if (String(url).endsWith("/v1/images/generations")) {
+        return new Response(JSON.stringify({ data: { task_id: "task_apimart_1" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (String(url).endsWith("/v1/tasks/task_apimart_1?language=zh")) {
+        return new Response(JSON.stringify({
+          status: "succeeded",
+          output: { image_url: "data:image/png;base64,YXBpbWFydA==" },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "cat",
+          size: "1536x1024",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://api.apib.ai",
+          textModelID: "",
+          imageModelID: "gpt-image-2",
+          apiMode: "apimart",
+          noPromptRevision: true,
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(result.imageB64, "YXBpbWFydA==");
+    assert.equal(result.sourceEvent, "apimart_async");
+    const submit = requests.find((request) => request.url.endsWith("/v1/images/generations"));
+    assert.ok(submit);
+    assert.equal(submit.url, "https://api.apib.ai/v1/images/generations");
+    assert.equal(submit.init.headers.Authorization, "Bearer key");
+    const body = JSON.parse(submit.init.body);
+    assert.equal(body.model, "gpt-image-2");
+    assert.equal(body.prompt, "cat");
+    assert.equal(body.size, "3:2");
+    assert.equal(body.resolution, "1k");
+    assert.equal(body.official_fallback, false);
+    assert.deepEqual(body.image_urls, []);
+    assert.ok(requests.some((request) => request.url.endsWith("/v1/tasks/task_apimart_1?language=zh")));
+  });
+});
+
+test("runRemoteImageJob sends legacy APIMart base through local preview legacy proxy", async () => {
+  let submitURL = "";
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5173/",
+      hostname: "127.0.0.1",
+      origin: "http://127.0.0.1:5173",
+    };
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).endsWith("/v1/images/generations")) {
+        submitURL = String(url);
+        assert.equal(init.headers.Authorization, "Bearer key");
+        return new Response(JSON.stringify({ data: { image_url: "data:image/png;base64,bGVnYWN5" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "legacy",
+          size: "1:1@1k",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://api.apib.ai/v1",
+          textModelID: "",
+          imageModelID: "gpt-image-2",
+          apiMode: "apimart",
+          noPromptRevision: true,
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(result.imageB64, "bGVnYWN5");
+    assert.equal(submitURL, "http://127.0.0.1:5173/__image-studio-apimart-legacy/v1/images/generations");
+  });
+});
+test("runRemoteImageJob sends APIMart documented ratio size separately from resolution", async () => {
+  let submitBody = null;
+  let submitURL = "";
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).endsWith("/v1/images/generations")) {
+        submitURL = String(url);
+        submitBody = JSON.parse(init.body);
+        return new Response(JSON.stringify({
+          data: { image_url: "data:image/png;base64,cmF0aW8=" },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "portrait",
+          size: "9:16@2k",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://api.apimart.ai/v1",
+          textModelID: "",
+          imageModelID: "gpt-image-2",
+          apiMode: "apimart",
+          noPromptRevision: true,
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(result.imageB64, "cmF0aW8=");
+    assert.equal(submitURL, "https://api.apimart.ai/v1/images/generations");
+    assert.equal(submitBody.size, "9:16");
+    assert.equal(submitBody.resolution, "2k");
+  });
+});
+
+test("runRemoteImageJob falls back to legacy APIMart base after official transport failure", async () => {
+  const requests = [];
+  const logs = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init = {}) => {
+      const textURL = String(url);
+      requests.push({ url: textURL, init });
+      if (textURL === "https://api.apimart.ai/v1/images/generations") {
+        throw new Error('Post "https://api.apimart.ai/v1/images/generations": dial tcp 157.240.10.36:443: connectex: host has failed to respond');
+      }
+      if (textURL === "https://api.apib.ai/v1/images/generations") {
+        return new Response(JSON.stringify({
+          data: { image_url: "data:image/png;base64,bGVnYWN5LWZhbGxiYWNr" },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "fallback",
+          size: "9:16@1k",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://api.apimart.ai",
+          textModelID: "",
+          imageModelID: "gpt-image-2",
+          apiMode: "apimart",
+          noPromptRevision: true,
+        },
+      },
+      {
+        signal: new AbortController().signal,
+        onLog: (line) => logs.push(line),
+      },
+    );
+    assert.equal(result.imageB64, "bGVnYWN5LWZhbGxiYWNr");
+    assert.equal(result.sourceEvent, "apimart_async");
+    assert.deepEqual(requests.map((request) => request.url), [
+      "https://api.apimart.ai/v1/images/generations",
+      "https://api.apib.ai/v1/images/generations",
+    ]);
+    assert.equal(logs.some((line) => line.includes("备用域名")), true);
+  });
+});
+
+test("runRemoteImageJob falls back to legacy APIMart base after official proxy 5xx response", async () => {
+  const requests = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init = {}) => {
+      const textURL = String(url);
+      requests.push({ url: textURL, init });
+      if (textURL === "https://api.apimart.ai/v1/images/generations") {
+        return new Response('Post "https://api.apimart.ai/v1/images/generations": dial tcp 199.59.149.234:443: connectex: connection attempt failed', {
+          status: 502,
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (textURL === "https://api.apib.ai/v1/images/generations") {
+        return new Response(JSON.stringify({
+          data: { image_url: "data:image/png;base64,cHJveHktZmFsbGJhY2s=" },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "proxy fallback",
+          size: "9:16@1k",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://api.apimart.ai",
+          textModelID: "",
+          imageModelID: "gpt-image-2",
+          apiMode: "apimart",
+          noPromptRevision: true,
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(result.imageB64, "cHJveHktZmFsbGJhY2s=");
+    assert.equal(result.sourceEvent, "apimart_async");
+    assert.deepEqual(requests.map((request) => request.url), [
+      "https://api.apimart.ai/v1/images/generations",
+      "https://api.apib.ai/v1/images/generations",
+    ]);
+  });
+});
+
+test("runRemoteImageJob accepts APIMart documented task-unified ids", async () => {
+  const requests = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init = {}) => {
+      const textURL = String(url);
+      requests.push({ url: textURL, init });
+      if (textURL.endsWith("/v1/images/generations")) {
+        return new Response(JSON.stringify({
+          code: 200,
+          data: [{ status: "submitted", task_id: "task-unified-1757156493-imcg5zqt" }],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (textURL.endsWith("/v1/tasks/task-unified-1757156493-imcg5zqt?language=zh")) {
+        return new Response(JSON.stringify({
+          code: 200,
+          data: {
+            id: "task-unified-1757156493-imcg5zqt",
+            status: "completed",
+            result: {
+              images: [{ url: ["data:image/png;base64,dW5pZmllZA=="] }],
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "doc task id",
+          size: "1:1@1k",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://api.apimart.ai/v1",
+          textModelID: "",
+          imageModelID: "gpt-image-2",
+          apiMode: "apimart",
+          noPromptRevision: true,
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(result.imageB64, "dW5pZmllZA==");
+    assert.ok(requests.some((request) => request.url === "https://api.apimart.ai/v1/tasks/task-unified-1757156493-imcg5zqt?language=zh"));
+  });
+});
+
+test("runRemoteImageJob downloads APIMart official result URLs through local proxy", async () => {
+  const requests = [];
+  const controller = new AbortController();
+  let taskPollSignal = null;
+  let imageDownloadSignal = null;
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5173/",
+      hostname: "127.0.0.1",
+      origin: "http://127.0.0.1:5173",
+    };
+    globalThis.fetch = async (url, init = {}) => {
+      const textURL = String(url);
+      requests.push({ url: textURL, init });
+      if (textURL.endsWith("/v1/images/generations")) {
+        return new Response(JSON.stringify({
+          code: 0,
+          data: [{ task_id: "task_apimart_doc" }],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (textURL.endsWith("/v1/tasks/task_apimart_doc?language=zh")) {
+        taskPollSignal = init.signal;
+        return new Response(JSON.stringify({
+          code: 0,
+          data: {
+            status: "completed",
+            result: {
+              images: [
+                {
+                  url: ["https://cdn.apimart.example/generated.png"],
+                },
+              ],
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (textURL.startsWith("http://127.0.0.1:5173/__image-studio-apimart-image/download?")) {
+        imageDownloadSignal = init.signal;
+        assert.equal(new realURL(textURL).searchParams.get("url"), "https://cdn.apimart.example/generated.png");
+        return new Response(new Blob(["proxied-image"], { type: "image/png" }), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "cat",
+          size: "1024x1024",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://api.apimart.ai",
+          textModelID: "",
+          imageModelID: "gpt-image-2",
+          apiMode: "apimart",
+          noPromptRevision: true,
+        },
+      },
+      { signal: controller.signal },
+    );
+    assert.equal(result.imageB64, Buffer.from("proxied-image").toString("base64"));
+    assert.ok(taskPollSignal);
+    assert.ok(imageDownloadSignal);
+    assert.notEqual(taskPollSignal, controller.signal);
+    assert.notEqual(imageDownloadSignal, controller.signal);
+    assert.ok(requests.some((request) => request.url.includes("/__image-studio-apimart-image/download?")));
+    assert.equal(requests.some((request) => request.url === "https://cdn.apimart.example/generated.png"), false);
+  });
+});
+
+test("runRemoteImageJob uploads source images before APIMart async image-to-image", async () => {
+  const submitBodies = [];
+  const progressLines = [];
+  let uploadSeen = false;
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init = {}) => {
+      const textURL = String(url);
+      if (textURL.endsWith("/v1/uploads/images")) {
+        uploadSeen = true;
+        assert.equal(init.headers.Authorization, "Bearer key");
+        assert.ok(init.body instanceof FormData);
+        const file = init.body.get("file");
+        assert.ok(file instanceof Blob);
+        return new Response(JSON.stringify({ data: { image_url: "https://cdn.example/source.png" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (textURL.endsWith("/v1/images/generations")) {
+        const body = JSON.parse(init.body);
+        submitBodies.push(body);
+        return new Response(JSON.stringify({ task_id: "task_apimart_edit" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (textURL.endsWith("/v1/tasks/task_apimart_edit?language=zh")) {
+        return new Response(JSON.stringify({ data: { status: "done", images: [{ url: "data:image/png;base64,ZWRpdA==" }] } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+      const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "edit",
+          prompt: "make it cinematic",
+          size: "2160x3840",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://api.apimart.ai",
+          textModelID: "",
+          imageModelID: "gpt-image-2",
+          apiMode: "apimart",
+          noPromptRevision: true,
+        },
+        sourceImages: [{ name: "source.png", imageB64: "iVBORw0KGgo=", mimeType: "image/png" }],
+      },
+      {
+        signal: new AbortController().signal,
+        onProgress: (stage) => progressLines.push(stage),
+      },
+    );
+    assert.equal(result.imageB64, "ZWRpdA==");
+    assert.equal(uploadSeen, true);
+    assert.equal(submitBodies.length, 1);
+    assert.ok(progressLines.some((line) => line.includes("APIMart") && line.includes("读取参考图")));
+    assert.ok(progressLines.some((line) => line.includes("APIMart") && line.includes("1/1")));
+    assert.ok(progressLines.some((line) => line.includes("APIMart") && line.includes("提交异步任务")));
+    assert.deepEqual(submitBodies[0].image_urls, ["https://cdn.example/source.png"]);
+    assert.equal(submitBodies[0].size, "9:16");
+    assert.equal(submitBodies[0].resolution, "4k");
+  });
+});
+
+test("runRemoteImageJob reports APIMart upload failure before task submission", async () => {
+  const progressLines = [];
+  const requests = [];
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init = {}) => {
+      const textURL = String(url);
+      requests.push(textURL);
+      if (textURL.endsWith("/v1/uploads/images")) {
+        return new Response(JSON.stringify({ error: { message: "gateway timeout" } }), {
+          status: 524,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    await assert.rejects(
+      () => kernel.runRemoteImageJob(
+        {
+          payload: {
+            apiKey: "key",
+            mode: "edit",
+            prompt: "make it cinematic",
+            size: "2160x3840",
+            quality: "low",
+            outputFormat: "png",
+            imagePaths: [],
+            imagePath: "",
+            maskB64: "",
+            seed: 0,
+            negativePrompt: "",
+            baseURL: "https://api.apimart.ai",
+            textModelID: "",
+            imageModelID: "gpt-image-2",
+            apiMode: "apimart",
+            noPromptRevision: true,
+          },
+          sourceImages: [{ name: "source.png", imageB64: "iVBORw0KGgo=", mimeType: "image/png" }],
+        },
+        {
+          signal: new AbortController().signal,
+          onProgress: (stage) => progressLines.push(stage),
+        },
+      ),
+      /尚未提交 APIMart 生图任务|APIMart 后台不会看到任务/
+    );
+    assert.ok(progressLines.some((line) => line.includes("APIMart 准备上传")));
+    assert.ok(progressLines.some((line) => line.includes("APIMart 上传参考图 1/1")));
+    assert.equal(requests.some((request) => request.endsWith("/v1/images/generations")), false);
+  });
+});
+
+test("runRemoteImageJob retries APIMart source upload with compressed JPEG after server error", async () => {
+  const uploadFiles = [];
+  const submitBodies = [];
+  const logs = [];
+  await withPatchedGlobals(async () => {
+    globalThis.createImageBitmap = async () => ({
+      width: 2400,
+      height: 1200,
+      close() {},
+    });
+    globalThis.document.createElement = (tag) => {
+      if (tag === "canvas") {
+        return {
+          width: 0,
+          height: 0,
+          getContext() {
+            return {
+              fillStyle: "",
+              fillRect() {},
+              drawImage() {},
+              imageSmoothingEnabled: false,
+              imageSmoothingQuality: "",
+            };
+          },
+          toBlob(callback, mimeType) {
+            callback(new Blob(["compressed"], { type: mimeType }));
+          },
+        };
+      }
+      return {};
+    };
+    globalThis.fetch = async (url, init = {}) => {
+      const textURL = String(url);
+      if (textURL.endsWith("/v1/uploads/images")) {
+        const file = init.body.get("file");
+        uploadFiles.push(file);
+        assert.ok(file instanceof Blob);
+        if (uploadFiles.length === 1) {
+          return new Response(JSON.stringify({ error: { message: "failed to upload image", type: "server_error" } }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        assert.equal(file.type, "image/jpeg");
+        assert.equal(file.name, "source-1.jpg");
+        assert.equal(await file.text(), "compressed");
+        return new Response(JSON.stringify({ url: "https://upload.apimart.ai/f/image/retry-source.jpg" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (textURL.endsWith("/v1/images/generations")) {
+        const body = JSON.parse(init.body);
+        submitBodies.push(body);
+        return new Response(JSON.stringify({ data: [{ status: "submitted", task_id: "task_apimart_retry_upload" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (textURL.endsWith("/v1/tasks/task_apimart_retry_upload?language=zh")) {
+        return new Response(JSON.stringify({ data: { status: "completed", result: { images: [{ url: ["data:image/png;base64,cmV0cnk="] }] } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected APIMart request ${url}`);
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "edit",
+          prompt: "make it cinematic",
+          size: "16:9@1k",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://api.apimart.ai",
+          textModelID: "",
+          imageModelID: "gpt-image-2",
+          apiMode: "apimart",
+          noPromptRevision: true,
+        },
+        sourceImages: [{ name: "source.png", imageB64: "iVBORw0KGgo=", mimeType: "image/png" }],
+      },
+      {
+        signal: new AbortController().signal,
+        onLog: (line) => logs.push(line),
+      },
+    );
+    assert.equal(result.imageB64, "cmV0cnk=");
+    assert.equal(uploadFiles.length, 2);
+    assert.equal(submitBodies.length, 1);
+    assert.deepEqual(submitBodies[0].image_urls, ["https://upload.apimart.ai/f/image/retry-source.jpg"]);
+    assert.equal(logs.some((line) => line.includes("重试上传成功") || line.includes("retry upload succeeded")), true);
+  });
+});
 test("Android shell remote kernel can use native HTTP bridge to bypass browser fetch", async () => {
   const partials = [];
   const progressEvents = [];
@@ -982,4 +2246,78 @@ test("Android shell remote kernel can use native HTTP bridge to bypass browser f
     assert.equal(partials[0].partialImageIndex, 0);
     assert.ok(progressEvents.length > 0);
   });
+});
+
+test("runRemoteImageJob repairs Images API sizes before submit", async () => {
+  let capturedBody = null;
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (_url, init) => {
+      capturedBody = JSON.parse(init.body);
+      return new Response(
+        '{"data":[{"b64_json":"c2l6ZQ==","revised_prompt":"ok"}]}',
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const result = await kernel.runRemoteImageJob(
+      {
+        payload: {
+          apiKey: "key",
+          mode: "generate",
+          prompt: "repair",
+          size: "1793x1025",
+          quality: "low",
+          outputFormat: "png",
+          imagePaths: [],
+          imagePath: "",
+          maskB64: "",
+          seed: 0,
+          negativePrompt: "",
+          baseURL: "https://upstream.example",
+          textModelID: "gpt-5.5",
+          imageModelID: "gpt-image-2",
+          apiMode: "images",
+          requestPolicy: "openai",
+          noPromptRevision: true,
+          partialImages: 1,
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(result.imageB64, "c2l6ZQ==");
+    assert.equal(capturedBody.size, "1792x1024");
+  });
+});
+
+test("buildImagesRequestBody repairs outgoing Images API sizes", async () => {
+  const payloads = await import(`../src/platform/runtime/remote-kernel/requestPayloads.ts?test=${Date.now()}`);
+  const result = await payloads.buildImagesRequestBody(
+    {
+      payload: {
+        apiKey: "key",
+        mode: "generate",
+        prompt: "repair",
+        size: "1793x1025",
+        quality: "low",
+        outputFormat: "png",
+        imagePaths: [],
+        imagePath: "",
+        maskB64: "",
+        seed: 0,
+        negativePrompt: "",
+        baseURL: "https://upstream.example/v1/",
+        textModelID: "gpt-5.5",
+        imageModelID: "gpt-image-2",
+        apiMode: "images",
+        requestPolicy: "openai",
+        noPromptRevision: true,
+        partialImages: 1,
+      },
+    },
+    [],
+  );
+  assert.equal(result.url, "https://upstream.example/v1/images/generations");
+  const body = JSON.parse(result.body);
+  assert.equal(body.size, "1792x1024");
 });

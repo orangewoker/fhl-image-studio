@@ -4,6 +4,7 @@ import { historyPreviewSrc, useBlobURL } from "../../lib/images";
 import type { HistoryItem } from "../../types/domain";
 import { HistoryPromptThumbnailStack } from "./HistoryPromptThumbnailStack";
 import { HistoryModeBadge } from "./HistoryModeBadge";
+import { HistoryApiSourceBadge } from "./HistoryApiSourceBadge";
 import { historyPromptGroupContains, historyPromptGroupLabel, type HistoryPromptGroup } from "./historyPromptGroups";
 import { qualityLabel, sizeLabel } from "./historyLabels";
 
@@ -183,6 +184,7 @@ function TimelinePromptThumbnail({
     >
       <img src={imageSrc} alt={item.prompt} loading="eager" decoding="async" />
       <HistoryModeBadge mode={item.mode} className="timeline-prompt-thumb-mode" />
+      <HistoryApiSourceBadge source={item} className="timeline-prompt-thumb-api rounded-[6px]" />
       <span className="timeline-prompt-thumb-index">#{displayIndex}</span>
       {isCompare ? <span className="timeline-prompt-thumb-compare">B</span> : null}
       <span

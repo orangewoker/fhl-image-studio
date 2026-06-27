@@ -1,8 +1,9 @@
-import type { QualityValue } from "../../../types/domain";
+import type { APIMode, QualityValue, RequestPolicy } from "../../../types/domain";
 import { QUALITY_TIERS } from "../../../components/panel/panelOptions";
 import {
   RESOLUTION_PRESETS,
   sizeCapabilityHint,
+  type AspectPresetOption,
   type AspectPreset,
   type ResolutionPreset,
 } from "../../../components/panel/sizeCapabilities";
@@ -20,6 +21,7 @@ import {
 
 export function AndroidParameterEditor({
   activeAspect,
+  aspectPresets,
   activeAspectLabel,
   activeResolution,
   activeResolutionLabel,
@@ -37,19 +39,20 @@ export function AndroidParameterEditor({
   styleTag,
 }: {
   activeAspect: AspectPreset;
+  aspectPresets: AspectPresetOption[];
   activeAspectLabel: string;
   activeResolution: ResolutionPreset;
   activeResolutionLabel: string;
   activeQualityLabel: string;
   activeStyleLabel: string;
   availableResolutions: ResolutionPreset[];
-  apiMode: "responses" | "images";
+  apiMode: APIMode;
   batchCount: number;
   handleAspectSelect: (aspect: AspectPreset) => void;
   handleResolutionSelect: (resolution: ResolutionPreset) => void;
   imageModelID: string;
   quality: string;
-  requestPolicy: "openai" | "compat";
+  requestPolicy: RequestPolicy;
   setField: (key: "quality" | "styleTag" | "batchCount", value: any) => void;
   styleTag: string;
 }) {
@@ -84,7 +87,7 @@ export function AndroidParameterEditor({
       </AndroidParameterBlock>
 
       <AndroidParameterBlock title="画幅比例">
-        <AndroidAspectGrid value={activeAspect} onChange={handleAspectSelect} />
+        <AndroidAspectGrid value={activeAspect} onChange={handleAspectSelect} presets={aspectPresets} />
       </AndroidParameterBlock>
 
       <AndroidDiscreteSlider

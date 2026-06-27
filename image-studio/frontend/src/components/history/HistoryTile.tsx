@@ -1,10 +1,19 @@
 import { Ellipsis, X } from "lucide-react";
 import type React from "react";
-import { historyPreviewSrc, useBlobURL, useImageLoadState } from "../../lib/images";
+import {
+  buildHistoryItemDragExport,
+  writeImageFileDragData,
+  writeInternalHistoryItemDragData,
+} from "../../lib/dragExport.ts";
+import { historyFullSrc, historyPreviewSrc, useBlobURL, useImageLoadState } from "../../lib/images";
+import { ImagePixelSizeBadge } from "../common/ImagePixelSizeBadge";
 import { usePlatform } from "../../platform/context";
+import { BeginNativeFileDrag } from "../../platform/runtime/host";
 import type { HistoryItem } from "../../types/domain";
+import { HistoryApiSourceBadge } from "./HistoryApiSourceBadge";
 import { HistoryMetaBadges } from "./HistoryMetaBadges";
 import { HistoryModeBadge } from "./HistoryModeBadge";
+import { apiSourceDisplayName } from "./historyApiSource";
 import { qualityLabel, sizeLabel } from "./historyLabels";
 
 const EMPTY_PROMPT_LABEL = "(无 prompt)";
@@ -35,14 +44,30 @@ export function HistoryTile({
   const { isMac, usesFluentUI } = usePlatform();
   const previewURL = useBlobURL(item.previewBlob ?? item.imageBlob ?? null, item.imageB64 ?? null);
   const imageSrc = historyPreviewSrc(item, previewURL);
+  const fullImageSrc = historyFullSrc(item, previewURL);
   const imageLoadState = useImageLoadState(imageSrc || null);
+  const dragSpec = buildHistoryItemDragExport(item, imageSrc);
   const promptLabel = item.prompt || EMPTY_PROMPT_LABEL;
+  const apiSourceName = apiSourceDisplayName(item);
+  const metaBadges = [apiSourceName, sizeLabel(item.size), qualityLabel(item.quality)].filter(Boolean);
+
+  function renderPixelSizeBadge(className = "history-image-pixel-size") {
+    return <ImagePixelSizeBadge width={item.width} height={item.height} src={fullImageSrc || imageSrc} className={className} />;
+  }
 
   function renderImage(props: React.ImgHTMLAttributes<HTMLImageElement> = {}) {
     if (!imageSrc || imageLoadState !== "ready") {
       return <div className={`history-thumb-fallback ${props.className ?? ""}`} aria-hidden="true" />;
     }
-    return <img {...props} src={imageSrc} alt={props.alt ?? item.prompt} />;
+    return (
+      <img
+        {...props}
+        src={imageSrc}
+        alt={props.alt ?? item.prompt}
+        draggable={!!dragSpec}
+        onDragStart={handleImageDragStart}
+      />
+    );
   }
 
   function openMenuFromEvent(e: React.MouseEvent) {
@@ -67,6 +92,24 @@ export function HistoryTile({
     }
   }
 
+  function handleImageDragStart(e: React.DragEvent<HTMLImageElement>) {
+    if (!dragSpec) {
+      e.preventDefault();
+      return;
+    }
+    e.stopPropagation();
+    if (isMac && item.savedPath) {
+      e.preventDefault();
+      void BeginNativeFileDrag(item.savedPath).catch((error) => {
+        console.error("[drag-export] native-file-drag failed", error);
+      });
+      return;
+    }
+    e.dataTransfer.effectAllowed = "copy";
+    writeInternalHistoryItemDragData(e.dataTransfer, item);
+    writeImageFileDragData(e.dataTransfer, dragSpec);
+  }
+
   if (variant === "phoneFeature") {
     return (
       <div
@@ -84,6 +127,8 @@ export function HistoryTile({
           decoding: "async",
         })}
         <HistoryModeBadge mode={item.mode} className="android-history-tile-mode" />
+        <HistoryApiSourceBadge source={item} className="absolute left-2 bottom-2 rounded-[6px]" />
+        {renderPixelSizeBadge("android-history-pixel-size")}
         <button
           type="button"
           data-audit-id="history-item-menu"
@@ -116,11 +161,13 @@ export function HistoryTile({
             decoding: "async",
           })}
           <HistoryModeBadge mode={item.mode} className="android-history-tile-mode" />
+          <HistoryApiSourceBadge source={item} className="absolute left-2 bottom-2 rounded-[6px]" />
+          {renderPixelSizeBadge()}
           {isCompare ? <span className="android-history-compare-badge">B</span> : null}
         </div>
         <div className="android-history-tile-body">
           <p>{promptLabel}</p>
-          <HistoryMetaBadges items={[sizeLabel(item.size), qualityLabel(item.quality)]} compact />
+          <HistoryMetaBadges items={metaBadges} compact />
         </div>
         <div className="android-history-tile-actions">
           <button
@@ -167,11 +214,13 @@ export function HistoryTile({
             decoding: "async",
           })}
           <HistoryModeBadge mode={item.mode} className="windows-history-mode" />
+          <HistoryApiSourceBadge source={item} className="absolute bottom-2 left-2 rounded-[6px]" />
+          {renderPixelSizeBadge("windows-history-image-pixel-size")}
           {isCompare ? <span className="windows-history-compare-badge">B</span> : null}
         </div>
         <div className="windows-history-feature-body">
           <p>{promptLabel}</p>
-          <HistoryMetaBadges items={[sizeLabel(item.size), qualityLabel(item.quality)]} compact />
+          <HistoryMetaBadges items={metaBadges} compact />
           <div className="windows-history-tile-actions">
             <button
               type="button"
@@ -204,12 +253,13 @@ export function HistoryTile({
             loading: "eager",
             decoding: "async",
           })}
+          {renderPixelSizeBadge("windows-history-image-pixel-size")}
         </div>
         <div className="windows-history-row-main">
           <p>{promptLabel}</p>
           <div className="windows-history-row-meta">
             <HistoryModeBadge mode={item.mode} />
-            <HistoryMetaBadges items={[sizeLabel(item.size), qualityLabel(item.quality)]} compact />
+            <HistoryMetaBadges items={metaBadges} compact />
             {isCompare ? <span className="windows-history-compare-inline">B</span> : null}
           </div>
         </div>
@@ -265,6 +315,8 @@ export function HistoryTile({
             className: "h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]",
           })}
           <HistoryModeBadge mode={item.mode} className="absolute left-2 top-2" />
+          <HistoryApiSourceBadge source={item} className={`absolute bottom-2 left-2 ${usesFluentUI ? "rounded-[6px]" : "rounded-full"}`} />
+          {renderPixelSizeBadge()}
           {isCompare ? (
             <span className={`absolute right-2 top-2 bg-blue-500/90 px-1.5 py-0.5 text-[10px] text-white ${usesFluentUI ? "rounded-[6px]" : "rounded-full"}`}>B</span>
           ) : null}
@@ -287,7 +339,7 @@ export function HistoryTile({
             {promptLabel}
           </div>
           <div className="mt-1.5">
-            <HistoryMetaBadges items={[sizeLabel(item.size), qualityLabel(item.quality)]} compact />
+            <HistoryMetaBadges items={metaBadges} compact />
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <button
@@ -329,6 +381,8 @@ export function HistoryTile({
         className: "h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]",
       })}
       <HistoryModeBadge mode={item.mode} className="absolute left-1.5 top-1.5 bg-black/55" />
+      <HistoryApiSourceBadge source={item} className={`absolute left-1.5 top-7 ${usesFluentUI ? "rounded-[6px]" : "rounded-full"}`} />
+      {renderPixelSizeBadge()}
       {isCompare ? (
         <span className={`absolute right-1.5 top-1.5 bg-blue-500 px-1.5 py-0.5 text-[10px] text-white ${usesFluentUI ? "rounded-[6px]" : "rounded-full"}`}>B</span>
       ) : null}

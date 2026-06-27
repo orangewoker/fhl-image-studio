@@ -4,6 +4,7 @@ import type {
   UpstreamProfile,
   Workspace,
 } from "../../types/domain";
+import { defaultBatchProcessConfig } from "../../state/workspaceRuntime";
 
 export type PreviewScenario = "mac-workspace";
 
@@ -163,6 +164,7 @@ function buildWorkspace(
   return {
     id: workspaceId,
     name: "联调样例",
+    promptPrefix: "",
     prompt: currentImage.prompt,
     optimizationGuidance: "Make it more cinematic with stronger lighting depth while preserving the subject and composition.",
     negativePrompt: currentImage.negativePrompt ?? "",
@@ -172,14 +174,24 @@ function buildWorkspace(
     outputFormat: "png",
     seed: 3200,
     batchCount: 1,
+    continuousGenerateTest: false,
     styleTag: currentImage.styleTag ?? "",
+    editSourceMode: "manual",
+    editAutoAspectUserLocked: false,
+    batchProcess: defaultBatchProcessConfig(),
     sources,
     currentImageId: currentImage.id,
     batchResultIds: [],
+    batchTaskIds: [],
+    selectedBatchTaskId: null,
+    batchSinglePreviewOpen: false,
     resultGridOpen: false,
+    historyGalleryOpen: false,
+    historyGallerySort: "newest",
     runningJobIds: [],
     jobsTotal: 0,
     jobsCompleted: 0,
+    jobsFailed: 0,
     progress: null,
     streamPreview: null,
     streamPreviews: {},

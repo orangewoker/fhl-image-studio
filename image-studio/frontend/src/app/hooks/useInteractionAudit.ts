@@ -110,6 +110,7 @@ function buildAuditContext(state: StudioState): UIAuditStateSnapshot {
     runningJobIds: [...state.runningJobs],
     jobsTotal: state.jobsTotal,
     jobsCompleted: state.jobsCompleted,
+    jobsFailed: state.jobsFailed,
     activeProfileId: state.activeProfileId,
     activeProfileName: activeProfile?.name?.trim() || "",
     settingsOpen: state.settingsOpen,

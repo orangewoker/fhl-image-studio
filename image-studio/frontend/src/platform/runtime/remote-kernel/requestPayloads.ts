@@ -5,6 +5,7 @@ import {
 import {
   buildResponsesPayload as buildSharedResponsesPayload,
   normalizePartialImages,
+  repairSizeForOpenAI,
   shouldSendExtendedImageParameters,
   shouldUseImagesNewAPICompat,
   supportsImagesResponseFormat,
@@ -29,7 +30,9 @@ export async function buildImagesRequestBody(
   const baseURL = normalizeBaseURL(request.payload.baseURL);
   const mode = request.payload.mode === "edit" ? "edit" : "generate";
   const imageModel = normalizeImageModel(request.payload.imageModelID);
-  const size = request.payload.size || "1024x1024";
+  const rawSize = request.payload.size || "1024x1024";
+  const repairedPayload = repairSizeForOpenAI({ size: rawSize });
+  const size = repairedPayload?.size || rawSize;
   const quality = request.payload.quality || "auto";
   const outputFormat = request.payload.outputFormat || "png";
   const includeExtended = shouldSendExtendedImageParameters(request.payload.requestPolicy);
@@ -38,7 +41,7 @@ export async function buildImagesRequestBody(
 
   if (mode === "edit") {
     if (sourceDataURLs.length === 0) {
-      throw new RemoteKernelError("图生图模式需要至少一张源图(请先添加参考图)");
+      throw new RemoteKernelError("鍥剧敓鍥炬ā寮忛渶瑕佽嚦灏戜竴寮犳簮鍥?璇峰厛娣诲姞鍙傝€冨浘)");
     }
     const form = new FormData();
     for (let i = 0; i < sourceDataURLs.length; i++) {

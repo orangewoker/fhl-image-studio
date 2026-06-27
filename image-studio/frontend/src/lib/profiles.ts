@@ -1,4 +1,4 @@
-import type { APIMode, RequestPolicy, UpstreamProfile } from "../types/domain";
+﻿import type { APIMode, RequestPolicy, UpstreamProfile } from "../types/domain";
 import { STORAGE_NAMESPACE, storageKey } from "./storageNamespace.ts";
 
 // localStorage 键名规范:
@@ -15,10 +15,35 @@ import { STORAGE_NAMESPACE, storageKey } from "./storageNamespace.ts";
 export const PROFILES_LS_KEY = storageKey("gptcodex.profiles");
 export const ACTIVE_PROFILE_LS_KEY = storageKey("gptcodex.activeProfileId");
 export const FHL_PROFILE_ID = "fhl-responses-default";
-export const FHL_PROFILE_NAME = "配置1";
+export const FHL_IMAGES_PROFILE_ID = "fhl-images-default";
+export const FHL_PROFILE_NAME = "FHL-1 Responses";
+export const FHL_IMAGES_PROFILE_NAME = "FHL-1 Images";
 export const FHL_BASE_URL = "https://www.fhl.mom";
 export const FHL_TEXT_MODEL_ID = "gpt-5.5";
 export const FHL_IMAGE_MODEL_ID = "gpt-image-2";
+export const APIMART_PROFILE_ID = "apimart-async-default";
+export const APIMART_PROFILE_NAME = "APIMart 异步";
+export const APIMART_BASE_URL = "https://api.apimart.ai";
+export const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
+export const APIMART_IMAGE_MODEL_ID = "gpt-image-2";
+export const APIMART_CONCURRENCY_LIMIT = 6;
+export const RUNNINGHUB_BASE_URL = "http://127.0.0.1:8117";
+export const RUNNINGHUB_BANANA2_PROFILE_NAME = "RH-1 全能图像2";
+export const RUNNINGHUB_IMAGE_G2_PROFILE_NAME = "RH-1 全能图像G2";
+export const RUNNINGHUB_DEFAULT_MODEL_ID = "banana2";
+export const DEFAULT_CONCURRENCY_LIMIT = 4;
+
+export function normalizeAPIMartBaseURL(value: string): string {
+  const normalized = value.trim().replace(/\/+$/, "");
+  if (normalized === `${APIMART_LEGACY_BASE_URL}/v1`) return APIMART_LEGACY_BASE_URL;
+  if (normalized === `${APIMART_BASE_URL}/v1`) return APIMART_BASE_URL;
+  return normalized;
+}
+
+export function isAPIMartOfficialBaseURL(value: string): boolean {
+  const normalized = normalizeAPIMartBaseURL(value);
+  return normalized === APIMART_BASE_URL || normalized === APIMART_LEGACY_BASE_URL;
+}
 
 export function makeFHLResponsesProfile(): UpstreamProfile {
   return {
@@ -29,8 +54,24 @@ export function makeFHLResponsesProfile(): UpstreamProfile {
     baseURL: FHL_BASE_URL,
     textModelID: FHL_TEXT_MODEL_ID,
     imageModelID: FHL_IMAGE_MODEL_ID,
-    concurrencyLimit: 0,
+    concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
     imagesNewAPICompat: false,
+    createdAt: Date.now(),
+    lastUsedAt: Date.now(),
+  };
+}
+
+export function makeFHLImagesProfile(): UpstreamProfile {
+  return {
+    id: FHL_IMAGES_PROFILE_ID,
+    name: FHL_IMAGES_PROFILE_NAME,
+    apiMode: "images",
+    requestPolicy: "openai",
+    baseURL: FHL_BASE_URL,
+    textModelID: "",
+    imageModelID: FHL_IMAGE_MODEL_ID,
+    concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
+    imagesNewAPICompat: true,
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
   };
@@ -53,7 +94,18 @@ export function keyringUserFor(profileId: string): string {
 }
 
 export function apiModeLabel(mode: APIMode): string {
-  return mode === "images" ? "Images API" : "Responses API";
+  if (mode === "images") return "Images API";
+  if (mode === "apimart") return "APIMart 异步 API";
+  if (mode === "runninghub") return "RunningHub 桥接";
+  return "Responses API";
+}
+
+export function apiModeUsesBridgeStoredKey(mode: APIMode): boolean {
+  return mode === "runninghub";
+}
+
+export function apiModeRequiresDirectAPIKey(mode: APIMode): boolean {
+  return !apiModeUsesBridgeStoredKey(mode);
 }
 
 export function requestPolicyLabel(mode: RequestPolicy): string {
@@ -67,9 +119,12 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
   const o = raw as Record<string, unknown>;
   const id = typeof o.id === "string" ? o.id : "";
   const name = typeof o.name === "string" ? o.name : "";
-  const apiMode = o.apiMode === "images" ? "images" : "responses";
+  const apiMode = o.apiMode === "images" || o.apiMode === "apimart" || o.apiMode === "runninghub"
+    ? o.apiMode
+    : "responses";
   const requestPolicy = o.requestPolicy === "compat" ? "compat" : "openai";
-  const baseURL = typeof o.baseURL === "string" ? o.baseURL : "";
+  const rawBaseURL = typeof o.baseURL === "string" ? o.baseURL : "";
+  const baseURL = apiMode === "apimart" ? normalizeAPIMartBaseURL(rawBaseURL) : rawBaseURL;
   const textModelID = typeof o.textModelID === "string" ? o.textModelID : "";
   const imageModelID = typeof o.imageModelID === "string" ? o.imageModelID : "";
   const concurrencyLimit = typeof o.concurrencyLimit === "number" && o.concurrencyLimit >= 0
@@ -109,15 +164,29 @@ export function nextDefaultProfileName(profiles: UpstreamProfile[] = []): string
 
 // 新建 profile 的默认值 —— UpstreamConfigModal 里点「+ 新建」用。
 export function makeBlankProfile(apiMode: APIMode = "responses", profiles: UpstreamProfile[] = []): UpstreamProfile {
+  const isAPIMart = apiMode === "apimart";
+  const isRunningHub = apiMode === "runninghub";
   return {
     id: genProfileId(),
     name: nextDefaultProfileName(profiles),
     apiMode,
     requestPolicy: "openai",
-    baseURL: apiMode === "responses" ? FHL_BASE_URL : "",
+    baseURL: apiMode === "responses"
+      ? FHL_BASE_URL
+      : isAPIMart
+        ? APIMART_BASE_URL
+        : isRunningHub
+          ? RUNNINGHUB_BASE_URL
+          : "",
     textModelID: apiMode === "responses" ? FHL_TEXT_MODEL_ID : "",
-    imageModelID: apiMode === "responses" ? FHL_IMAGE_MODEL_ID : "",
-    concurrencyLimit: 0,
+    imageModelID: apiMode === "responses"
+      ? FHL_IMAGE_MODEL_ID
+      : isAPIMart
+        ? APIMART_IMAGE_MODEL_ID
+        : isRunningHub
+          ? RUNNINGHUB_DEFAULT_MODEL_ID
+          : "",
+    concurrencyLimit: isAPIMart ? APIMART_CONCURRENCY_LIMIT : DEFAULT_CONCURRENCY_LIMIT,
     imagesNewAPICompat: false,
     createdAt: Date.now(),
   };
@@ -134,3 +203,4 @@ export function duplicateProfile(p: UpstreamProfile): UpstreamProfile {
     lastUsedAt: undefined,
   };
 }
+

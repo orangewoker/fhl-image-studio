@@ -1,21 +1,31 @@
 import { type MouseEvent, useState } from "react";
-import { Check, Clipboard, ExternalLink, Image as ImageIcon, KeyRound } from "lucide-react";
+import { Check, Clipboard, ExternalLink, KeyRound } from "lucide-react";
+import type { ChangeEvent } from "react";
+import { Settings } from "lucide-react";
 import { usePlatform } from "../../platform/context";
 import { useStudioStore } from "../../state/studioStore";
-import { FHL_BASE_URL, FHL_IMAGE_MODEL_ID } from "../../lib/profiles";
-import { ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
+import type { UpstreamProfile } from "../../types/domain";
+import { APIMART_IMAGE_MODEL_ID, apiModeRequiresDirectAPIKey, isAPIMartOfficialBaseURL } from "../../lib/profiles";
+import { FHLQuickConfigModal } from "../panel/FHLQuickConfigModal";
 import { FHLAPIChoiceModal } from "../panel/FHLAPIChoiceModal";
 import { HitokotoStrip } from "./HitokotoStrip";
 import { openExternalURLForPlatform } from "../../platform/android/bridge";
 import { OpenExternalURL } from "../../platform/runtime/host";
 
-const BRAND_TITLE = "FHL Studio 方汤圆版";
-const BRAND_VERSION = "V2.0.1";
+const BRAND_TITLE = "FHL Image Studio 方汤圆版";
+const BRAND_VERSION = "V2.0.2";
 const HEADER_LOGO_SRC = "favicon.png";
 const FHL_QQ_GROUP = "207550870";
 const FHL_QQ_PROMO = `FHL官方QQ交流群:${FHL_QQ_GROUP} 进群免费获取GPT image2生图福利！`;
 const FHL_INVITE_CODE = "LPUH6EEHGK3R";
 const FHL_REGISTER_URL = "https://www.fhl.mom/register?aff=LPUH6EEHGK3R";
+
+function apiProviderLabel(profile: Pick<UpstreamProfile, "apiMode" | "baseURL">): string {
+  if (profile.apiMode === "apimart" || isAPIMartOfficialBaseURL(profile.baseURL)) return "APIMart";
+  if (profile.apiMode === "runninghub") return "RunningHub";
+  if (profile.apiMode === "images") return "Images";
+  return "FHL";
+}
 
 async function copyText(text: string) {
   if (navigator.clipboard?.writeText) {
@@ -54,13 +64,34 @@ export function AppHeaderBrand() {
   const apiMode = useStudioStore((state) => state.apiMode);
   const baseURL = useStudioStore((state) => state.baseURL);
   const imageModelID = useStudioStore((state) => state.imageModelID);
+  const profiles = useStudioStore((state) => state.profiles);
+  const activeProfileId = useStudioStore((state) => state.activeProfileId);
+  const setActiveProfile = useStudioStore((state) => state.setActiveProfile);
+  const openUpstreamConfig = useStudioStore((state) => state.openUpstreamConfig);
   const [copiedGroup, setCopiedGroup] = useState(false);
   const [copiedRegisterURL, setCopiedRegisterURL] = useState(false);
   const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
-  const isFHLAPIConfigured = apiKey.trim().length > 0
-    && apiMode === "responses"
-    && baseURL.trim().replace(/\/+$/, "") === FHL_BASE_URL
-    && imageModelID.trim() === FHL_IMAGE_MODEL_ID;
+  const [fhlQuickConfigOpen, setFHLQuickConfigOpen] = useState(false);
+  const [switchingProfileId, setSwitchingProfileId] = useState<string | null>(null);
+  const hasDirectKey = !apiModeRequiresDirectAPIKey(apiMode) || apiKey.trim().length > 0;
+  const isFHLAPIConfigured = hasDirectKey && apiMode !== "apimart" && apiMode !== "runninghub";
+  const isAPIMartConfigured = apiKey.trim().length > 0
+    && apiMode === "apimart"
+    && isAPIMartOfficialBaseURL(baseURL)
+    && (imageModelID.trim() || APIMART_IMAGE_MODEL_ID) === APIMART_IMAGE_MODEL_ID;
+  const isRunningHubConfigured = apiMode === "runninghub" && !!baseURL.trim();
+  const isCurrentAPIConfigured = isFHLAPIConfigured || isAPIMartConfigured || isRunningHubConfigured;
+  const configuredAPILabel = isAPIMartConfigured
+    ? "APIMart 已配置"
+    : apiMode === "images"
+      ? "Images API 已配置"
+      : "FHL API 已配置";
+  const effectiveConfiguredAPILabel = isRunningHubConfigured ? "RunningHub 已配置" : configuredAPILabel;
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
+  const activeProfileLabel = activeProfile
+    ? `${apiProviderLabel(activeProfile)} · ${activeProfile.name}`
+    : effectiveConfiguredAPILabel;
+  const showProfileSwitcher = profiles.length > 1 && isCurrentAPIConfigured;
 
   const copyQQGroup = async (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -109,15 +140,31 @@ export function AppHeaderBrand() {
   const openFHLAPIConfig = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
+    if (isCurrentAPIConfigured) {
+      useStudioStore.getState().openUpstreamConfig("app");
+      return;
+    }
     setFHLChoiceOpen(true);
   };
 
   const useExistingFHLAPI = async () => {
     setFHLChoiceOpen(false);
-    const store = useStudioStore.getState();
-    await ensureFHLResponsesProfile(store);
-    useStudioStore.getState().openUpstreamConfig("app");
-    focusFHLAPIKeyInput();
+    setFHLQuickConfigOpen(true);
+  };
+
+  const handleProfileSelect = async (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextId = event.currentTarget.value;
+    if (nextId === "__manage__") {
+      openUpstreamConfig("app");
+      return;
+    }
+    if (!nextId || nextId === activeProfileId) return;
+    setSwitchingProfileId(nextId);
+    try {
+      await setActiveProfile(nextId);
+    } finally {
+      setSwitchingProfileId(null);
+    }
   };
 
   if (usesAndroidUI) {
@@ -152,78 +199,136 @@ export function AppHeaderBrand() {
   if (isWindows) {
     return (
       <>
-        <div className="flex min-w-0 items-center gap-2">
-          <div
-            className="shrink-0 truncate text-[14px] font-[600] tracking-[0] text-zinc-900 dark:text-zinc-100"
-            style={{ fontFamily: "var(--title-font)" }}
-            title={BRAND_TITLE}
-          >
-            {BRAND_TITLE}
-          </div>
-          <span
-            className="shrink-0 text-[10px] font-[600] leading-none tracking-[0] text-zinc-400 dark:text-zinc-500"
-            title={BRAND_VERSION}
-            aria-label={`版本 ${BRAND_VERSION}`}
-          >
-            {BRAND_VERSION}
-          </span>
-          <div
-            className="min-w-0 truncate text-[11px] font-[500] tracking-[0] text-[var(--accent)]"
-            title={FHL_QQ_PROMO}
-          >
-            {FHL_QQ_PROMO}
-          </div>
-          <button
-            type="button"
-            data-audit-id="copy-qq"
-            className="no-drag inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-[6px] border border-red-500/45 bg-red-500/10 px-1.5 text-[11px] font-semibold tracking-[0] text-red-500 transition-colors hover:border-red-500 hover:bg-red-500/15 dark:border-red-400/40 dark:bg-red-400/10 dark:text-red-400 dark:hover:bg-red-400/15"
-            title={copiedGroup ? "已复制群号" : `复制QQ群号 ${FHL_QQ_GROUP}`}
-            aria-label={copiedGroup ? "已复制QQ群号" : `复制QQ群号 ${FHL_QQ_GROUP}`}
-            onPointerDown={(event) => event.stopPropagation()}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={copyQQGroup}
-          >
-            {copiedGroup ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
-            <span className="whitespace-nowrap">{copiedGroup ? "已复制" : "复制群号"}</span>
-          </button>
-          <button
-            type="button"
-            data-audit-id="register-fhl"
-            className="no-drag inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-[6px] border border-sky-500/45 bg-sky-500/10 px-1.5 text-[11px] font-semibold tracking-[0] text-sky-600 transition-colors hover:border-sky-500 hover:bg-sky-500/15 dark:border-sky-400/40 dark:bg-sky-400/10 dark:text-sky-300 dark:hover:bg-sky-400/15"
-            title={copiedRegisterURL ? "已复制完整注册链接，可粘贴到浏览器打开" : `复制完整注册链接并打开 ${FHL_REGISTER_URL}`}
-            aria-label={copiedRegisterURL ? "已复制注册链接，可粘贴到浏览器打开" : "复制注册链接并打开注册页"}
-            onPointerDown={(event) => event.stopPropagation()}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={copyAndOpenRegister}
-          >
-            {copiedRegisterURL ? <Check className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
-            <span className="whitespace-nowrap">
-              {copiedRegisterURL ? "已复制，可粘贴" : `注册FHL 方汤圆邀请码:${FHL_INVITE_CODE}`}
-            </span>
-          </button>
-        </div>
-        <div className="mt-0 flex min-w-0 items-center gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
-          <button
-            type="button"
-            data-audit-id="fhl-config"
-            className={`fhl-api-config-btn ${isFHLAPIConfigured ? "is-configured" : "needs-config"} no-drag inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] border px-2.5 text-[14px] font-bold tracking-[0] transition-colors`}
-            title={isFHLAPIConfigured ? "FHL API 已配置，点击可修改" : "一键配置 FHL API"}
-            aria-label={isFHLAPIConfigured ? "FHL API 已配置，点击可修改" : "一键配置 FHL API"}
-            onPointerDown={(event) => event.stopPropagation()}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={openFHLAPIConfig}
-          >
-            {isFHLAPIConfigured ? <Check className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
-            <span className="whitespace-nowrap">{isFHLAPIConfigured ? "FHL API 已配置" : "一键配置 FHL API"}</span>
-          </button>
-          <div className="min-w-0">
-            <HitokotoStrip />
+        <div className="flex min-w-0 items-center gap-2.5">
+          <img
+            className="h-11 w-11 shrink-0 rounded-[10px] object-cover shadow-[0_4px_12px_rgb(15_23_42_/_0.16)]"
+            src={HEADER_LOGO_SRC}
+            alt=""
+            aria-hidden="true"
+          />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <div
+                className="shrink-0 truncate text-[14px] font-[600] tracking-[0] text-zinc-900 dark:text-zinc-100"
+                style={{ fontFamily: "var(--title-font)" }}
+                title={BRAND_TITLE}
+              >
+                {BRAND_TITLE}
+              </div>
+              <span
+                className="shrink-0 text-[10px] font-[600] leading-none tracking-[0] text-zinc-400 dark:text-zinc-500"
+                title={BRAND_VERSION}
+                aria-label={`版本 ${BRAND_VERSION}`}
+              >
+                {BRAND_VERSION}
+              </span>
+              <div
+                className="min-w-0 truncate text-[11px] font-[500] tracking-[0] text-[var(--accent)]"
+                title={FHL_QQ_PROMO}
+              >
+                {FHL_QQ_PROMO}
+              </div>
+              <button
+                type="button"
+                data-audit-id="copy-qq"
+                className="no-drag inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-[6px] border border-red-500/45 bg-red-500/10 px-1.5 text-[11px] font-semibold tracking-[0] text-red-500 transition-colors hover:border-red-500 hover:bg-red-500/15 dark:border-red-400/40 dark:bg-red-400/10 dark:text-red-400 dark:hover:bg-red-400/15"
+                title={copiedGroup ? "已复制群号" : `复制QQ群号 ${FHL_QQ_GROUP}`}
+                aria-label={copiedGroup ? "已复制QQ群号" : `复制QQ群号 ${FHL_QQ_GROUP}`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={copyQQGroup}
+              >
+                {copiedGroup ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
+                <span className="whitespace-nowrap">{copiedGroup ? "已复制" : "复制群号"}</span>
+              </button>
+              <button
+                type="button"
+                data-audit-id="register-fhl"
+                className="no-drag inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-[6px] border border-sky-500/45 bg-sky-500/10 px-1.5 text-[11px] font-semibold tracking-[0] text-sky-600 transition-colors hover:border-sky-500 hover:bg-sky-500/15 dark:border-sky-400/40 dark:bg-sky-400/10 dark:text-sky-300 dark:hover:bg-sky-400/15"
+                title={copiedRegisterURL ? "已复制完整注册链接，可粘贴到浏览器打开" : `复制完整注册链接并打开 ${FHL_REGISTER_URL}`}
+                aria-label={copiedRegisterURL ? "已复制注册链接，可粘贴到浏览器打开" : "复制注册链接并打开注册页"}
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={copyAndOpenRegister}
+              >
+                {copiedRegisterURL ? <Check className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
+                <span className="whitespace-nowrap">
+                  {copiedRegisterURL ? "已复制，可粘贴" : `注册FHL 方汤圆邀请码:${FHL_INVITE_CODE}`}
+                </span>
+              </button>
+            </div>
+            <div className="flex min-w-0 items-center gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+              {showProfileSwitcher ? (
+                <div className="no-drag inline-flex h-8 shrink-0 items-center overflow-hidden rounded-[7px] border border-[color:var(--accent)]/24 bg-[var(--accent-soft)]/70 text-[var(--accent)]">
+                  <label className="inline-flex h-full items-center gap-1.5 px-2 text-[12px] font-bold tracking-[0]">
+                    <Check className="h-3.5 w-3.5" />
+                    <select
+                      value={switchingProfileId ?? activeProfileId}
+                      onChange={handleProfileSelect}
+                      disabled={!!switchingProfileId}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      className="max-w-[220px] bg-transparent text-[12px] font-bold tracking-[0] outline-none disabled:cursor-wait disabled:opacity-75"
+                      title={switchingProfileId ? "正在切换 API 配置..." : `当前 API：${activeProfileLabel}`}
+                      aria-label="切换当前 API 配置"
+                    >
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {apiProviderLabel(profile)} · {profile.name}
+                        </option>
+                      ))}
+                      <option value="__manage__">管理配置...</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="inline-flex h-full w-8 items-center justify-center border-l border-[color:var(--accent)]/18 transition-colors hover:bg-[var(--accent-soft)]"
+                    title="管理 API 配置"
+                    aria-label="管理 API 配置"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      openUpstreamConfig("app");
+                    }}
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  data-audit-id="fhl-config"
+                  className={`fhl-api-config-btn ${isCurrentAPIConfigured ? "is-configured" : "needs-config"} no-drag inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] border px-2.5 text-[14px] font-bold tracking-[0] transition-colors`}
+                  title={isCurrentAPIConfigured ? `${configuredAPILabel}，点击可修改` : "一键配置 FHL API"}
+                  aria-label={isCurrentAPIConfigured ? `${configuredAPILabel}，点击可修改` : "一键配置 FHL API"}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={openFHLAPIConfig}
+                >
+                  {isCurrentAPIConfigured ? <Check className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
+                  <span className="whitespace-nowrap">{isCurrentAPIConfigured ? configuredAPILabel : "一键配置 FHL API"}</span>
+                </button>
+              )}
+              <div className="min-w-0">
+                <HitokotoStrip />
+              </div>
+            </div>
           </div>
         </div>
         <FHLAPIChoiceModal
           open={fhlChoiceOpen}
           onClose={() => setFHLChoiceOpen(false)}
           onUseExistingAPI={useExistingFHLAPI}
+        />
+        <FHLQuickConfigModal
+          open={fhlQuickConfigOpen}
+          onClose={() => setFHLQuickConfigOpen(false)}
+          onOpenUpstream={() => {
+            setFHLQuickConfigOpen(false);
+            useStudioStore.getState().openUpstreamConfig("app");
+          }}
         />
       </>
     );
@@ -232,7 +337,12 @@ export function AppHeaderBrand() {
   return (
     <div className="flex min-w-0 items-center gap-3.5">
       <span className={`inline-flex shrink-0 items-center justify-center border border-white/44 bg-white/70 text-[var(--accent)] shadow-[0_12px_32px_rgb(15_23_42_/_0.12)] dark:border-white/10 dark:bg-white/[0.06] ${usesFluentUI ? "h-8 w-8 rounded-[10px]" : isMac ? "h-10 w-10 rounded-[14px]" : "h-10 w-10 rounded-[13px]"}`}>
-        <ImageIcon className="h-4.5 w-4.5" />
+        <img
+          className={`object-cover ${usesFluentUI ? "h-7 w-7 rounded-[9px]" : "h-9 w-9 rounded-[12px]"}`}
+          src={HEADER_LOGO_SRC}
+          alt=""
+          aria-hidden="true"
+        />
       </span>
       <div className="min-w-0 leading-tight">
         <div className="flex min-w-0 items-baseline gap-1.5">

@@ -194,6 +194,44 @@ html[data-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-g
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-results-actions {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-gallery-button {
+  display: inline-flex;
+  height: 24px;
+  max-width: 96px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  padding: 0 8px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-gallery-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-gallery-button:disabled {
+  cursor: not-allowed;
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
 html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile {
   grid-template-columns: 88px minmax(0, 1fr);
   gap: 10px;

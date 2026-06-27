@@ -10,10 +10,27 @@
 - 双 API 形态:
   - Responses API:POST `/v1/responses`，使用 `image_generation` 工具，SSE 流式接收事件。
   - Images API:POST `/v1/images/generations` 与 `/v1/images/edits`。
+- 上游 provider:
+  - FHL：支持 Responses / Images 双配置。
+  - APIMart：支持异步提交、轮询任务和结果重新同步。
+  - RH：通过本地 8117 桥接支持 `banana2 / image_g2` 文生图与图生图。
 - 参数策略:
   - `OpenAI 标准`:只发送官方公开字段。
   - `兼容中转扩展`:额外发送部分 relay 常见扩展字段，例如 seed / negative_prompt。
 - prompt 辅助:prompt 历史、内置模板、一键 AI 优化 prompt；Responses API 请求默认要求上游按原始 prompt 生成。
+- 批次失败恢复:APIMart / RH 任务可在失败卡片或失败日志中重新同步后台已完成结果。
+
+## 360 工作台
+
+- 左侧 `360 工作台`入口，支持生成 2:1 全景、导入外部全景、编辑当前全景和打开最近全景。
+- 360 查看器支持 yaw、pitch、roll、FOV、镜头比例、最长边输出尺寸和右上角输出预览。
+- 主预览优先使用 WebGL 逐像素渲染，WebGL 不可用时回退自适应加密 canvas 网格。
+- 镜头导出带 roundtrip 元数据，可继续用图生图编辑并贴回原全景。
+- 360 输出管理按源全景聚合镜头图、编辑镜头图和贴回后的新全景图。
+- 大图预览对 roundtrip 图显示 `手动贴回`和`导入贴回`快捷入口。
+- 手动贴回支持对齐、操控缩放、卷帘对比、原图按住对比、色彩调整、可调羽化和精细手绘蒙版。
+
+详细说明见 [360 工作台与全景贴回](./panorama-360.md)。
 
 ## 画板
 
@@ -45,6 +62,7 @@
 ## 设置
 
 - 上游配置:API 形态、BASE_URL、API Key、文本模型 ID、图像模型 ID、连接测试。
+- 一键配置:FHL / APIMart / RH 均提供 API 状态选择入口；RH 默认桥接地址为 `http://127.0.0.1:8117`。
 - API Key:
   - 桌面端使用系统安全存储(Keychain / Credential Manager / Secret Service)。
   - Android 壳层使用应用私有 SharedPreferences。

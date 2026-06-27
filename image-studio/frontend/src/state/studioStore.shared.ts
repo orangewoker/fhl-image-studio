@@ -6,6 +6,9 @@ import {
 } from "../platform/runtime/host";
 import type {
   Annotation,
+  BatchProcessAutoAspectResolution,
+  BatchProcessSourceImage,
+  BatchTaskRecord,
   HistoryItem,
   OutputFormatValue,
   ProgressInfo,
@@ -24,6 +27,11 @@ import type { UpstreamProfile } from "../types/domain";
 import { pruneHistoryStorage } from "../lib/storage";
 import { storageKey } from "../lib/storageNamespace.ts";
 import { getImageDimensionsFromBase64 } from "../lib/images";
+import {
+  defaultBatchProcessConfig,
+  normalizeBatchProcessConfig,
+  normalizeEditSourceMode,
+} from "./workspaceRuntime";
 
 export const EMPTY_MODE_CFG: ModeConfig = {
   baseURL: "",
@@ -223,6 +231,10 @@ function normalizeWorkspaceSize(value: unknown): SizeValue {
     : "1024x1024";
 }
 
+function normalizeBatchTaskAutoAspectResolution(value: unknown): Exclude<BatchProcessAutoAspectResolution, ""> | undefined {
+  return value === "1k" || value === "2k" || value === "4k" ? value : undefined;
+}
+
 function normalizeWorkspaceQuality(value: unknown): QualityValue {
   return value === "auto" || value === "high" || value === "medium" || value === "low"
     ? value
@@ -285,6 +297,8 @@ function normalizeSourceImage(value: unknown): SourceImage | null {
     path,
     name,
     size,
+    width: Number.isFinite(Number(raw.width)) ? Math.floor(Number(raw.width)) : undefined,
+    height: Number.isFinite(Number(raw.height)) ? Math.floor(Number(raw.height)) : undefined,
     previewUrl: sanitizeStoredPreviewUrl(raw.previewUrl),
     imageBlob: null,
   };
@@ -320,6 +334,27 @@ function normalizeStreamPreviewMap(value: unknown): StreamPreviewMap {
   return out;
 }
 
+function normalizeBatchProcessSourceImage(value: unknown): BatchProcessSourceImage | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<BatchProcessSourceImage>;
+  const itemPath = typeof raw.path === "string" ? raw.path.trim() : "";
+  if (!itemPath) return null;
+  const itemName = typeof raw.name === "string" && raw.name.trim()
+    ? raw.name.trim()
+    : itemPath.split(/[\\/]/).pop() ?? itemPath;
+  return {
+    path: itemPath,
+    name: itemName,
+    size: Number.isFinite(Number(raw.size)) ? Math.max(0, Number(raw.size)) : 0,
+    width: Number.isFinite(Number(raw.width)) ? Number(raw.width) : undefined,
+    height: Number.isFinite(Number(raw.height)) ? Number(raw.height) : undefined,
+    previewUrl: sanitizeStoredPreviewUrl(raw.previewUrl),
+    previewWidth: Number.isFinite(Number(raw.previewWidth)) ? Number(raw.previewWidth) : undefined,
+    previewHeight: Number.isFinite(Number(raw.previewHeight)) ? Number(raw.previewHeight) : undefined,
+    selected: raw.selected !== false,
+  };
+}
+
 function latestStreamPreview(previews: StreamPreviewMap): StreamPreview | null {
   const list = Object.values(previews);
   if (list.length === 0) return null;
@@ -331,13 +366,31 @@ function latestStreamPreview(previews: StreamPreviewMap): StreamPreview | null {
 function toPersistedWorkspace(workspace: Workspace): Workspace {
   return {
     ...workspace,
+    batchProcess: {
+      ...workspace.batchProcess,
+      discoveredSources: workspace.batchProcess.discoveredSources.map((source) => ({
+        path: source.path,
+        name: source.name,
+        size: source.size,
+        width: source.width,
+        height: source.height,
+        previewUrl: sanitizeStoredPreviewUrl(source.previewUrl),
+        previewWidth: source.previewWidth,
+        previewHeight: source.previewHeight,
+        selected: source.selected !== false,
+      })),
+    },
     sources: workspace.sources.map((source) => ({
       path: source.path,
       name: source.name,
       size: source.size,
+      width: source.width,
+      height: source.height,
       previewUrl: sanitizeStoredPreviewUrl(source.previewUrl),
       imageBlob: null,
     })),
+    editAutoAspectUserLocked: workspace.editAutoAspectUserLocked === true,
+    selectedBatchTaskId: null,
     errorRawPath: workspace.errorRawPath ?? null,
     lastPayload: null,
   };
@@ -360,6 +413,7 @@ function normalizeWorkspace(
   return {
     id,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "图片",
+    promptPrefix: typeof raw.promptPrefix === "string" ? raw.promptPrefix : "",
     prompt: typeof raw.prompt === "string" ? raw.prompt : "",
     optimizationGuidance: typeof raw.optimizationGuidance === "string" ? raw.optimizationGuidance : "",
     negativePrompt: typeof raw.negativePrompt === "string" ? raw.negativePrompt : "",
@@ -369,6 +423,23 @@ function normalizeWorkspace(
     outputFormat: normalizeWorkspaceOutputFormat(raw.outputFormat, fallbackOutputFormat),
     seed: normalizeWorkspaceSeed(raw.seed),
     batchCount: normalizeWorkspaceBatchCount(raw.batchCount),
+    continuousGenerateTest: raw.continuousGenerateTest === true,
+    editSourceMode: normalizeEditSourceMode(raw.editSourceMode),
+    batchProcess: (() => {
+      const normalized = normalizeBatchProcessConfig(raw.batchProcess);
+      const fallback = defaultBatchProcessConfig();
+      const discoveredSources = Array.isArray(raw.batchProcess?.discoveredSources)
+        ? raw.batchProcess?.discoveredSources
+            ?.map((item) => normalizeBatchProcessSourceImage(item))
+            .filter((item): item is BatchProcessSourceImage => !!item) ?? normalized.discoveredSources
+        : normalized.discoveredSources;
+      return {
+        ...fallback,
+        ...normalized,
+        discoveredSources,
+      };
+    })(),
+    editAutoAspectUserLocked: raw.editAutoAspectUserLocked === true,
     styleTag: normalizeWorkspaceStyleTag(raw.styleTag),
     sources: Array.isArray(raw.sources)
       ? raw.sources.map((item) => normalizeSourceImage(item)).filter((item): item is SourceImage => !!item)
@@ -379,10 +450,24 @@ function normalizeWorkspace(
     batchResultIds: Array.isArray(raw.batchResultIds)
       ? raw.batchResultIds.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       : [],
+    batchTaskIds: Array.isArray(raw.batchTaskIds)
+      ? raw.batchTaskIds.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [],
+    clearedJobGroupsBefore: Number.isFinite(Number(raw.clearedJobGroupsBefore)) && Number(raw.clearedJobGroupsBefore) > 0
+      ? Number(raw.clearedJobGroupsBefore)
+      : undefined,
+    selectedBatchTaskId: null,
+    batchSinglePreviewOpen: raw.batchSinglePreviewOpen === true,
     resultGridOpen: !!raw.resultGridOpen,
+    historyGalleryOpen: raw.historyGalleryOpen === true,
+    historyGallerySinglePreviewId: typeof raw.historyGallerySinglePreviewId === "string" && raw.historyGallerySinglePreviewId.trim()
+      ? raw.historyGallerySinglePreviewId.trim()
+      : null,
+    historyGallerySort: raw.historyGallerySort === "oldest" ? "oldest" : "newest",
     runningJobIds: [],
     jobsTotal: hadRunningJobs ? 0 : (Number.isFinite(Number(raw.jobsTotal)) ? Number(raw.jobsTotal) : 0),
     jobsCompleted: hadRunningJobs ? 0 : (Number.isFinite(Number(raw.jobsCompleted)) ? Number(raw.jobsCompleted) : 0),
+    jobsFailed: hadRunningJobs ? 0 : (Number.isFinite(Number(raw.jobsFailed)) ? Number(raw.jobsFailed) : 0),
     progress: hadRunningJobs ? null : normalizeProgressInfo(raw.progress),
     streamPreview,
     streamPreviews,
@@ -399,7 +484,78 @@ function normalizeWorkspace(
   };
 }
 
-export function persistWorkspaceSession(activeWorkspaceId: string, workspaces: Workspace[]): void {
+export function normalizeBatchTasks(value: unknown): Record<string, BatchTaskRecord> {
+  if (!value || typeof value !== "object") return {};
+  const out: Record<string, BatchTaskRecord> = {};
+  for (const rawTask of Object.values(value as Record<string, unknown>)) {
+    const raw = rawTask as Partial<BatchTaskRecord>;
+    const id = typeof raw.id === "string" ? raw.id.trim() : "";
+    const workspaceId = typeof raw.workspaceId === "string" ? raw.workspaceId.trim() : "";
+    const slotIndex = Number(raw.slotIndex);
+    const prompt = typeof raw.prompt === "string" ? raw.prompt : "";
+    if (!id || !workspaceId || !Number.isFinite(slotIndex) || slotIndex < 0 || !prompt.trim()) continue;
+    const status = raw.status === "queued" || raw.status === "running" || raw.status === "succeeded"
+      || raw.status === "failed" || raw.status === "cancelled" || raw.status === "interrupted"
+      ? raw.status
+      : "queued";
+    out[id] = {
+      id,
+      workspaceId,
+      slotIndex: Math.floor(slotIndex),
+      status,
+      createdAt: Number.isFinite(Number(raw.createdAt)) ? Number(raw.createdAt) : Date.now(),
+      updatedAt: Number.isFinite(Number(raw.updatedAt)) ? Number(raw.updatedAt) : Date.now(),
+      mode: raw.mode === "edit" ? "edit" : "generate",
+      apiMode: raw.apiMode === "images" || raw.apiMode === "apimart" || raw.apiMode === "runninghub"
+        ? raw.apiMode
+        : "responses",
+      apiProfileId: typeof raw.apiProfileId === "string" && raw.apiProfileId.trim() ? raw.apiProfileId.trim() : undefined,
+      apiProfileName: typeof raw.apiProfileName === "string" && raw.apiProfileName.trim() ? raw.apiProfileName.trim() : undefined,
+      prompt,
+      size: normalizeWorkspaceSize(raw.size),
+      autoAspectResolution: normalizeBatchTaskAutoAspectResolution(raw.autoAspectResolution),
+      quality: normalizeWorkspaceQuality(raw.quality),
+      outputFormat: normalizeWorkspaceOutputFormat(raw.outputFormat, "png"),
+      requestPolicy: raw.requestPolicy === "compat" ? "compat" : raw.requestPolicy === "openai" ? "openai" : undefined,
+      imagesNewAPICompat: raw.imagesNewAPICompat === true,
+      textModelID: typeof raw.textModelID === "string" ? raw.textModelID : undefined,
+      imageModelID: typeof raw.imageModelID === "string" ? raw.imageModelID : undefined,
+      seed: Number.isFinite(Number(raw.seed)) ? Number(raw.seed) : undefined,
+      negativePrompt: typeof raw.negativePrompt === "string" ? raw.negativePrompt : undefined,
+      styleTag: typeof raw.styleTag === "string" ? raw.styleTag : undefined,
+      sourceImagePaths: Array.isArray(raw.sourceImagePaths)
+        ? raw.sourceImagePaths.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : undefined,
+      batchSourcePath: typeof raw.batchSourcePath === "string" && raw.batchSourcePath.trim() ? raw.batchSourcePath.trim() : undefined,
+      batchSourceSlotIndex: Number.isFinite(Number(raw.batchSourceSlotIndex)) ? Math.max(0, Math.floor(Number(raw.batchSourceSlotIndex))) : undefined,
+      maskB64: typeof raw.maskB64 === "string" ? raw.maskB64 : undefined,
+      jobId: typeof raw.jobId === "string" ? raw.jobId : undefined,
+      groupId: typeof raw.groupId === "string" ? raw.groupId : undefined,
+      historyItemId: typeof raw.historyItemId === "string" ? raw.historyItemId : undefined,
+      savedPath: typeof raw.savedPath === "string" ? raw.savedPath : undefined,
+      rawPath: typeof raw.rawPath === "string" ? raw.rawPath : undefined,
+      apimartTaskId: typeof raw.apimartTaskId === "string" && raw.apimartTaskId.trim() ? raw.apimartTaskId.trim() : undefined,
+      apimartTaskExpiresAt: Number.isFinite(Number(raw.apimartTaskExpiresAt)) ? Number(raw.apimartTaskExpiresAt) : undefined,
+      errorMessage: typeof raw.errorMessage === "string" ? raw.errorMessage : undefined,
+      lastLogLine: typeof raw.lastLogLine === "string" ? raw.lastLogLine : undefined,
+      elapsedSec: Number.isFinite(Number(raw.elapsedSec)) ? Number(raw.elapsedSec) : undefined,
+      queuedReason: raw.queuedReason === "local_concurrency" || raw.queuedReason === "batch_shared_concurrency"
+        ? raw.queuedReason
+        : undefined,
+      queuePriority: Number.isFinite(Number(raw.queuePriority)) ? Number(raw.queuePriority) : undefined,
+      batchOutputMode: raw.batchOutputMode === "custom_dir" ? "custom_dir" : raw.batchOutputMode === "source_dir" ? "source_dir" : undefined,
+      batchOutputDir: typeof raw.batchOutputDir === "string" ? raw.batchOutputDir : undefined,
+      batchOutputPrefix: typeof raw.batchOutputPrefix === "string" ? raw.batchOutputPrefix : undefined,
+    };
+  }
+  return out;
+}
+
+export function persistWorkspaceSession(
+  activeWorkspaceId: string,
+  workspaces: Workspace[],
+  batchTasksById: Record<string, BatchTaskRecord> = {},
+): void {
   try {
     if (!activeWorkspaceId || workspaces.length === 0) {
       localStorage.removeItem(WORKSPACE_SESSION_LS_KEY);
@@ -411,6 +567,7 @@ export function persistWorkspaceSession(activeWorkspaceId: string, workspaces: W
       activeWorkspaceId,
       updatedAt: Date.now(),
       workspaces: workspaces.map(toPersistedWorkspace),
+      batchTasksById,
     };
     localStorage.setItem(WORKSPACE_SESSION_LS_KEY, JSON.stringify(payload));
   } catch {}
@@ -418,7 +575,12 @@ export function persistWorkspaceSession(activeWorkspaceId: string, workspaces: W
 
 export function loadWorkspaceSession(
   fallbackOutputFormat: OutputFormatValue,
-): { activeWorkspaceId: string; serviceInstanceId: string; workspaces: Workspace[] } | null {
+): {
+  activeWorkspaceId: string;
+  serviceInstanceId: string;
+  workspaces: Workspace[];
+  batchTasksById: Record<string, BatchTaskRecord>;
+} | null {
   try {
     const raw = localStorage.getItem(WORKSPACE_SESSION_LS_KEY);
     if (!raw) return null;
@@ -426,6 +588,7 @@ export function loadWorkspaceSession(
       activeWorkspaceId?: unknown;
       serviceInstanceId?: unknown;
       workspaces?: unknown;
+      batchTasksById?: unknown;
     };
     const workspaces = Array.isArray(parsed?.workspaces)
       ? parsed.workspaces
@@ -442,7 +605,12 @@ export function loadWorkspaceSession(
     const serviceInstanceId = typeof parsed.serviceInstanceId === "string"
       ? parsed.serviceInstanceId.trim()
       : "";
-    return { activeWorkspaceId, serviceInstanceId, workspaces };
+    return {
+      activeWorkspaceId,
+      serviceInstanceId,
+      workspaces,
+      batchTasksById: normalizeBatchTasks(parsed.batchTasksById),
+    };
   } catch {
     return null;
   }

@@ -17,9 +17,15 @@ import { AndroidSettingsPanel } from "../../platform/android/settings/AndroidSet
 import { usePlatform } from "../../platform/context";
 import { AboutImageStudioModal } from "./AboutImageStudioModal";
 import { FHLAPIChoiceModal } from "./FHLAPIChoiceModal";
+import { APIMartAPIChoiceModal } from "./APIMartAPIChoiceModal";
+import { RunningHubAPIChoiceModal } from "./RunningHubAPIChoiceModal";
+import { FHLQuickConfigModal } from "./FHLQuickConfigModal";
+import { RunningHubQuickConfigModal } from "./RunningHubQuickConfigModal";
 import { SettingsPresetsRow } from "./SettingsPresetsRow";
 import { SettingsRow, SettingsSegButton } from "./settingsPrimitives";
-import { ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
+import { ensureFHLProfiles, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
+import { ensureAPIMartProfile, focusAPIMartAPIKeyInput } from "../../lib/apimartAPI";
+import { apiModeRequiresDirectAPIKey } from "../../lib/profiles";
 
 const REPO_URL = "https://github.com/supart/fhl-image-studio";
 const ISSUES_URL = "https://github.com/supart/fhl-image-studio/issues";
@@ -44,6 +50,10 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
   const [outputDir, setOutputDir] = useState("");
   const [aboutOpen, setAboutOpen] = useState(false);
   const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
+  const [fhlQuickConfigOpen, setFHLQuickConfigOpen] = useState(false);
+  const [apimartChoiceOpen, setAPIMartChoiceOpen] = useState(false);
+  const [runningHubChoiceOpen, setRunningHubChoiceOpen] = useState(false);
+  const [runningHubQuickConfigOpen, setRunningHubQuickConfigOpen] = useState(false);
   const { isMac, usesFluentUI, isAndroid, isAndroidPad } = usePlatform();
 
   useEffect(() => {
@@ -53,11 +63,31 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
 
   async function configureFHLFromSettings() {
     setFHLChoiceOpen(false);
+    setFHLQuickConfigOpen(true);
+    return;
     const store = useStudioStore.getState();
-    await ensureFHLResponsesProfile(store);
+    await ensureFHLProfiles(store);
     useStudioStore.getState().pushToast("已切到 FHL 推荐配置，请粘贴自己的 API Key。", "success", 4200);
     useStudioStore.getState().openUpstreamConfig("settings");
     focusFHLAPIKeyInput();
+  }
+
+  async function configureAPIMartFromSettings() {
+    setAPIMartChoiceOpen(false);
+    const store = useStudioStore.getState();
+    await ensureAPIMartProfile(store);
+    useStudioStore.getState().pushToast("已切到 APIMart 异步配置，请粘贴自己的 API Key。", "success", 4200);
+    useStudioStore.getState().openUpstreamConfig("settings");
+    focusAPIMartAPIKeyInput();
+  }
+
+  function configureRunningHubFromSettings() {
+    setRunningHubChoiceOpen(true);
+  }
+
+  function useExistingRunningHubFromSettings() {
+    setRunningHubChoiceOpen(false);
+    setRunningHubQuickConfigOpen(true);
   }
 
   async function clearAPIKey() {
@@ -98,7 +128,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
 
   const outputLabel = androidTarget.isAndroid ? platformOutputRootLabel() : (outputDir || "...");
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
-  const upstreamReady = !!apiKey.trim() && !!baseURL.trim();
+  const upstreamReady = (!apiModeRequiresDirectAPIKey(apiMode) || !!apiKey.trim()) && !!baseURL.trim();
 
   const androidSettings = isAndroid ? (
     <AndroidSettingsPanel
@@ -155,7 +185,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-[13px] font-semibold tracking-[0]">FHL 推荐配置</div>
-                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Responses API · OpenAI 标准 · gpt-5.5 / gpt-image-2</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Images API standard generations / edits - gpt-image-2</div>
                 <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">不包含 API Key，用户需要粘贴自己的 FHL API Key。</div>
               </div>
               <button
@@ -165,6 +195,23 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
               >
                 <Sparkles className="h-4 w-4" />
                 一键配置 FHL
+              </button>
+            </div>
+          </div>
+          <div className={`border border-sky-300/70 bg-sky-50 px-3 py-2 text-sky-950 shadow-sm dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[13px] font-semibold tracking-[0]">APIMart 异步配置</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Async API · gpt-image-2 · api.apimart.ai</div>
+                <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">不包含 API Key，请粘贴自己的 APIMart API Key。</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAPIMartChoiceOpen(true)}
+                className={`inline-flex h-9 shrink-0 items-center gap-1.5 border border-sky-500/60 bg-sky-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-sky-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              >
+                <Sparkles className="h-4 w-4" />
+                一键配置 APIMart
               </button>
             </div>
           </div>
@@ -342,6 +389,24 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
             </button>
           </div>
 
+          <div className={`border border-violet-300/70 bg-violet-50 px-3 py-2 text-violet-950 shadow-sm dark:border-violet-400/30 dark:bg-violet-400/10 dark:text-violet-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-semibold tracking-[0]">RH 桥接配置</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">本地桥接 · 默认 `http://127.0.0.1:8117` · banana2 / image_g2</div>
+                <div className="mt-0.5 text-[11px] leading-5 font-semibold">一次写入桥接 Key，并自动创建两套桌面版 profile。</div>
+              </div>
+              <button
+                type="button"
+                onClick={configureRunningHubFromSettings}
+                className={`ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 border border-violet-500/60 bg-violet-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-violet-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              >
+                <Sparkles className="h-4 w-4" />
+                一键配置 RH
+              </button>
+            </div>
+          </div>
+
           <button
             onClick={() => setAboutOpen(true)}
             className={`inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 py-2 text-[12px] font-medium text-zinc-500 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
@@ -382,6 +447,32 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
         open={fhlChoiceOpen}
         onClose={() => setFHLChoiceOpen(false)}
         onUseExistingAPI={configureFHLFromSettings}
+      />
+      <FHLQuickConfigModal
+        open={fhlQuickConfigOpen}
+        onClose={() => setFHLQuickConfigOpen(false)}
+        onOpenUpstream={() => {
+          setFHLQuickConfigOpen(false);
+          useStudioStore.getState().openUpstreamConfig("settings");
+        }}
+      />
+      <APIMartAPIChoiceModal
+        open={apimartChoiceOpen}
+        onClose={() => setAPIMartChoiceOpen(false)}
+        onUseExistingAPI={configureAPIMartFromSettings}
+      />
+      <RunningHubAPIChoiceModal
+        open={runningHubChoiceOpen}
+        onClose={() => setRunningHubChoiceOpen(false)}
+        onUseExistingAPI={useExistingRunningHubFromSettings}
+      />
+      <RunningHubQuickConfigModal
+        open={runningHubQuickConfigOpen}
+        onClose={() => setRunningHubQuickConfigOpen(false)}
+        onOpenUpstream={() => {
+          setRunningHubQuickConfigOpen(false);
+          useStudioStore.getState().openUpstreamConfig("settings");
+        }}
       />
     </>
   );

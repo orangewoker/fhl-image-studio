@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { AspectRatioPicker } from "../../../components/panel/AspectRatioPicker";
-import type { AspectPreset } from "../../../components/panel/sizeCapabilities";
+import type { AspectPreset, AspectPresetOption } from "../../../components/panel/sizeCapabilities";
 import { STYLE_CHIPS } from "../../../components/panel/panelOptions";
 import { vibrateForPlatform } from "../bridge";
 
@@ -202,15 +202,18 @@ export function AndroidStyleChips({
 export function AndroidAspectGrid({
   value,
   onChange,
+  presets,
 }: {
   value: AspectPreset;
   onChange: (value: AspectPreset) => void;
+  presets: AspectPresetOption[];
 }) {
   return (
     <AspectRatioPicker
       ariaLabel="画幅比例"
       className="android-parameter-aspect-picker"
       compact
+      presets={presets}
       value={value}
       onChange={(next) => {
         if (next === value) return;

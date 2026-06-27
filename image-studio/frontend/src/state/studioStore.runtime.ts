@@ -34,6 +34,8 @@ export function withMediaAssetRef(
     thumbPath?: string;
     previewUrl?: string;
     fullUrl?: string;
+    width?: number;
+    height?: number;
     previewWidth?: number;
     previewHeight?: number;
   },
@@ -45,6 +47,8 @@ export function withMediaAssetRef(
     thumbPath: ref.thumbPath || item.thumbPath,
     previewUrl: ref.previewUrl || item.previewUrl,
     fullUrl: ref.fullUrl || item.fullUrl,
+    width: ref.width || item.width,
+    height: ref.height || item.height,
     previewWidth: ref.previewWidth || item.previewWidth,
     previewHeight: ref.previewHeight || item.previewHeight,
   };
@@ -83,6 +87,8 @@ export async function materializeHistoryItem(
     imageB64: imported.previewUrl ? undefined : item.imageB64,
     imageId: imported.imageId || item.imageId,
     previewUrl: imported.previewUrl || item.previewUrl,
+    width: imported.width || item.width,
+    height: imported.height || item.height,
     previewWidth: imported.previewWidth || item.previewWidth,
     previewHeight: imported.previewHeight || item.previewHeight,
   };
@@ -178,6 +184,7 @@ export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
     return {
       ...w,
       name,
+      promptPrefix: s.promptPrefix,
       prompt: s.prompt,
       optimizationGuidance: s.optimizationGuidance,
       negativePrompt: s.negativePrompt,
@@ -187,14 +194,25 @@ export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
       outputFormat: s.outputFormat,
       seed: s.seed,
       batchCount: s.batchCount,
+      continuousGenerateTest: s.continuousGenerateTest,
+      editSourceMode: s.editSourceMode,
+      batchProcess: s.batchProcess,
+      editAutoAspectUserLocked: w.editAutoAspectUserLocked === true,
       styleTag: s.styleTag,
       sources: s.sources,
       currentImageId: currentImageIdForWorkspaceSnapshot(s.currentImage, s.streamPreview, s.streamPreviews, w.currentImageId),
       batchResultIds: s.batchResults.map((item) => item.id),
+      batchTaskIds: w.batchTaskIds ?? [],
+      selectedBatchTaskId: s.selectedBatchTaskId,
+      batchSinglePreviewOpen: w.batchSinglePreviewOpen === true,
       resultGridOpen: s.resultGridOpen,
+      historyGalleryOpen: s.historyGalleryOpen,
+      historyGallerySinglePreviewId: s.historyGallerySinglePreviewId ?? null,
+      historyGallerySort: s.historyGallerySort,
       runningJobIds: s.runningJobs,
       jobsTotal: s.jobsTotal,
       jobsCompleted: s.jobsCompleted,
+      jobsFailed: s.jobsFailed,
       progress: s.progress,
       streamPreview: s.streamPreview,
       streamPreviews: s.streamPreviews,

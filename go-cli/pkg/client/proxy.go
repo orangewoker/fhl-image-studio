@@ -80,7 +80,7 @@ func proxyFunc(config ProxyConfig) (func(*http.Request) (*url.URL, error), error
 		}
 		return http.ProxyURL(parsed), nil
 	default:
-		return http.ProxyFromEnvironment, nil
+		return systemProxyFunc(), nil
 	}
 }
 

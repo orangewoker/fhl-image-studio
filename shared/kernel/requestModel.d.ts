@@ -1,4 +1,4 @@
-export const DEFAULT_TEXT_MODEL: string;
+﻿export const DEFAULT_TEXT_MODEL: string;
 export const DEFAULT_IMAGE_MODEL: string;
 export const DEFAULT_SIZE: string;
 export const DEFAULT_QUALITY: string;
@@ -29,13 +29,17 @@ export type SharedImageRequestPayload = {
 };
 
 export function normalizeBaseURL(raw: string): string;
-export function normalizeAPIMode(apiMode: string): "responses" | "images";
+export function normalizeAPIMode(apiMode: string): "responses" | "images" | "apimart";
 export function normalizeRequestPolicy(requestPolicy: string): RequestPolicy;
 export function normalizeTextModel(modelID: string): string;
 export function normalizeImageModel(modelID: string): string;
 export function normalizePromptText(prompt: string): string;
 export function normalizeNegativePrompt(negativePrompt: string): string;
 export function normalizePartialImages(value: unknown): number;
+export function parseSizeValue(size: string): { width: number; height: number } | null;
+export function formatSizeValue(width: number, height: number): string;
+export function normalizeOpenAIImageSize(size: string | { width: number; height: number }): { width: number; height: number } | null;
+export function repairSizeForOpenAI<T extends { size?: string }>(payload: T): (T & { size: string }) | null;
 export function isCompatRequestPolicy(requestPolicy: string): boolean;
 export function classifyImageModel(modelID: string): "gpt-image" | "dalle2" | "dalle3" | "other";
 export function supportsImagesResponseFormat(imageModelID: string, mode?: string): boolean;
@@ -73,3 +77,4 @@ export function retryableMarkers(): string[];
 export function isRetryableRaw(raw: string): boolean;
 export function describeAPIError(error: Record<string, unknown>): string;
 export function describeProblem(raw: string): string;
+

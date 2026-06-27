@@ -1,10 +1,12 @@
 import { EllipsisVertical } from "lucide-react";
 import type React from "react";
 import { useEffect, useRef } from "react";
+import { ImagePixelSizeBadge } from "../../../components/common/ImagePixelSizeBadge";
+import { HistoryApiSourceBadge } from "../../../components/history/HistoryApiSourceBadge";
 import { HistoryMetaBadges } from "../../../components/history/HistoryMetaBadges";
 import { HistoryModeBadge } from "../../../components/history/HistoryModeBadge";
 import { qualityLabel, sizeLabel } from "../../../components/history/historyLabels";
-import { historyPreviewSrc, useBlobURL, useImageLoadState } from "../../../lib/images";
+import { historyFullSrc, historyPreviewSrc, useBlobURL, useImageLoadState } from "../../../lib/images";
 import type { HistoryItem } from "../../../types/domain";
 import { vibrateForPlatform } from "../bridge";
 
@@ -36,7 +38,12 @@ export function AndroidHistoryTile({
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const suppressClickUntilRef = useRef(0);
   const imageSrc = historyPreviewSrc(item, previewURL);
+  const fullImageSrc = historyFullSrc(item, previewURL);
   const imageLoadState = useImageLoadState(imageSrc || null);
+
+  function renderPixelSizeBadge(className = "android-history-pixel-size") {
+    return <ImagePixelSizeBadge width={item.width} height={item.height} src={fullImageSrc || imageSrc} className={className} />;
+  }
 
   function renderImage() {
     if (!imageSrc || imageLoadState !== "ready") {
@@ -135,6 +142,8 @@ export function AndroidHistoryTile({
         {renderImage()}
         <div className="android-history-image-shade" />
         <HistoryModeBadge mode={item.mode} className="android-history-tile-mode" />
+        <HistoryApiSourceBadge source={item} className="absolute left-2 bottom-2 rounded-[6px]" />
+        {renderPixelSizeBadge()}
         {isCompare ? <span className="android-history-compare-badge">B</span> : null}
         <button
           type="button"
@@ -161,6 +170,8 @@ export function AndroidHistoryTile({
         {renderImage()}
         <div className="android-history-image-shade" />
         <HistoryModeBadge mode={item.mode} className="android-history-tile-mode" />
+        <HistoryApiSourceBadge source={item} className="absolute left-2 bottom-2 rounded-[6px]" />
+        {renderPixelSizeBadge()}
         {isCompare ? <span className="android-history-compare-badge">B</span> : null}
         <button
           type="button"

@@ -1,13 +1,54 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const runtime = await import("../src/state/workspaceRuntime.ts");
+import {
+  defaultBatchProcessConfig,
+  normalizeBatchProcessConfig,
+  patchWorkspaceRuntime,
+} from "../src/state/workspaceRuntime.ts";
 
-function makeWorkspace(id, overrides = {}) {
+function makeWorkspace(id, prompt) {
   return {
     id,
-    name: `tab-${id}`,
+    name: id,
+    promptPrefix: "fixed prefix",
+    prompt,
+    optimizationGuidance: "加一只老鹰",
+    negativePrompt: "low quality",
+    mode: "edit",
+    size: "1536x1024",
+    quality: "high",
+    outputFormat: "webp",
+    seed: 42,
+    batchCount: 4,
+    styleTag: "anime",
+    sources: [{ path: "input/a.png", name: "a.png", size: 100 }],
+    currentImageId: "img-1",
+    batchResultIds: ["img-1", "img-2"],
+    batchTaskIds: [],
+    resultGridOpen: true,
+    historyGalleryOpen: true,
+    historyGallerySinglePreviewId: "img-1",
+    runningJobIds: [],
+    jobsTotal: 4,
+    jobsCompleted: 2,
+    progress: { stage: "running", elapsed: 1, bytes: 2 },
+    streamPreview: { jobId: "job-1", updatedAt: 1 },
+    streamPreviews: { "job-1": { jobId: "job-1", updatedAt: 1 } },
+    lastLogLine: "working",
+    errorMessage: "old error",
+    errorRawPath: "output/log/raw.json",
+    lastPayload: { prompt },
+  };
+}
+
+test("patchWorkspaceRuntime can reset the active workspace draft without touching other workspaces", () => {
+  const first = makeWorkspace("ws-1", "dirty prompt");
+  const second = makeWorkspace("ws-2", "keep me");
+  const reset = patchWorkspaceRuntime([first, second], "ws-1", {
+    promptPrefix: "",
     prompt: "",
+    optimizationGuidance: "",
     negativePrompt: "",
     mode: "generate",
     size: "1024x1024",
@@ -15,97 +56,61 @@ function makeWorkspace(id, overrides = {}) {
     outputFormat: "png",
     seed: 0,
     batchCount: 1,
+    styleTag: "",
     sources: [],
     currentImageId: null,
     batchResultIds: [],
+    batchTaskIds: [],
     resultGridOpen: false,
-    runningJobIds: [],
+    historyGalleryOpen: false,
+    historyGallerySinglePreviewId: null,
     jobsTotal: 0,
     jobsCompleted: 0,
     progress: null,
     streamPreview: null,
+    streamPreviews: {},
     lastLogLine: "",
     errorMessage: null,
+    errorRawPath: null,
     lastPayload: null,
-    ...overrides,
-  };
-}
-
-test("normalizes api mode and concurrency values", () => {
-  assert.equal(runtime.normalizeAPIMode("images"), "images");
-  assert.equal(runtime.normalizeAPIMode("responses"), "responses");
-  assert.equal(runtime.apiModeLabel("images"), "Images API");
-  assert.equal(runtime.apiModeLabel("responses"), "Responses API");
-  assert.equal(runtime.normalizeConcurrencyLimit(3.8), 3);
-  assert.equal(runtime.normalizeConcurrencyLimit(0), 0);
-  assert.equal(runtime.normalizeConcurrencyLimit(-2), 0);
-  assert.equal(runtime.normalizeBatchCount(3.8), 3);
-  assert.equal(runtime.normalizeBatchCount(0), 1);
-  assert.equal(runtime.normalizeBatchCount(99), 9);
-});
-
-test("patches only the target workspace runtime", () => {
-  const workspaces = [makeWorkspace("a"), makeWorkspace("b")];
-  const next = runtime.patchWorkspaceRuntime(workspaces, "b", {
-    runningJobs: ["job-1"],
-    jobsCompleted: 1,
-    batchResultIds: ["img-1", "img-2"],
-    resultGridOpen: true,
   });
-  assert.deepEqual(next[0], workspaces[0]);
-  assert.deepEqual(next[1].runningJobIds, ["job-1"]);
-  assert.equal(next[1].jobsCompleted, 1);
-  assert.deepEqual(next[1].batchResultIds, ["img-1", "img-2"]);
-  assert.equal(next[1].resultGridOpen, true);
+
+  assert.equal(reset[0].promptPrefix, "");
+  assert.equal(reset[0].prompt, "");
+  assert.equal(reset[0].optimizationGuidance, "");
+  assert.equal(reset[0].negativePrompt, "");
+  assert.equal(reset[0].mode, "generate");
+  assert.equal(reset[0].size, "1024x1024");
+  assert.equal(reset[0].quality, "medium");
+  assert.equal(reset[0].outputFormat, "png");
+  assert.equal(reset[0].seed, 0);
+  assert.equal(reset[0].batchCount, 1);
+  assert.equal(reset[0].styleTag, "");
+  assert.deepEqual(reset[0].sources, []);
+  assert.equal(reset[0].currentImageId, null);
+  assert.deepEqual(reset[0].batchResultIds, []);
+  assert.deepEqual(reset[0].batchTaskIds, []);
+  assert.equal(reset[0].resultGridOpen, false);
+  assert.equal(reset[0].historyGalleryOpen, false);
+  assert.equal(reset[0].historyGallerySinglePreviewId, null);
+  assert.equal(reset[0].jobsTotal, 0);
+  assert.equal(reset[0].jobsCompleted, 0);
+  assert.equal(reset[0].progress, null);
+  assert.equal(reset[0].streamPreview, null);
+  assert.deepEqual(reset[0].streamPreviews, {});
+  assert.equal(reset[0].lastLogLine, "");
+  assert.equal(reset[0].errorMessage, null);
+  assert.equal(reset[0].errorRawPath, null);
+  assert.equal(reset[0].lastPayload, null);
+  assert.deepEqual(reset[1], second);
 });
 
-test("resets only source images after a browser service restart", () => {
-  const workspaces = [
-    makeWorkspace("a", {
-      mode: "edit",
-      sources: [{ path: "input\\a.png", name: "a.png", size: 12 }],
-      prompt: "keep me",
-      currentImageId: "img-1",
-    }),
-    makeWorkspace("b"),
-  ];
-
-  const next = runtime.resetWorkspaceSourcesAfterServiceRestart(workspaces);
-  assert.deepEqual(next[0].sources, []);
-  assert.equal(next[0].prompt, "keep me");
-  assert.equal(next[0].currentImageId, "img-1");
-  assert.equal(next[1], workspaces[1]);
-});
-
-test("reads runtime from the active workspace mirror and background tabs", () => {
-  const state = {
-    activeWorkspaceId: "a",
-    runningJobs: ["job-a"],
-    jobsTotal: 1,
-    jobsCompleted: 0,
-    progress: { stage: "x", elapsed: 1, bytes: 2 },
-    streamPreview: { jobId: "job-a", imageB64: "abc", updatedAt: 1 },
-    lastLogLine: "log",
-    errorMessage: null,
-    lastPayload: null,
-    workspaces: [
-      makeWorkspace("a"),
-      makeWorkspace("b", { runningJobIds: ["job-b"], jobsCompleted: 2 }),
-    ],
-  };
-  const active = runtime.workspaceRuntimeFromState(state, "a");
-  const bg = runtime.workspaceRuntimeFromState(state, "b");
-  assert.equal(active.isRunning, true);
-  assert.deepEqual(active.runningJobs, ["job-a"]);
-  assert.equal(active.streamPreview.imageB64, "abc");
-  assert.equal(bg.isRunning, true);
-  assert.deepEqual(bg.runningJobs, ["job-b"]);
-  assert.equal(bg.jobsCompleted, 2);
-});
-
-test("tracks per-api-mode running counts and active patches", () => {
-  const state = { runningJobMeta: { a: { workspaceId: "a", apiMode: "responses" }, b: { workspaceId: "b", apiMode: "images" } } };
-  assert.equal(runtime.workspaceRunningCount(state, "responses"), 1);
-  assert.equal(runtime.workspaceRunningCount(state, "images"), 1);
-  assert.equal(runtime.activeRuntimePatch({ runningJobs: ["x"], jobsCompleted: 2 }).isRunning, true);
+test("batch process defaults to auto aspect and preserves explicit manual size mode", () => {
+  assert.equal(defaultBatchProcessConfig().autoAspectResolution, "1k");
+  assert.equal(defaultBatchProcessConfig().batchSourceSlotIndex, 0);
+  assert.equal(normalizeBatchProcessConfig({}).autoAspectResolution, "1k");
+  assert.equal(normalizeBatchProcessConfig({}).batchSourceSlotIndex, 0);
+  assert.equal(normalizeBatchProcessConfig({ autoAspectResolution: "4k" }).autoAspectResolution, "4k");
+  assert.equal(normalizeBatchProcessConfig({ autoAspectResolution: "" }).autoAspectResolution, "");
+  assert.equal(normalizeBatchProcessConfig({ batchSourceSlotIndex: 3.8 }).batchSourceSlotIndex, 3);
 });

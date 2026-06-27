@@ -41,7 +41,7 @@ const mode = explicitMode || process.env.VITE_TARGET_PLATFORM || mapHostPlatform
 if (!supportedModes.has(mode)) {
   throw new Error(`Unsupported target platform: ${mode}. Expected one of ${Array.from(supportedModes).join(", ")}`);
 }
-const env = { ...process.env, VITE_TARGET_PLATFORM: mode };
+const env = { ...process.env, NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY || "1", VITE_TARGET_PLATFORM: mode };
 
 if (command === "build") {
   await run("node_modules/typescript/bin/tsc", ["--noEmit"], env);

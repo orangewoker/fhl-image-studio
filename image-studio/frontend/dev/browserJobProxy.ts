@@ -32,16 +32,73 @@ type RunningProcess = {
   child: ChildProcessWithoutNullStreams;
   stdout: string;
   cancelled: boolean;
+  startedAt: number;
+  lastActivityAt: number;
+  timeoutTimer?: ReturnType<typeof setInterval>;
+  timedOutMessage?: string;
 };
 
 type SequentialJobQueue = {
   payload: BrowserJobSubmitPayload;
 };
 
+const BROWSER_JOB_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const BROWSER_JOB_DEFAULT_MAX_RUNTIME_MS = 20 * 60 * 1000;
+const BROWSER_JOB_APIMART_MAX_RUNTIME_MS = 35 * 60 * 1000;
+const BROWSER_JOB_TIMEOUT_CHECK_INTERVAL_MS = 15 * 1000;
+const BROWSER_JOB_PERSIST_RETRY_DELAYS_MS = [80, 160, 320, 640, 1000] as const;
+const APIMART_OFFICIAL_BASE_URL = "https://api.apimart.ai";
+const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
+
+function minutesLabel(ms: number) {
+  return `${Math.round(ms / 60_000)} 分钟`;
+}
+
+function maxRuntimeForPayload(payload: BrowserJobSubmitPayload) {
+  return payload.apiMode === "apimart"
+    ? BROWSER_JOB_APIMART_MAX_RUNTIME_MS
+    : BROWSER_JOB_DEFAULT_MAX_RUNTIME_MS;
+}
+
+function timeoutSwitchHint(payload: BrowserJobSubmitPayload) {
+  return payload.apiMode === "apimart" ? "请稍后重试。" : "建议切换 APIMart 或稍后重试。";
+}
+
+function timeoutMessageForPayload(
+  payload: BrowserJobSubmitPayload,
+  reason: "idle" | "runtime",
+  durationMs: number,
+) {
+  const duration = minutesLabel(durationMs);
+  const hint = timeoutSwitchHint(payload);
+  return reason === "idle"
+    ? `生成任务超过 ${duration} 没有收到进度更新，已自动判定失败。${hint}`
+    : `生成任务超过 ${duration} 仍未返回结果，已自动判定失败。${hint}`;
+}
+
+function clearProcessTimeout(proc: RunningProcess) {
+  if (!proc.timeoutTimer) return;
+  clearInterval(proc.timeoutTimer);
+  proc.timeoutTimer = undefined;
+}
+
 function sendJSON(res: ServerResponse, status: number, payload: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(payload));
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientRegistryWriteError(error: unknown) {
+  const code = String((error as { code?: unknown })?.code || "").toUpperCase();
+  return code === "EBUSY" || code === "EPERM" || code === "EACCES" || code === "EMFILE";
+}
+
+function registryWriteErrorMessage(error: unknown) {
+  return String((error as { message?: unknown })?.message || error || "unknown error");
 }
 
 async function readJSONBody(req: IncomingMessage, maxBytes = 4 * 1024 * 1024) {
@@ -78,12 +135,105 @@ function safeJsonParse(raw: string) {
   }
 }
 
+function extractMessageFromErrorPayload(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const directMessage = typeof record.message === "string" ? record.message.trim() : "";
+  if (directMessage) return directMessage;
+  const directError = typeof record.error === "string" ? record.error.trim() : "";
+  if (directError) return directError;
+  const nestedError = extractMessageFromErrorPayload(record.error);
+  if (nestedError) return nestedError;
+  const nestedResponse = extractMessageFromErrorPayload(record.response);
+  if (nestedResponse) return nestedResponse;
+  const nestedData = extractMessageFromErrorPayload(record.data);
+  if (nestedData) return nestedData;
+  return "";
+}
+
+function extractRawResponseErrorMessage(raw: string): string {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const parsed = safeJsonParse(text);
+  const parsedMessage = extractMessageFromErrorPayload(parsed);
+  if (parsedMessage) return parsedMessage;
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const payload = trimmed.startsWith("data:") ? trimmed.slice(5).trim() : trimmed;
+    const lineMessage = extractMessageFromErrorPayload(safeJsonParse(payload));
+    if (lineMessage) return lineMessage;
+  }
+  return "";
+}
+
+function genericHTTPError(raw: string) {
+  const message = String(raw || "").trim();
+  return /^upstream HTTP \d{3}$/i.test(message)
+    || /^HTTP \d{3}$/i.test(message)
+    || /^上游返回\s*\d{3}\s*:?$/i.test(message);
+}
+
+function extractAPIMartTaskIdFromText(raw: unknown): string {
+  const match = String(raw || "").match(/\btask[-_](?=[A-Z0-9_-]*\d)[A-Z0-9][A-Z0-9_-]{5,}\b/i);
+  return match?.[0] ?? "";
+}
+
+async function readRawResponseErrorMessage(rawPath: unknown, logDir: string): Promise<string> {
+  const raw = typeof rawPath === "string" ? rawPath.trim() : "";
+  if (!raw) return "";
+  const candidates = [raw];
+  const baseName = path.basename(raw);
+  if (baseName && !candidates.includes(path.join(logDir, baseName))) {
+    candidates.push(path.join(logDir, baseName));
+  }
+  for (const candidate of candidates) {
+    try {
+      const body = await fs.readFile(candidate, "utf8");
+      const message = extractRawResponseErrorMessage(body);
+      if (message) return message;
+    } catch {
+      // The CLI may emit paths through a different Windows code page. In that
+      // case the basename fallback above is enough for files in output/log.
+    }
+  }
+  return "";
+}
+
+async function readRawResponseTaskId(rawPath: unknown, logDir: string): Promise<string> {
+  const raw = typeof rawPath === "string" ? rawPath.trim() : "";
+  if (!raw) return "";
+  const candidates = [raw];
+  const baseName = path.basename(raw);
+  if (baseName && !candidates.includes(path.join(logDir, baseName))) {
+    candidates.push(path.join(logDir, baseName));
+  }
+  for (const candidate of candidates) {
+    try {
+      const body = await fs.readFile(candidate, "utf8");
+      const taskId = extractAPIMartTaskIdFromText(body);
+      if (taskId) return taskId;
+    } catch {
+      // See readRawResponseErrorMessage: paths can be mojibake when emitted by
+      // the CLI, so the basename fallback handles normal output/log files.
+    }
+  }
+  return "";
+}
+
 function modeActionLabel(mode: string) {
   return mode === "edit" ? "edit" : "generate";
 }
 
-function effectiveAPIModeForJob(_mode: string, apiMode: "responses" | "images") {
+function effectiveAPIModeForJob(_mode: string, apiMode: "responses" | "images" | "apimart" | "runninghub") {
   return apiMode;
+}
+
+function effectiveBaseURLForCLI(payload: BrowserJobSubmitPayload) {
+  const raw = String(payload.baseURL || "").trim();
+  if (payload.apiMode !== "apimart") return raw;
+  const normalized = raw.replace(/\/+$/, "").replace(/\/v1$/i, "");
+  return normalized === APIMART_OFFICIAL_BASE_URL ? APIMART_LEGACY_BASE_URL : raw;
 }
 
 function shouldRunSequentially(payload: BrowserJobSubmitPayload) {
@@ -176,7 +326,9 @@ class BrowserJobManager {
         });
         return {
           ...group,
-          apiMode: group.apiMode === "images" ? "images" : "responses",
+          apiMode: group.apiMode === "images" || group.apiMode === "apimart" || group.apiMode === "runninghub"
+            ? group.apiMode
+            : "responses",
           slots,
           slotIds: slots.map((slot) => slot.jobId),
           statusSummary: summarizeJobStatuses(slots),
@@ -226,6 +378,8 @@ class BrowserJobManager {
       createdAt: now,
       mode: effectivePayload.mode,
       apiMode: effectivePayload.apiMode,
+      apiProfileId: typeof effectivePayload.apiProfileId === "string" ? effectivePayload.apiProfileId.trim() || undefined : undefined,
+      apiProfileName: typeof effectivePayload.apiProfileName === "string" ? effectivePayload.apiProfileName.trim() || undefined : undefined,
       prompt: effectivePayload.prompt,
       batchCount: slots.length,
       size: effectivePayload.size,
@@ -235,6 +389,16 @@ class BrowserJobManager {
       styleTag: effectivePayload.styleTag || "",
       seed: effectivePayload.seed || 0,
       sourceImagePaths: effectivePayload.sourceImagePaths?.map(toWindowsPath).filter(Boolean) ?? [],
+      batchSourcePath: typeof effectivePayload.batchSourcePath === "string"
+        ? toWindowsPath(effectivePayload.batchSourcePath).trim() || undefined
+        : undefined,
+      batchSourceSlotIndex: Number.isFinite(Number(effectivePayload.batchSourceSlotIndex))
+        ? Math.max(0, Math.floor(Number(effectivePayload.batchSourceSlotIndex)))
+        : undefined,
+      continuousGenerateTest: effectivePayload.continuousGenerateTest === true,
+      continuousBatchIndex: Number.isFinite(Number(effectivePayload.continuousBatchIndex))
+        ? Math.max(0, Math.floor(Number(effectivePayload.continuousBatchIndex)))
+        : undefined,
       slotIds: slots.map((slot) => slot.jobId),
       slots,
       statusSummary: summarizeJobStatuses(slots),
@@ -266,6 +430,7 @@ class BrowserJobManager {
       if (!slot) continue;
       if (running) {
         running.cancelled = true;
+        clearProcessTimeout(running);
         running.child.kill();
         this.running.delete(jobId);
       }
@@ -332,7 +497,22 @@ class BrowserJobManager {
 
   private async persist() {
     this.registry.updatedAt = Date.now();
-    await fs.writeFile(this.registryPath, JSON.stringify(this.registry, null, 2), "utf8");
+    const payload = JSON.stringify(this.registry, null, 2);
+    for (let attempt = 0; attempt <= BROWSER_JOB_PERSIST_RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        await fs.mkdir(path.dirname(this.registryPath), { recursive: true });
+        await fs.writeFile(this.registryPath, payload, "utf8");
+        return;
+      } catch (error) {
+        const canRetry = isTransientRegistryWriteError(error) && attempt < BROWSER_JOB_PERSIST_RETRY_DELAYS_MS.length;
+        if (canRetry) {
+          await delay(BROWSER_JOB_PERSIST_RETRY_DELAYS_MS[attempt]);
+          continue;
+        }
+        console.warn(`[browser-job] failed to persist registry ${this.registryPath}: ${registryWriteErrorMessage(error)}`);
+        return;
+      }
+    }
   }
 
   private getGroup(groupId: string) {
@@ -407,10 +587,11 @@ class BrowserJobManager {
   }
 
   private async spawnSlot(groupId: string, jobId: string, payload: BrowserJobSubmitPayload) {
+    const startedAt = Date.now();
     const slot = this.updateSlot(jobId, {
       status: "running",
-      startedAt: Date.now(),
-      updatedAt: Date.now(),
+      startedAt,
+      updatedAt: startedAt,
       stage: "启动中",
       elapsedSec: 0,
       bytes: 0,
@@ -423,8 +604,7 @@ class BrowserJobManager {
       "--no-input",
       "--json",
       "--jsonl-events",
-      "--base-url", payload.baseURL,
-      "--api-key", payload.apiKey,
+      "--base-url", effectiveBaseURLForCLI(payload),
       "--api-mode", payload.apiMode,
       "--request-policy", payload.requestPolicy,
       "--text-model", payload.textModelID,
@@ -462,6 +642,10 @@ class BrowserJobManager {
 
     const child = spawn(this.cliExePath, args, {
       cwd: this.repoRoot,
+      env: {
+        ...process.env,
+        IMAGE_STUDIO_API_KEY: payload.apiKey,
+      },
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -469,13 +653,37 @@ class BrowserJobManager {
       child,
       stdout: "",
       cancelled: false,
+      startedAt,
+      lastActivityAt: startedAt,
     };
     this.running.set(jobId, proc);
+    proc.timeoutTimer = setInterval(() => {
+      const active = this.running.get(jobId);
+      if (active !== proc) {
+        clearProcessTimeout(proc);
+        return;
+      }
+      if (proc.cancelled || proc.timedOutMessage) return;
+      const now = Date.now();
+      const maxRuntimeMs = maxRuntimeForPayload(payload);
+      const runtimeMs = now - proc.startedAt;
+      const idleMs = now - proc.lastActivityAt;
+      if (runtimeMs > maxRuntimeMs) {
+        proc.timedOutMessage = timeoutMessageForPayload(payload, "runtime", maxRuntimeMs);
+      } else if (idleMs > BROWSER_JOB_IDLE_TIMEOUT_MS) {
+        proc.timedOutMessage = timeoutMessageForPayload(payload, "idle", BROWSER_JOB_IDLE_TIMEOUT_MS);
+      }
+      if (proc.timedOutMessage) {
+        proc.child.kill();
+      }
+    }, BROWSER_JOB_TIMEOUT_CHECK_INTERVAL_MS);
 
     void consumeLines(child.stdout, (line) => {
+      proc.lastActivityAt = Date.now();
       proc.stdout += line;
     });
     void consumeLines(child.stderr, async (line) => {
+      proc.lastActivityAt = Date.now();
       const parsed = safeJsonParse(line);
       if (parsed?.type === "progress") {
         const current = this.updateSlot(jobId, {
@@ -502,13 +710,15 @@ class BrowserJobManager {
     });
 
     child.on("error", async (error) => {
+      clearProcessTimeout(proc);
       this.running.delete(jobId);
+      const timedOut = !proc.cancelled && !!proc.timedOutMessage;
       const current = this.updateSlot(jobId, {
         status: proc.cancelled ? "cancelled" : "failed",
         updatedAt: Date.now(),
         finishedAt: Date.now(),
-        stage: proc.cancelled ? "已取消" : "启动失败",
-        errorMessage: proc.cancelled ? "" : String(error.message || error),
+        stage: proc.cancelled ? "已取消" : timedOut ? "超时失败" : "启动失败",
+        errorMessage: proc.cancelled ? "" : proc.timedOutMessage || String(error.message || error),
       });
       await this.persist();
       const nextGroup = current ? this.getGroup(groupId) : null;
@@ -523,31 +733,44 @@ class BrowserJobManager {
     });
 
     child.on("close", async (code, signal) => {
+      clearProcessTimeout(proc);
       this.running.delete(jobId);
       const rawResult = safeJsonParse(proc.stdout);
       const ok = !!rawResult?.ok;
       const cancelled = proc.cancelled;
+      const timedOut = !cancelled && !!proc.timedOutMessage;
       const fallbackMode = typeof rawResult?.fallbackMode === "string" ? rawResult.fallbackMode.trim() : "";
       const fallbackInputPath = typeof rawResult?.fallbackInputPath === "string" ? rawResult.fallbackInputPath.trim() : "";
       const fallbackReason = typeof rawResult?.fallbackReason === "string" ? rawResult.fallbackReason.trim() : "";
-      const rawError = cancelled ? "" : (typeof rawResult?.error === "string" && rawResult.error.trim()
-        ? rawResult.error.trim()
-        : code && code !== 0
-          ? `CLI exited with code ${code}${signal ? ` (${signal})` : ""}`
-          : "");
+      const rawResultError = typeof rawResult?.error === "string" ? rawResult.error.trim() : "";
+      const rawPathError = await readRawResponseErrorMessage(rawResult?.rawPath, path.join(this.outputDir, "log"));
+      const rawPathTaskId = await readRawResponseTaskId(rawResult?.rawPath, path.join(this.outputDir, "log"));
+      const apimartTaskId = typeof rawResult?.apimartTaskId === "string" && rawResult.apimartTaskId.trim()
+        ? rawResult.apimartTaskId.trim()
+        : extractAPIMartTaskIdFromText(rawResultError || rawPathError) || rawPathTaskId;
+      const rawError = cancelled ? "" : proc.timedOutMessage || (rawPathError && genericHTTPError(rawResultError)
+        ? rawPathError
+        : rawResultError
+          ? rawResultError
+          : rawPathError
+            ? rawPathError
+            : code && code !== 0
+              ? `CLI exited with code ${code}${signal ? ` (${signal})` : ""}`
+              : "");
       const nextStatus: JobStatus = cancelled
         ? "cancelled"
-        : ok
+        : ok && !timedOut
           ? "succeeded"
           : "failed";
       const current = this.updateSlot(jobId, {
         status: nextStatus,
         updatedAt: Date.now(),
         finishedAt: Date.now(),
-        stage: cancelled ? "已取消" : ok ? "已完成" : "失败",
+        stage: cancelled ? "已取消" : timedOut ? "超时失败" : ok ? "已完成" : "失败",
         elapsedSec: Number.isFinite(Number(rawResult?.elapsedSec)) ? Number(rawResult.elapsedSec) : 0,
         savedPath: typeof rawResult?.imagePath === "string" ? rawResult.imagePath : "",
         rawPath: typeof rawResult?.rawPath === "string" ? rawResult.rawPath : "",
+        apimartTaskId,
         errorMessage: friendlyJobError(rawError, fallbackMode),
         revisedPrompt: typeof rawResult?.revisedPrompt === "string" ? rawResult.revisedPrompt : "",
         sourceEvent: typeof rawResult?.sourceEvent === "string" ? rawResult.sourceEvent : "",
@@ -561,7 +784,7 @@ class BrowserJobManager {
       if (!current || !nextGroup) return;
       const eventType: BrowserJobEvent["type"] = cancelled
         ? "cancelled"
-        : ok
+        : ok && !timedOut
           ? "terminal"
           : "error";
       this.emit(jobId, { type: eventType, slot: current, group: nextGroup });
@@ -579,49 +802,57 @@ export function createBrowserJobProxyPlugin(opts: {
   const registryPath = path.join(opts.outputDir, "log", BROWSER_JOB_REGISTRY_FILENAME);
   const manager = new BrowserJobManager(opts.repoRoot, opts.outputDir, opts.inputDir, cliExePath, registryPath);
 
+  function mountBrowserJobProxy(server: any) {
+    server.middlewares.use(BROWSER_JOB_PROXY_PREFIX, async (req, res, next) => {
+      try {
+        const url = new URL(req.url || "/", "http://localhost");
+        if (req.method === "GET" && url.pathname === "/") {
+          const workspaceId = String(url.searchParams.get("workspaceId") || "").trim();
+          const limit = Number(url.searchParams.get("limit") || MAX_BROWSER_JOB_GROUPS);
+          if (!workspaceId) {
+            sendJSON(res, 400, { error: "workspaceId is required" });
+            return;
+          }
+          sendJSON(res, 200, manager.listWorkspace(workspaceId, limit));
+          return;
+        }
+        if (req.method === "GET" && url.pathname === "/events") {
+          const jobId = String(url.searchParams.get("jobId") || "").trim();
+          if (!jobId) {
+            sendJSON(res, 400, { error: "jobId is required" });
+            return;
+          }
+          manager.subscribe(jobId, req, res);
+          return;
+        }
+        if (req.method === "POST" && url.pathname === "/submit") {
+          const payload = await readJSONBody(req) as BrowserJobSubmitPayload;
+          const result = await manager.submit(payload);
+          sendJSON(res, 200, result);
+          return;
+        }
+        if (req.method === "POST" && url.pathname === "/cancel") {
+          const payload = await readJSONBody(req) as { jobIds?: string[] };
+          const result = await manager.cancel(Array.isArray(payload.jobIds) ? payload.jobIds : []);
+          sendJSON(res, 200, result satisfies BrowserJobCancelResponse);
+          return;
+        }
+        next();
+      } catch (error: any) {
+        sendJSON(res, 500, { error: String(error?.message || error) });
+      }
+    });
+  }
+
   return {
     name: "image-studio-browser-job-proxy",
     async configureServer(server) {
       await manager.init();
-      server.middlewares.use(BROWSER_JOB_PROXY_PREFIX, async (req, res, next) => {
-        try {
-          const url = new URL(req.url || "/", "http://localhost");
-          if (req.method === "GET" && url.pathname === "/") {
-            const workspaceId = String(url.searchParams.get("workspaceId") || "").trim();
-            const limit = Number(url.searchParams.get("limit") || MAX_BROWSER_JOB_GROUPS);
-            if (!workspaceId) {
-              sendJSON(res, 400, { error: "workspaceId is required" });
-              return;
-            }
-            sendJSON(res, 200, manager.listWorkspace(workspaceId, limit));
-            return;
-          }
-          if (req.method === "GET" && url.pathname === "/events") {
-            const jobId = String(url.searchParams.get("jobId") || "").trim();
-            if (!jobId) {
-              sendJSON(res, 400, { error: "jobId is required" });
-              return;
-            }
-            manager.subscribe(jobId, req, res);
-            return;
-          }
-          if (req.method === "POST" && url.pathname === "/submit") {
-            const payload = await readJSONBody(req) as BrowserJobSubmitPayload;
-            const result = await manager.submit(payload);
-            sendJSON(res, 200, result);
-            return;
-          }
-          if (req.method === "POST" && url.pathname === "/cancel") {
-            const payload = await readJSONBody(req) as { jobIds?: string[] };
-            const result = await manager.cancel(Array.isArray(payload.jobIds) ? payload.jobIds : []);
-            sendJSON(res, 200, result satisfies BrowserJobCancelResponse);
-            return;
-          }
-          next();
-        } catch (error: any) {
-          sendJSON(res, 500, { error: String(error?.message || error) });
-        }
-      });
+      mountBrowserJobProxy(server);
+    },
+    async configurePreviewServer(server) {
+      await manager.init();
+      mountBrowserJobProxy(server);
     },
   } satisfies Plugin;
 }
