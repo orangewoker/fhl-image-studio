@@ -2,6 +2,7 @@ import {
   ArrowRight,
   Brush,
   CheckCircle2,
+  Clipboard,
   Crop,
   Eraser,
   Expand,
@@ -10,9 +11,9 @@ import {
   Hand,
   ImagePlus,
   Info,
-  Loader2,
   Maximize,
   Minimize,
+  MoreHorizontal,
   ZoomIn,
   ZoomOut,
   Pencil,
@@ -20,6 +21,8 @@ import {
   RotateCw,
   Save,
   Scissors,
+  Share2,
+  Split,
   Square,
   Trash2,
   Type as TypeIcon,
@@ -29,16 +32,24 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { shallow } from "zustand/shallow";
 import { ANNOTATION_COLORS, type AnnotationKind, type HistoryItem, type SourceImage } from "../../../types/domain";
 import { useStudioStore } from "../../../state/studioStore";
-import { base64ToBlob, useBlobURL } from "../../../lib/images";
-import { qualityLabel, sizeLabel } from "../../../components/history/historyLabels";
+import { historyPreviewSrc, useBlobURL } from "../../../lib/images";
+import { sourceToDataURL } from "../../../lib/virtualHostStore";
+import { copyImageB64ToClipboard, copyImageURLToClipboard } from "../../../components/canvas/canvasImage";
+import { pixelSizeLabel, qualityLabel, sizeLabel } from "../../../components/history/historyLabels";
+import { deriveAspectPreset, deriveResolutionPreset } from "../../../components/panel/sizeCapabilities";
 import { StreamPreviewBadge } from "../../../components/canvas/StreamPreviewBadge";
-import { OpenImageDialog } from "../../runtime/host";
-import { genId } from "../../../state/studioStore.shared";
 import { usePlatform } from "../../context";
 import { vibrateForPlatform } from "../bridge";
-import { AndroidCanvasStage, androidCanvasModeLabel } from "./AndroidCanvasStage";
+import {
+  AndroidCanvasStage,
+  androidCanvasModeLabel,
+  androidCanvasScopedJobGroups,
+  androidJobGroupSlotCount,
+} from "./AndroidCanvasStage";
 
 type CanvasTool = "pan" | "mask" | "annotate";
 type BrushMode = "paint" | "erase";
@@ -46,15 +57,14 @@ type BrushMode = "paint" | "erase";
 export function AndroidCanvasWorkspace() {
   const {
     currentImage,
+    activeWorkspaceId,
     mode,
     sources,
     isRunning,
-    progress,
-    streamPreview,
-    runningJobs,
+    progressStage,
+    streamPreviewActive,
     jobsCompleted,
     jobsTotal,
-    currentImage: item,
     tool,
     brushMode,
     brushSize,
@@ -65,6 +75,7 @@ export function AndroidCanvasWorkspace() {
     fullscreen,
     viewZoom,
     batchResults,
+    jobGroupsByWorkspace,
     resultGridOpen,
     undoStack,
     redoStack,
@@ -73,7 +84,11 @@ export function AndroidCanvasWorkspace() {
     redo,
     resetMask,
     clearAnnotations,
+    compareB,
+    materializeCurrentImage,
     saveCurrentImageAs,
+    shareCurrentImage,
+    setCompareB,
     rotateCurrent,
     flipCurrent,
     cropToRect,
@@ -87,75 +102,92 @@ export function AndroidCanvasWorkspace() {
     reuseAsSource,
     pushToast,
     toggleFullscreen,
-  } = useStudioStore();
+  } = useStudioStore((state) => ({
+    currentImage: state.currentImage,
+    activeWorkspaceId: state.activeWorkspaceId,
+    mode: state.mode,
+    sources: state.sources,
+    isRunning: state.isRunning,
+    progressStage: state.progress?.stage,
+    streamPreviewActive: !!state.streamPreview,
+    jobsCompleted: state.jobsCompleted,
+    jobsTotal: state.jobsTotal,
+    tool: state.tool,
+    brushMode: state.brushMode,
+    brushSize: state.brushSize,
+    annotationKind: state.annotationKind,
+    annotationColor: state.annotationColor,
+    annotations: state.annotations,
+    selectedAnnotationId: state.selectedAnnotationId,
+    fullscreen: state.fullscreen,
+    viewZoom: state.viewZoom,
+    batchResults: state.batchResults,
+    jobGroupsByWorkspace: state.jobGroupsByWorkspace,
+    resultGridOpen: state.resultGridOpen,
+    undoStack: state.undoStack,
+    redoStack: state.redoStack,
+    setField: state.setField,
+    undo: state.undo,
+    redo: state.redo,
+    resetMask: state.resetMask,
+    clearAnnotations: state.clearAnnotations,
+    compareB: state.compareB,
+    materializeCurrentImage: state.materializeCurrentImage,
+    saveCurrentImageAs: state.saveCurrentImageAs,
+    shareCurrentImage: state.shareCurrentImage,
+    setCompareB: state.setCompareB,
+    rotateCurrent: state.rotateCurrent,
+    flipCurrent: state.flipCurrent,
+    cropToRect: state.cropToRect,
+    openResultGrid: state.openResultGrid,
+    closeResultGrid: state.closeResultGrid,
+    openResultDetail: state.openResultDetail,
+    selectSourceImage: state.selectSourceImage,
+    removeSource: state.removeSource,
+    reorderSources: state.reorderSources,
+    clearSources: state.clearSources,
+    reuseAsSource: state.reuseAsSource,
+    pushToast: state.pushToast,
+    toggleFullscreen: state.toggleFullscreen,
+  }), shallow);
   const { isAndroidPad, androidOrientation } = usePlatform();
   const [sourceOpen, setSourceOpen] = useState(true);
+  const [imageActionsOpen, setImageActionsOpen] = useState(false);
   const hasImage = !!currentImage;
-  const hasSources = mode === "edit" && sources.length > 0;
+  const isEditMode = mode === "edit";
+  const hasSources = isEditMode && sources.length > 0;
   const selRect = annotations.find((a) => a.id === selectedAnnotationId && a.kind === "rect");
   const cropAction = selRect && selRect.width && selRect.height
     ? () => cropToRect(selRect.x, selRect.y, selRect.width!, selRect.height!)
     : null;
-  const batchSlotCount = Math.max(jobsTotal, batchResults.length);
+  const workspaceJobGroups = jobGroupsByWorkspace[activeWorkspaceId] ?? [];
+  const displayJobGroups = androidCanvasScopedJobGroups(workspaceJobGroups, isRunning);
+  const jobGroupSlotCount = displayJobGroups.reduce((maxCount, group) => (
+    Math.max(maxCount, androidJobGroupSlotCount(group))
+  ), 0);
+  const batchSlotCount = Math.max(jobsTotal, batchResults.length, jobGroupSlotCount);
   const showBatchToggle = batchSlotCount > 1;
-  const statusLabel = isRunning ? (progress?.stage ?? "处理中") : androidCanvasModeLabel(item);
-  const shouldShowSourceStrip = hasSources && sourceOpen;
+  const statusLabel = isRunning ? (progressStage ?? "处理中") : androidCanvasModeLabel(currentImage);
+  const shouldShowSourceStrip = isEditMode;
   const dockMode = tool === "mask" ? "mask" : tool === "annotate" ? "annotate" : "image";
+  const currentPixelLabel = pixelSizeLabel(currentImage);
+  const currentAspect = currentImage ? deriveAspectPreset(currentImage.size) : "auto";
+  const currentResolution = currentImage ? deriveResolutionPreset(currentImage.size) : "auto";
+  const currentAspectLabel = currentAspect === "auto" ? "Auto" : currentAspect;
+  const currentApiLabel = currentImage?.apiLabel?.trim() || "";
+  const currentResolutionLabel = currentResolution === "auto" ? "自动" : currentResolution.toUpperCase();
 
   useEffect(() => {
     if (hasSources) setSourceOpen(true);
   }, [hasSources]);
 
+  useEffect(() => {
+    if (!hasImage) setImageActionsOpen(false);
+  }, [hasImage]);
+
   const runAction = (action: () => void | Promise<void>, vibration = 8) => {
     vibrateForPlatform(vibration);
     void action();
-  };
-
-  const importToCanvas = async () => {
-    try {
-      vibrateForPlatform(10);
-      const res = await OpenImageDialog();
-      if (!res?.path || (!res.previewUrl && !res.imageB64)) return;
-      const name = res.path.split(/[\\/]/).pop() ?? `import-${Date.now()}.png`;
-      const imageBlob = res.previewUrl ? null : base64ToBlob(res.imageB64 ?? "");
-      const imported: HistoryItem = {
-        id: genId(),
-        imageId: res.imageId || undefined,
-        previewUrl: res.previewUrl || undefined,
-        previewWidth: res.previewWidth,
-        previewHeight: res.previewHeight,
-        imageB64: res.previewUrl ? undefined : res.imageB64,
-        imageBlob: null,
-        previewBlob: imageBlob,
-        previewOnly: true,
-        prompt: `(导入)${name}`,
-        mode: "edit",
-        size: "auto",
-        quality: "medium",
-        createdAt: Date.now(),
-        savedPath: res.path,
-      };
-      const alreadyIn = useStudioStore.getState().sources.some((source) => source.path === res.path);
-      setField("currentImage", imported);
-      setField("mode", "edit");
-      setField("resultGridOpen", false);
-      if (!alreadyIn) {
-        setField("sources", [
-          ...useStudioStore.getState().sources,
-          {
-            path: res.path,
-            name,
-            size: res.size ?? 0,
-            previewUrl: res.previewUrl,
-            imageB64: res.previewUrl ? undefined : res.imageB64,
-            imageBlob,
-          },
-        ]);
-      }
-      pushToast("已导入到画布", "success");
-    } catch (error: any) {
-      pushToast(`导入失败:${error?.message ?? error}`, "error");
-    }
   };
 
   const resetView = () => {
@@ -169,11 +201,56 @@ export function AndroidCanvasWorkspace() {
     else (window as any).__androidCanvasZoomOut?.();
   };
 
+  const copyCurrentImage = async () => {
+    if (!currentImage) return;
+    try {
+      const full = await materializeCurrentImage(currentImage);
+      const ok = full.fullUrl
+        ? await copyImageURLToClipboard(full.fullUrl)
+        : await copyImageB64ToClipboard(full.imageB64 ?? "");
+      if (ok) {
+        pushToast("已复制图片到剪贴板", "success");
+      } else {
+        pushToast("当前环境不支持复制图片，可改用分享或保存", "warn", 4200);
+      }
+    } catch (error: any) {
+      pushToast(`复制失败:${error?.message ?? error}`, "error", 4200);
+    }
+  };
+
+  const previewSourceOnCanvas = async (source: SourceImage) => {
+    try {
+      const dataURL = await sourceToDataURL(source).catch(() => "");
+      const imageB64 = dataURLBase64(dataURL) || source.imageB64 || undefined;
+      const preview: HistoryItem = {
+        id: `android-source-preview-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        previewUrl: source.previewUrl || undefined,
+        imageB64,
+        imageBlob: source.imageBlob ?? null,
+        previewBlob: source.imageBlob ?? null,
+        previewOnly: !imageB64 && !source.imageBlob,
+        prompt: `(参考图) ${source.name}`,
+        mode: "edit",
+        size: useStudioStore.getState().size,
+        quality: useStudioStore.getState().quality,
+        outputFormat: useStudioStore.getState().outputFormat,
+        createdAt: Date.now(),
+        savedPath: source.path,
+      };
+      setField("currentImage", preview);
+      setField("resultGridOpen", false);
+      pushToast("已在画布打开参考图大图", "success");
+    } catch (error: any) {
+      pushToast(`打开参考图失败:${error?.message ?? error}`, "error");
+    }
+  };
+
   return (
     <div
       className="android-canvas-workspace"
       data-dock-mode={dockMode}
       data-has-source-strip={shouldShowSourceStrip ? "true" : "false"}
+      data-running={isRunning ? "true" : "false"}
       data-orientation={androidOrientation}
       data-device={isAndroidPad ? "pad" : "phone"}
     >
@@ -181,45 +258,30 @@ export function AndroidCanvasWorkspace() {
         currentImage={currentImage}
         isRunning={isRunning}
         progressLabel={statusLabel}
-        streamPreviewActive={!!streamPreview}
+        streamPreviewActive={streamPreviewActive}
         zoomLabel={hasImage ? `${Math.round(viewZoom * 100)}%` : "Fit"}
         batchCount={batchSlotCount}
         sourceCount={sources.length}
         hasSources={hasSources}
-        sourceOpen={sourceOpen}
-        onToggleSources={() => runAction(() => setSourceOpen((value) => !value), 5)}
+        sourceOpen={shouldShowSourceStrip}
+        onToggleSources={() => runAction(() => setSourceOpen(true), 5)}
         onOpenGrid={showBatchToggle ? () => runAction(() => (resultGridOpen ? closeResultGrid() : openResultGrid()), 8) : undefined}
         gridOpen={resultGridOpen}
+        compareActive={!!compareB}
+        onExitCompare={compareB ? () => runAction(() => setCompareB(null), 6) : undefined}
       />
 
       <div className="android-canvas-main">
         <div className="android-canvas-stage-panel">
           <AndroidCanvasStage />
-          {!hasImage ? (
-            <AndroidCanvasEmptyState
-              onImport={importToCanvas}
-              onGoCompose={() => {
-                vibrateForPlatform(8);
-                document.querySelector<HTMLButtonElement>(".android-bottom-nav .android-nav-button:first-child")?.click();
-              }}
-            />
-          ) : null}
-          {isRunning ? (
-            <AndroidCanvasProgressOverlay
-              stage={progress?.stage}
-              elapsed={progress?.elapsed}
-              bytes={progress?.bytes}
-              runningJobs={runningJobs.length}
-              jobsCompleted={jobsCompleted}
-              jobsTotal={jobsTotal}
-              streamPreviewActive={!!streamPreview}
-            />
-          ) : null}
           {hasImage ? (
             <div className="android-canvas-floating-meta">
-              <span>{sizeLabel(currentImage.size)}</span>
+              <span title={`选择尺寸:${currentImage.size}`}>{currentResolutionLabel}</span>
+              <span title={`画幅比例:${currentImage.size}`}>{currentAspectLabel}</span>
+              {currentPixelLabel ? <span title={`真实像素:${currentPixelLabel}`}>像素 {currentPixelLabel}</span> : null}
               <span>{qualityLabel(currentImage.quality)}</span>
               <span>{currentImage.mode === "edit" ? "图生图" : "文生图"}</span>
+              {currentApiLabel ? <span title={`API:${currentApiLabel}`}>{currentApiLabel}</span> : null}
             </div>
           ) : null}
         </div>
@@ -229,6 +291,7 @@ export function AndroidCanvasWorkspace() {
         <AndroidSourceStrip
           sources={sources}
           onAdd={() => runAction(selectSourceImage, 8)}
+          onPreview={(source) => runAction(() => previewSourceOnCanvas(source), 6)}
           onRemove={(index) => runAction(() => removeSource(index), 5)}
           onMove={(from, to) => runAction(() => reorderSources(from, to), 5)}
           onClear={() => runAction(clearSources, 5)}
@@ -243,6 +306,14 @@ export function AndroidCanvasWorkspace() {
             onChange={(next) => runAction(() => setField("tool", next), 8)}
           />
           <div className="android-canvas-dock-group compact">
+            <DockIconButton
+              title="更多操作"
+              disabled={!hasImage}
+              active={imageActionsOpen}
+              onClick={() => runAction(() => setImageActionsOpen(true), 8)}
+            >
+              <MoreHorizontal />
+            </DockIconButton>
             <DockIconButton title="撤销" disabled={undoStack.length === 0} onClick={() => runAction(undo, 6)}>
               <Undo2 />
             </DockIconButton>
@@ -308,6 +379,12 @@ export function AndroidCanvasWorkspace() {
             <DockIconButton title="保存原图" disabled={!hasImage} onClick={() => runAction(saveCurrentImageAs, 8)}>
               <Save />
             </DockIconButton>
+            <DockIconButton title="复制图片" disabled={!hasImage} onClick={() => runAction(copyCurrentImage, 8)}>
+              <Clipboard />
+            </DockIconButton>
+            <DockIconButton title="分享图片" disabled={!hasImage} onClick={() => runAction(shareCurrentImage, 8)}>
+              <Share2 />
+            </DockIconButton>
             <DockIconButton title="设为图生图源图" disabled={!hasImage} onClick={() => currentImage && runAction(() => reuseAsSource(currentImage), 8)}>
               <Scissors />
             </DockIconButton>
@@ -317,36 +394,117 @@ export function AndroidCanvasWorkspace() {
           </div>
         </div>
       </AndroidCanvasDock>
+      {imageActionsOpen && currentImage ? (
+        <AndroidCurrentImageActionSheet
+          item={currentImage}
+          pixelLabel={currentPixelLabel}
+          onClose={() => setImageActionsOpen(false)}
+          onOpenDetail={() => runAction(() => openResultDetail(currentImage), 8)}
+          onSave={() => runAction(saveCurrentImageAs, 8)}
+          onCopy={() => runAction(copyCurrentImage, 8)}
+          onShare={() => runAction(shareCurrentImage, 8)}
+          onReuse={() => runAction(() => reuseAsSource(currentImage), 8)}
+          onClear={() => runAction(() => setField("currentImage", null), 8)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function AndroidCanvasEmptyState({
-  onImport,
-  onGoCompose,
+function AndroidCurrentImageActionSheet({
+  item,
+  pixelLabel,
+  onClose,
+  onOpenDetail,
+  onSave,
+  onCopy,
+  onShare,
+  onReuse,
+  onClear,
 }: {
-  onImport: () => void;
-  onGoCompose: () => void;
+  item: HistoryItem;
+  pixelLabel: string | null;
+  onClose: () => void;
+  onOpenDetail: () => void;
+  onSave: () => void;
+  onCopy: () => void;
+  onShare: () => void;
+  onReuse: () => void;
+  onClear: () => void;
 }) {
-  return (
-    <div className="android-canvas-empty">
-      <div className="android-canvas-empty-icon">
-        <ImagePlus />
-      </div>
-      <div className="android-canvas-empty-copy">
-        <strong>还没有图片</strong>
-        <span>先导入一张图，或回到参数页开始生成。</span>
-      </div>
-      <div className="android-canvas-empty-actions">
-        <button type="button" className="primary" onClick={onImport}>
-          <ImagePlus /> 从相册导入
-        </button>
-        <button type="button" onClick={onGoCompose}>
-          去参数页
-        </button>
-      </div>
+  const previewURL = useBlobURL(item.previewBlob ?? item.imageBlob ?? null, item.imageB64 ?? null);
+  const imageSrc = historyPreviewSrc(item, previewURL);
+  const title = item.revisedPrompt || item.prompt || "当前图片";
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const run = (action: () => void) => {
+    action();
+    onClose();
+  };
+
+  const sheet = (
+    <div className="android-canvas-action-layer" role="presentation">
+      <button type="button" className="android-canvas-action-backdrop" aria-label="关闭当前图操作" onClick={onClose} />
+      <section className="android-canvas-action-sheet" role="dialog" aria-modal="true" aria-label="当前图操作">
+        <div className="android-canvas-action-grabber" />
+        <div className="android-canvas-action-head">
+          <div className="android-canvas-action-preview">
+            <img src={imageSrc} alt={title} loading="eager" decoding="async" />
+          </div>
+          <div className="android-canvas-action-copy">
+            <span>当前图操作</span>
+            <strong>{title}</strong>
+            <small>
+              {sizeLabel(item.size)}
+              {pixelLabel ? ` · ${pixelLabel}` : ""}
+              {" · "}
+              {qualityLabel(item.quality)}
+            </small>
+          </div>
+          <button type="button" className="android-canvas-action-close" onClick={onClose} aria-label="关闭">
+            <X />
+          </button>
+        </div>
+
+        <div className="android-canvas-action-grid">
+          <button type="button" onClick={() => run(onOpenDetail)}>
+            <span><Info /></span>
+            详情
+          </button>
+          <button type="button" onClick={() => run(onCopy)}>
+            <span><Clipboard /></span>
+            复制图片
+          </button>
+          <button type="button" onClick={() => run(onSave)}>
+            <span><Save /></span>
+            保存原图
+          </button>
+          <button type="button" onClick={() => run(onShare)}>
+            <span><Share2 /></span>
+            分享图片
+          </button>
+          <button type="button" onClick={() => run(onReuse)}>
+            <span><Scissors /></span>
+            设为源图
+          </button>
+          <button type="button" className="danger" onClick={() => run(onClear)}>
+            <span><Trash2 /></span>
+            清空画板
+          </button>
+        </div>
+      </section>
     </div>
   );
+
+  if (typeof document === "undefined") return sheet;
+  return createPortal(sheet, document.body);
 }
 
 function AndroidCanvasHeader({
@@ -362,6 +520,8 @@ function AndroidCanvasHeader({
   onToggleSources,
   onOpenGrid,
   gridOpen,
+  compareActive,
+  onExitCompare,
 }: {
   currentImage: HistoryItem | null;
   isRunning: boolean;
@@ -375,12 +535,14 @@ function AndroidCanvasHeader({
   onToggleSources: () => void;
   onOpenGrid?: () => void;
   gridOpen: boolean;
+  compareActive: boolean;
+  onExitCompare?: () => void;
 }) {
   const prompt = currentImage?.revisedPrompt || currentImage?.prompt || "";
   return (
     <header className="android-canvas-header">
       <div className="android-canvas-status-dot" data-running={isRunning ? "true" : "false"}>
-        {isRunning ? <Loader2 /> : currentImage ? <CheckCircle2 /> : <Square />}
+        {isRunning ? <span className="android-canvas-spinner" aria-hidden="true" /> : currentImage ? <CheckCircle2 /> : <Square />}
       </div>
       <div className="android-canvas-header-copy">
         <div className="android-canvas-kicker">{progressLabel}</div>
@@ -397,6 +559,16 @@ function AndroidCanvasHeader({
         <button type="button" className="android-canvas-status-chip primary">
           {zoomLabel}
         </button>
+        {compareActive && onExitCompare ? (
+          <button
+            type="button"
+            className="android-canvas-status-chip compare-exit"
+            onClick={onExitCompare}
+            title="退出对比"
+          >
+            <Split className="h-3.5 w-3.5" /> 退出
+          </button>
+        ) : null}
         {onOpenGrid ? (
           <button
             type="button"
@@ -442,7 +614,7 @@ export function AndroidCanvasProgressOverlay({
   return (
     <div className={`android-canvas-progress ${placement === "compose" ? "android-canvas-progress-compose" : ""}`}>
       <div className="android-canvas-progress-head">
-        <Loader2 />
+        <span className="android-canvas-spinner android-canvas-spinner-progress" aria-hidden="true" />
         <span>{stage ?? "正在请求"}</span>
       </div>
       <div className="android-canvas-progress-meta">
@@ -571,12 +743,14 @@ function AndroidAnnotationControls({
 function AndroidSourceStrip({
   sources,
   onAdd,
+  onPreview,
   onRemove,
   onMove,
   onClear,
 }: {
   sources: SourceImage[];
   onAdd: () => void;
+  onPreview: (source: SourceImage) => void;
   onRemove: (index: number) => void;
   onMove: (from: number, to: number) => void;
   onClear: () => void;
@@ -585,9 +759,11 @@ function AndroidSourceStrip({
     <div className="android-canvas-source-strip">
       <div className="android-canvas-source-head">
         <span>参考图</span>
-        <button type="button" onClick={onClear}>
-          清空
-        </button>
+        {sources.length > 0 ? (
+          <button type="button" onClick={onClear}>
+            清空
+          </button>
+        ) : null}
       </div>
       <div className="android-canvas-source-list">
         {sources.map((source, index) => (
@@ -596,6 +772,7 @@ function AndroidSourceStrip({
             source={source}
             index={index}
             total={sources.length}
+            onPreview={onPreview}
             onRemove={onRemove}
             onMove={onMove}
           />
@@ -612,12 +789,14 @@ function AndroidSourceTile({
   source,
   index,
   total,
+  onPreview,
   onRemove,
   onMove,
 }: {
   source: SourceImage;
   index: number;
   total: number;
+  onPreview: (source: SourceImage) => void;
   onRemove: (index: number) => void;
   onMove: (from: number, to: number) => void;
 }) {
@@ -625,9 +804,14 @@ function AndroidSourceTile({
   const previewURL = source.previewUrl || objectURL;
   return (
     <div className="android-canvas-source-tile" title={source.name}>
-      <div className="android-canvas-source-preview">
+      <button
+        type="button"
+        className="android-canvas-source-preview"
+        onClick={() => onPreview(source)}
+        title="打开参考图大图"
+      >
         {previewURL ? <img src={previewURL} alt={source.name} loading="lazy" decoding="async" /> : <span>{source.name.split(".").pop()?.toUpperCase() ?? "IMG"}</span>}
-      </div>
+      </button>
       <div className="android-canvas-source-index">{index + 1}</div>
       <button type="button" className="android-canvas-source-remove" onClick={() => onRemove(index)} title="移除">
         <X />
@@ -654,6 +838,48 @@ function AndroidCanvasDock({ children }: { children: ReactNode }) {
       <span className="android-canvas-dock-affordance right" aria-hidden="true">›</span>
     </div>
   );
+}
+
+function AndroidCanvasProgressOverlayLive() {
+  const {
+    stage,
+    elapsed,
+    bytes,
+    runningJobs,
+    jobsCompleted,
+    jobsTotal,
+    streamPreviewActive,
+  } = useStudioStore((state) => ({
+    stage: state.progress?.stage,
+    elapsed: quantizeProgressElapsed(state.progress?.elapsed),
+    bytes: quantizeProgressBytes(state.progress?.bytes),
+    runningJobs: state.runningJobs.length,
+    jobsCompleted: state.jobsCompleted,
+    jobsTotal: state.jobsTotal,
+    streamPreviewActive: !!state.streamPreview,
+  }), shallow);
+
+  return (
+    <AndroidCanvasProgressOverlay
+      stage={stage}
+      elapsed={elapsed}
+      bytes={bytes}
+      runningJobs={runningJobs}
+      jobsCompleted={jobsCompleted}
+      jobsTotal={jobsTotal}
+      streamPreviewActive={streamPreviewActive}
+    />
+  );
+}
+
+function quantizeProgressElapsed(elapsed?: number) {
+  return typeof elapsed === "number" ? Math.floor(elapsed) : undefined;
+}
+
+function quantizeProgressBytes(bytes?: number) {
+  if (typeof bytes !== "number" || bytes <= 0) return bytes;
+  if (bytes < 128 * 1024) return bytes;
+  return Math.floor(bytes / (128 * 1024)) * 128 * 1024;
 }
 
 function SegmentButton({
@@ -704,6 +930,12 @@ function DockIconButton({
       {children}
     </button>
   );
+}
+
+function dataURLBase64(dataURL: string): string {
+  const comma = dataURL.indexOf(",");
+  if (comma < 0 || !dataURL.slice(0, comma).includes(";base64")) return "";
+  return dataURL.slice(comma + 1);
 }
 
 function formatBytes(bytes: number) {

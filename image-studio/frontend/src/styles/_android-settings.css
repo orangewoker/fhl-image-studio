@@ -61,7 +61,7 @@ html[data-target-platform="android-pad"] .android-settings-modal-header h3 {
 }
 
 html[data-target-platform="android"] .android-settings-modal-body {
-  padding: 0 14px calc(22px + var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)));
+  padding: 0 14px calc(22px + var(--android-safe-bottom-value, 0px));
 }
 
 html[data-target-platform="android-pad"] .android-settings-modal-body {
@@ -608,6 +608,150 @@ html[data-target-platform="android-pad"] .android-settings-panel .settings-prese
   background: rgb(0 121 107 / 0.08);
   color: var(--accent);
   text-align: center;
+}
+
+html[data-target-platform="android"] .android-settings-presets-row,
+html[data-target-platform="android-pad"] .android-settings-presets-row,
+html[data-target-platform="android"] .android-settings-preset-list,
+html[data-target-platform="android-pad"] .android-settings-preset-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+html[data-target-platform="android"] .android-settings-preset-save,
+html[data-target-platform="android-pad"] .android-settings-preset-save {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+html[data-target-platform="android"] .android-settings-preset-save input,
+html[data-target-platform="android-pad"] .android-settings-preset-save input {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid rgb(0 121 107 / 0.14);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.84);
+  padding: 0 12px;
+  color: rgb(39 39 42);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+html[data-target-platform="android"] .android-settings-preset-save button,
+html[data-target-platform="android-pad"] .android-settings-preset-save button,
+html[data-target-platform="android"] .android-settings-preset-delete,
+html[data-target-platform="android-pad"] .android-settings-preset-delete,
+html[data-target-platform="android"] .android-settings-preset-apply,
+html[data-target-platform="android-pad"] .android-settings-preset-apply {
+  border: 1px solid rgb(15 23 42 / 0.06);
+  border-radius: 16px;
+  background: rgb(248 250 249 / 0.9);
+  color: rgb(63 63 70);
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 80ms ease;
+}
+
+html[data-target-platform="android"] .android-settings-preset-save button,
+html[data-target-platform="android-pad"] .android-settings-preset-save button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 13px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+html[data-target-platform="android"] .android-settings-preset-save button:disabled,
+html[data-target-platform="android-pad"] .android-settings-preset-save button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+html[data-target-platform="android"] .android-settings-preset-item,
+html[data-target-platform="android-pad"] .android-settings-preset-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 8px;
+}
+
+html[data-target-platform="android"] .android-settings-preset-apply,
+html[data-target-platform="android-pad"] .android-settings-preset-apply {
+  display: flex;
+  min-height: 54px;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+html[data-target-platform="android"] .android-settings-preset-icon,
+html[data-target-platform="android-pad"] .android-settings-preset-icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgb(0 121 107 / 0.08);
+  color: var(--accent);
+}
+
+html[data-target-platform="android"] .android-settings-preset-name,
+html[data-target-platform="android-pad"] .android-settings-preset-name,
+html[data-target-platform="android"] .android-settings-preset-meta,
+html[data-target-platform="android-pad"] .android-settings-preset-meta {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-target-platform="android"] .android-settings-preset-name,
+html[data-target-platform="android-pad"] .android-settings-preset-name {
+  color: rgb(39 39 42);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+html[data-target-platform="android"] .android-settings-preset-meta,
+html[data-target-platform="android-pad"] .android-settings-preset-meta,
+html[data-target-platform="android"] .android-settings-preset-empty,
+html[data-target-platform="android-pad"] .android-settings-preset-empty {
+  color: rgb(113 113 122);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+html[data-target-platform="android"] .android-settings-preset-empty,
+html[data-target-platform="android-pad"] .android-settings-preset-empty {
+  margin: 0;
+  border: 1px dashed rgb(0 121 107 / 0.16);
+  border-radius: 16px;
+  background: rgb(0 121 107 / 0.05);
+  padding: 10px 11px;
+}
+
+html[data-target-platform="android"] .android-settings-preset-delete,
+html[data-target-platform="android-pad"] .android-settings-preset-delete {
+  display: inline-flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: center;
+  color: rgb(220 38 38);
 }
 
 html[data-target-platform="android-pad"][data-android-window-height="compact"] .android-settings-panel-pad {

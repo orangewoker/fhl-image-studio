@@ -24,7 +24,7 @@ class AndroidJobService : Service() {
         AndroidJobManager.ensureWorker(applicationContext) {
             stopSelf()
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun startInForeground() {

@@ -16,12 +16,13 @@ import { useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { MenuItem } from "../../../components/common/ContextMenu";
 import { HistoryModeBadge } from "../../../components/history/HistoryModeBadge";
-import { qualityLabel, sizeLabel } from "../../../components/history/historyLabels";
+import { pixelSizeLabel, qualityLabel, sizeLabel } from "../../../components/history/historyLabels";
 import { historyPreviewSrc, useBlobURL } from "../../../lib/images";
 import type { HistoryItem } from "../../../types/domain";
 import { vibrateForPlatform } from "../bridge";
 
 function IconForAction({ label }: { label: string }) {
+  if (label.includes("复制图片")) return <Clipboard />;
   if (label.includes("详情")) return <Info />;
   if (label.includes("复制 prompt")) return <Clipboard />;
   if (label.includes("路径")) return <FolderOpen />;
@@ -47,6 +48,7 @@ export function AndroidHistoryActionSheet({
 }) {
   const previewURL = useBlobURL(item.previewBlob ?? item.imageBlob ?? null, item.imageB64 ?? null);
   const imageSrc = historyPreviewSrc(item, previewURL);
+  const pixelLabel = pixelSizeLabel(item);
   const primaryItems = useMemo(() => items.filter((action) => !action.danger), [items]);
   const dangerItems = useMemo(() => items.filter((action) => action.danger), [items]);
 
@@ -88,7 +90,14 @@ export function AndroidHistoryActionSheet({
           <div className="android-history-sheet-copy">
             <span>历史结果</span>
             <strong>{item.prompt || "(无 prompt)"}</strong>
-            <small>{sizeLabel(item.size)} · {qualityLabel(item.quality)} · {new Date(item.createdAt).toLocaleDateString()}</small>
+            <small>
+              {sizeLabel(item.size)}
+              {pixelLabel ? ` · ${pixelLabel}` : ""}
+              {" · "}
+              {qualityLabel(item.quality)}
+              {" · "}
+              {new Date(item.createdAt).toLocaleDateString()}
+            </small>
           </div>
           <button type="button" className="android-history-sheet-close" onClick={onClose} aria-label="关闭">
             <X />

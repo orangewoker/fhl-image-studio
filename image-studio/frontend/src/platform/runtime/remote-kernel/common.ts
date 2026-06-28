@@ -192,8 +192,11 @@ export function normalizeBaseURL(raw: string): string {
   return normalized;
 }
 
-export function normalizeAPIMode(apiMode: string): "responses" | "images" {
-  return normalizeSharedAPIMode(apiMode);
+export function normalizeAPIMode(apiMode: string): "responses" | "images" | "apimart" | "runninghub" {
+  const normalized = String(apiMode || "").trim().toLowerCase();
+  if (normalized === "runninghub") return "runninghub";
+  if (normalized === "apimart") return "apimart";
+  return normalizeSharedAPIMode(normalized);
 }
 
 export function normalizeTextModel(modelID: string): string {
@@ -202,6 +205,10 @@ export function normalizeTextModel(modelID: string): string {
 
 export function normalizeImageModel(modelID: string): string {
   return normalizeSharedImageModel(modelID);
+}
+
+export function isGPTImage2Model(modelID: string): boolean {
+  return normalizeImageModel(modelID).toLowerCase().startsWith("gpt-image-2");
 }
 
 export function normalizeAPIKeyForHeader(apiKey: string): string {
@@ -250,7 +257,7 @@ export async function sleepWithSignal(signal: AbortSignal, ms: number): Promise<
   });
 }
 
-export function registerRawText(kind: "responses" | "images" | "optimize", attempt: number, raw: string): string | null {
+export function registerRawText(kind: "responses" | "images" | "apimart" | "optimize" | "reverse", attempt: number, raw: string): string | null {
   if (!raw.trim()) return null;
   const ext = kind === "responses" ? "txt" : "json";
   return registerVirtualText(raw, `${kind}-response-attempt${attempt}.${ext}`);
@@ -260,26 +267,133 @@ export function readRegisteredText(path: string): string {
   return readVirtualText(path);
 }
 
+function promptTextCandidate(value: unknown, depth = 0): string {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const text = promptTextCandidate(child, depth + 1);
+      if (text) return text;
+    }
+    return "";
+  }
+  if (!value || typeof value !== "object" || depth > 2) return "";
+  const record = value as Record<string, unknown>;
+  return promptTextCandidate(record.value, depth + 1)
+    || promptTextCandidate(record.text, depth + 1)
+    || promptTextCandidate(record.content, depth + 1)
+    || promptTextCandidate(record.parts, depth + 1);
+}
+
+function extractResponseTextValue(value: any): string {
+  if (!value || typeof value !== "object") return "";
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const text = extractResponseTextValue(child);
+      if (text) return text;
+    }
+    return "";
+  }
+
+  const direct = promptTextCandidate(value.output_text);
+  if (direct) return direct;
+
+  const type = String(value.type || "");
+  const genericText = promptTextCandidate(value.text) || promptTextCandidate(value.value);
+  if (genericText) return genericText;
+
+  if (type === "output_text" || type === "text" || type === "refusal") {
+    const text = promptTextCandidate(value.text)
+      || promptTextCandidate(value.content)
+      || promptTextCandidate(value.value)
+      || promptTextCandidate(value.refusal);
+    if (text) return text;
+  }
+
+  if (value.response) {
+    const text = extractResponseTextValue(value.response);
+    if (text) return text;
+  }
+  if (value.item) {
+    const text = extractResponseTextValue(value.item);
+    if (text) return text;
+  }
+  if (value.message) {
+    const text = extractResponseTextValue(value.message) || promptTextCandidate(value.message);
+    if (text) return text;
+  }
+
+  for (const key of ["output", "outputs", "messages", "data", "items", "parts", "summary", "candidates"]) {
+    if (!value[key]) continue;
+    const text = extractResponseTextValue(value[key]);
+    if (text) return text;
+  }
+
+  if (value.content) {
+    const text = extractResponseTextValue(value.content);
+    if (text) return text;
+    if ((value.role === "assistant" || type === "message") && promptTextCandidate(value.content)) {
+      return promptTextCandidate(value.content);
+    }
+  }
+
+  if (Array.isArray(value.choices)) {
+    for (const choice of value.choices) {
+      const text = extractResponseTextValue(choice?.message)
+        || extractResponseTextValue(choice?.delta)
+        || promptTextCandidate(choice?.text);
+      if (text) return text;
+    }
+  }
+
+  return "";
+}
+
+function extractResponseTextDelta(value: any): string {
+  if (!value || typeof value !== "object") return "";
+  const type = String(value.type || "");
+  if (type === "response.output_text.delta" || type === "output_text.delta") {
+    return typeof value.delta === "string" ? value.delta : "";
+  }
+  if (Array.isArray(value.choices)) {
+    return value.choices
+      .map((choice: any) => promptTextCandidate(choice?.delta?.content) || promptTextCandidate(choice?.text))
+      .join("");
+  }
+  return "";
+}
+
+function parseResponseEventPayload(line: string): any | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  const data = trimmed.startsWith("data:") ? trimmed.slice(5).trim() : trimmed;
+  if (!data || data === "[DONE]" || !data.startsWith("{")) return null;
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
+
 export function extractResponseText(raw: string): string {
   try {
     const parsed: any = JSON.parse(raw);
-    if (typeof parsed?.output_text === "string" && parsed.output_text.trim()) {
-      return parsed.output_text.trim();
-    }
-    if (Array.isArray(parsed?.output)) {
-      for (const output of parsed.output) {
-        if (!Array.isArray(output?.content)) continue;
-        for (const content of output.content) {
-          if (content?.type === "output_text" && typeof content?.text === "string" && content.text.trim()) {
-            return content.text.trim();
-          }
-        }
-      }
-    }
+    const text = extractResponseTextValue(parsed);
+    if (text) return text;
   } catch {
-    // ignore
+    // Fall through to SSE / line-delimited JSON parsing.
   }
-  return "";
+
+  const deltas: string[] = [];
+  for (const line of String(raw || "").split(/\r?\n/)) {
+    const event = parseResponseEventPayload(line);
+    if (!event) continue;
+    const text = extractResponseTextValue(event);
+    if (text) return text;
+    const delta = extractResponseTextDelta(event);
+    if (delta) deltas.push(delta);
+  }
+
+  return deltas.join("").trim();
 }
 
 export function extractResponseErrorMessage(raw: string): string {

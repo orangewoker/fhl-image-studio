@@ -15,8 +15,9 @@ val androidHomeCacheDir = androidHomeDir.resolve(".android")
 val frontendNodeModules = frontendRoot.resolve("node_modules")
 val fallbackDebugKeystore = androidHomeCacheDir.resolve("debug.keystore")
 val customKeystorePath = providers.environmentVariable("IMAGE_STUDIO_KEYSTORE_PATH")
-val appVersionName = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_NAME").orElse("0.1.5-dev")
+val appVersionName = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_NAME").orElse("V2.0.2")
 val appVersionCode = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_CODE").orElse("1050001").map(String::toInt)
+val npmCommand = if (System.getProperty("os.name").lowercase().contains("windows")) "npm.cmd" else "npm"
 val usePrebuiltFrontend = providers.environmentVariable("IMAGE_STUDIO_ANDROID_USE_PREBUILT_FRONTEND")
     .map { value -> value == "1" || value.equals("true", ignoreCase = true) }
     .orElse(false)
@@ -67,7 +68,7 @@ val frontendInstallTask = tasks.register("prepareFrontendDependencies") {
             environment("npm_config_cache", npmCacheDir.absolutePath)
             environment("ANDROID_USER_HOME", androidHomeCacheDir.absolutePath)
             environment("HOME", androidHomeDir.absolutePath)
-            commandLine("npm", "ci")
+            commandLine(npmCommand, "ci")
         }
     }
 }
@@ -110,7 +111,7 @@ android {
         targetSdk = 34
         versionCode = appVersionCode.get()
         versionName = appVersionName.get()
-        manifestPlaceholders["appLabel"] = "FHL Studio"
+        manifestPlaceholders["appLabel"] = "FHL Image Studio 方汤圆版 V2.0.2"
         buildConfigField("String", "TARGET_PLATFORM", "\"android\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -175,7 +176,7 @@ androidComponents {
                         environment("npm_config_cache", npmCacheDir.absolutePath)
                         environment("ANDROID_USER_HOME", androidHomeCacheDir.absolutePath)
                         environment("HOME", androidHomeDir.absolutePath)
-                        commandLine("npm", "run", "build:$mode")
+                        commandLine(npmCommand, "run", "build:$mode")
                     }
                 }
                 if (!frontendDist.resolve("index.html").isFile) {

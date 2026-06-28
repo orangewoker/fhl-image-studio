@@ -3,7 +3,7 @@ import type React from "react";
 import { useEffect, useRef } from "react";
 import { HistoryMetaBadges } from "../../../components/history/HistoryMetaBadges";
 import { HistoryModeBadge } from "../../../components/history/HistoryModeBadge";
-import { qualityLabel, sizeLabel } from "../../../components/history/historyLabels";
+import { pixelSizeLabel, qualityLabel, sizeLabel } from "../../../components/history/historyLabels";
 import { historyPreviewSrc, useBlobURL, useImageLoadState } from "../../../lib/images";
 import type { HistoryItem } from "../../../types/domain";
 import { vibrateForPlatform } from "../bridge";
@@ -37,12 +37,15 @@ export function AndroidHistoryTile({
   const suppressClickUntilRef = useRef(0);
   const imageSrc = historyPreviewSrc(item, previewURL);
   const imageLoadState = useImageLoadState(imageSrc || null);
+  const pixelLabel = pixelSizeLabel(item);
+  const metaItems = [sizeLabel(item.size), pixelLabel, qualityLabel(item.quality)]
+    .filter((label): label is string => !!label);
 
   function renderImage() {
     if (!imageSrc || imageLoadState !== "ready") {
       return <div className="history-thumb-fallback" aria-hidden="true" />;
     }
-    return <img src={imageSrc} alt={item.prompt} loading="eager" decoding="async" />;
+    return <img src={imageSrc} alt={item.prompt} loading={variant === "feature" ? "eager" : "lazy"} decoding="async" />;
   }
 
   function clearLongPress() {
@@ -136,6 +139,7 @@ export function AndroidHistoryTile({
         <div className="android-history-image-shade" />
         <HistoryModeBadge mode={item.mode} className="android-history-tile-mode" />
         {isCompare ? <span className="android-history-compare-badge">B</span> : null}
+        {pixelLabel ? <span className="android-history-pixel-badge">{pixelLabel}</span> : null}
         <button
           type="button"
           className="android-history-tile-menu"
@@ -162,6 +166,7 @@ export function AndroidHistoryTile({
         <div className="android-history-image-shade" />
         <HistoryModeBadge mode={item.mode} className="android-history-tile-mode" />
         {isCompare ? <span className="android-history-compare-badge">B</span> : null}
+        {pixelLabel ? <span className="android-history-pixel-badge">{pixelLabel}</span> : null}
         <button
           type="button"
           className="android-history-tile-menu"
@@ -175,7 +180,7 @@ export function AndroidHistoryTile({
       <div className="android-history-tile-body">
         <p>{item.prompt || "(无 prompt)"}</p>
         <HistoryMetaBadges
-          items={[sizeLabel(item.size), qualityLabel(item.quality)]}
+          items={metaItems}
           compact
           className="android-history-tile-meta"
         />

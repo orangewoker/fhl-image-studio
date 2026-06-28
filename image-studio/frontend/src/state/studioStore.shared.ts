@@ -6,6 +6,7 @@ import {
 } from "../platform/runtime/host";
 import type {
   Annotation,
+  APIMartRecoveryTask,
   HistoryItem,
   OutputFormatValue,
   ProgressInfo,
@@ -250,6 +251,43 @@ function normalizeWorkspaceStyleTag(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function normalizeAPIMartRecoveryTask(value: unknown, workspaceId: string): APIMartRecoveryTask | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<APIMartRecoveryTask>;
+  const taskId = typeof raw.taskId === "string" ? raw.taskId.trim() : "";
+  if (!taskId) return null;
+  return {
+    taskId,
+    workspaceId,
+    baseURL: typeof raw.baseURL === "string" ? raw.baseURL.trim() : "",
+    prompt: typeof raw.prompt === "string" ? raw.prompt : "",
+    mode: raw.mode === "edit" ? "edit" : "generate",
+    size: normalizeWorkspaceSize(raw.size),
+    quality: normalizeWorkspaceQuality(raw.quality),
+    outputFormat: normalizeWorkspaceOutputFormat(raw.outputFormat, "png"),
+    batchIndex: Number.isFinite(Number(raw.batchIndex)) ? Math.max(0, Math.floor(Number(raw.batchIndex))) : undefined,
+    errorMessage: typeof raw.errorMessage === "string" ? raw.errorMessage : undefined,
+    rawPath: typeof raw.rawPath === "string" && raw.rawPath.trim() ? raw.rawPath.trim() : undefined,
+    status: typeof raw.status === "string" ? raw.status : undefined,
+    createdAt: Number.isFinite(Number(raw.createdAt)) ? Number(raw.createdAt) : Date.now(),
+    lastCheckedAt: Number.isFinite(Number(raw.lastCheckedAt)) ? Number(raw.lastCheckedAt) : undefined,
+  };
+}
+
+function normalizeAPIMartRecoveryTasks(value: unknown, legacyValue: unknown, workspaceId: string): APIMartRecoveryTask[] {
+  const values = Array.isArray(value) ? value : [];
+  if (!values.length && legacyValue) values.push(legacyValue);
+  const seen = new Set<string>();
+  const out: APIMartRecoveryTask[] = [];
+  for (const item of values) {
+    const normalized = normalizeAPIMartRecoveryTask(item, workspaceId);
+    if (!normalized || seen.has(normalized.taskId)) continue;
+    seen.add(normalized.taskId);
+    out.push(normalized);
+  }
+  return out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+}
+
 function sanitizeStoredPreviewUrl(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -339,6 +377,8 @@ function toPersistedWorkspace(workspace: Workspace): Workspace {
       imageBlob: null,
     })),
     errorRawPath: workspace.errorRawPath ?? null,
+    apimartRecoveryTask: workspace.apimartRecoveryTask ?? null,
+    apimartRecoveryTasks: workspace.apimartRecoveryTasks ?? [],
     lastPayload: null,
   };
 }
@@ -357,10 +397,13 @@ function normalizeWorkspace(
   const hadRunningJobs = runningJobIds.length > 0;
   const streamPreviews = normalizeStreamPreviewMap(raw.streamPreviews);
   const streamPreview = normalizeStreamPreview(raw.streamPreview) ?? latestStreamPreview(streamPreviews);
+  const apimartRecoveryTasks = normalizeAPIMartRecoveryTasks(raw.apimartRecoveryTasks, raw.apimartRecoveryTask, id);
   return {
     id,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "图片",
+    promptPrefix: typeof raw.promptPrefix === "string" ? raw.promptPrefix : "",
     prompt: typeof raw.prompt === "string" ? raw.prompt : "",
+    optimizationGuidance: typeof raw.optimizationGuidance === "string" ? raw.optimizationGuidance : "",
     negativePrompt: typeof raw.negativePrompt === "string" ? raw.negativePrompt : "",
     mode: raw.mode === "edit" ? "edit" : "generate",
     size: normalizeWorkspaceSize(raw.size),
@@ -368,6 +411,7 @@ function normalizeWorkspace(
     outputFormat: normalizeWorkspaceOutputFormat(raw.outputFormat, fallbackOutputFormat),
     seed: normalizeWorkspaceSeed(raw.seed),
     batchCount: normalizeWorkspaceBatchCount(raw.batchCount),
+    continuousGenerateTest: raw.continuousGenerateTest !== false,
     styleTag: normalizeWorkspaceStyleTag(raw.styleTag),
     sources: Array.isArray(raw.sources)
       ? raw.sources.map((item) => normalizeSourceImage(item)).filter((item): item is SourceImage => !!item)
@@ -394,6 +438,8 @@ function normalizeWorkspace(
     errorRawPath: hadRunningJobs
       ? null
       : (typeof raw.errorRawPath === "string" && raw.errorRawPath.trim() ? raw.errorRawPath.trim() : null),
+    apimartRecoveryTask: apimartRecoveryTasks[0] ?? null,
+    apimartRecoveryTasks,
     lastPayload: null,
   };
 }

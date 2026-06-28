@@ -5,7 +5,7 @@ export type Mode = "generate" | "edit";
 
 // 上游 API 形态 —— Responses (`/v1/responses` + SSE) 或标准 Images API。
 // 老代码里以前是顶层全局二选一,v0.1.6 起降级成 profile 的字段。
-export type APIMode = "responses" | "images";
+export type APIMode = "responses" | "images" | "apimart" | "runninghub";
 export type RequestPolicy = "openai" | "compat";
 
 // UpstreamProfile 是一组完整可用于生成的上游配置。用户可以保存多个,例如
@@ -31,7 +31,7 @@ export interface UpstreamProfile {
   lastUsedAt?: number;
 }
 
-export type SizeValue = "auto" | `${number}x${number}`;
+export type SizeValue = "auto" | `${number}x${number}` | `${number}:${number}` | `${number}:${number}@${"1k" | "2k" | "4k"}`;
 export type QualityValue = "auto" | "high" | "medium" | "low";
 export type KernelRuntimeMode = "auto" | "local" | "remote";
 export type ProxyMode = "none" | "system" | "custom";
@@ -93,6 +93,8 @@ export interface HistoryItem {
   thumbPath?: string;
   previewWidth?: number;
   previewHeight?: number;
+  width?: number;
+  height?: number;
   // Legacy/import/browser fallback. New Wails result records keep this empty so
   // full images do not live in persistent Zustand/history/batch state.
   imageB64?: string;
@@ -105,6 +107,7 @@ export interface HistoryItem {
   size: SizeValue;
   quality: QualityValue;
   outputFormat?: OutputFormatValue;
+  apiLabel?: string;
   parentId?: string;       // id of the source image (when mode === "edit")
   createdAt: number;       // unix ms
 
@@ -118,7 +121,30 @@ export interface HistoryItem {
   sourceImages?: SourceImage[]; // edit-mode input images captured for apply/regenerate
 
   savedPath?: string;
+  galleryUri?: string;
   rawPath?: string;
+  taskId?: string;
+  runningHubRecoverable?: boolean;
+  apimartTaskId?: string;
+  apimartTaskStatus?: string;
+  apimartTaskLastCheckedAt?: number;
+}
+
+export interface APIMartRecoveryTask {
+  taskId: string;
+  workspaceId: string;
+  baseURL: string;
+  prompt: string;
+  mode: Mode;
+  size: SizeValue;
+  quality: QualityValue;
+  outputFormat: OutputFormatValue;
+  batchIndex?: number;
+  errorMessage?: string;
+  rawPath?: string;
+  status?: string;
+  createdAt: number;
+  lastCheckedAt?: number;
 }
 
 export interface ProgressInfo {
@@ -158,7 +184,19 @@ export interface JobSlotSnapshot {
   elapsedSec?: number;
   bytes?: number;
   savedPath?: string;
+  galleryUri?: string;
+  thumbPath?: string;
+  previewUrl?: string;
+  previewWidth?: number;
+  previewHeight?: number;
+  width?: number;
+  height?: number;
   rawPath?: string;
+  taskId?: string;
+  runningHubRecoverable?: boolean;
+  apimartTaskId?: string;
+  apimartTaskStatus?: string;
+  apimartTaskLastCheckedAt?: number;
   errorMessage?: string;
   revisedPrompt?: string;
   sourceEvent?: string;
@@ -174,8 +212,10 @@ export interface JobGroupSnapshot {
   createdAt: number;
   mode: Mode;
   apiMode: APIMode;
+  apiLabel?: string;
   prompt: string;
   batchCount: number;
+  concurrencyLimit?: number;
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
@@ -183,6 +223,9 @@ export interface JobGroupSnapshot {
   styleTag?: string;
   seed?: number;
   sourceImagePaths?: string[];
+  continuousGenerateTest?: boolean;
+  continuousBatchIndex?: number;
+  requestRunId?: string;
   slotIds: string[];
   slots: JobSlotSnapshot[];
   statusSummary: JobStatusSummary;
@@ -207,7 +250,9 @@ export interface Workspace {
   id: string;
   name: string;
   // Fields whose value is workspace-scoped (different per tab).
+  promptPrefix: string;
   prompt: string;
+  optimizationGuidance?: string;
   negativePrompt: string;
   mode: Mode;
   size: SizeValue;
@@ -215,6 +260,7 @@ export interface Workspace {
   outputFormat: OutputFormatValue;
   seed: number;
   batchCount: number;
+  continuousGenerateTest?: boolean;
   styleTag: string;
   sources: SourceImage[];
   // We store currentImageId rather than the full HistoryItem so we don't
@@ -236,6 +282,8 @@ export interface Workspace {
   // 「查看日志」按钮调 OpenFile 直接打开。请求前期校验失败 / 早期 IO 错误时
   // 此字段为 null。跟 errorMessage 一对,workspace 隔离,切 tab 各自保持。
   errorRawPath?: string | null;
+  apimartRecoveryTask?: APIMartRecoveryTask | null;
+  apimartRecoveryTasks?: APIMartRecoveryTask[];
   lastPayload?: import("../../wailsjs/go/models").backend.GenerateOptions | null;
 }
 

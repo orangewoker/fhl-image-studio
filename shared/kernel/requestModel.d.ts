@@ -8,6 +8,11 @@ export const DEFAULT_PARTIAL_IMAGES: number;
 export const MAX_ATTEMPTS: number;
 export const RETRY_BACKOFF_MS: number;
 export const STATUS_INTERVAL_MS: number;
+export const OPENAI_IMAGE_MIN_PIXELS: number;
+export const OPENAI_IMAGE_MAX_PIXELS: number;
+export const OPENAI_IMAGE_MAX_SIDE: number;
+export const OPENAI_IMAGE_ALIGNMENT: number;
+export const OPENAI_IMAGE_MAX_ASPECT: number;
 
 export type RequestPolicy = "openai" | "compat";
 
@@ -26,16 +31,25 @@ export type SharedImageRequestPayload = {
   noPromptRevision?: boolean;
   mode?: string;
   partialImages?: number;
+  requestRunId?: string;
+  batchVariationKey?: string;
+  batchIndex?: number;
+  batchCount?: number;
 };
 
 export function normalizeBaseURL(raw: string): string;
-export function normalizeAPIMode(apiMode: string): "responses" | "images";
+export function normalizeAPIMode(apiMode: string): "responses" | "images" | "apimart";
 export function normalizeRequestPolicy(requestPolicy: string): RequestPolicy;
 export function normalizeTextModel(modelID: string): string;
 export function normalizeImageModel(modelID: string): string;
 export function normalizePromptText(prompt: string): string;
 export function normalizeNegativePrompt(negativePrompt: string): string;
 export function normalizePartialImages(value: unknown): number;
+export function parseSizeValue(size: string): { width: number; height: number } | null;
+export function formatSizeValue(width: number, height: number): string;
+export function normalizeOpenAIImageSize(size: string | { width: number; height: number }): { width: number; height: number } | null;
+export function repairSizeForOpenAI<T extends { size?: string }>(payload: T): (T & { size: string }) | null;
+export function extractInvalidSize(raw: string): { original: string; reason: string } | null;
 export function isCompatRequestPolicy(requestPolicy: string): boolean;
 export function classifyImageModel(modelID: string): "gpt-image" | "dalle2" | "dalle3" | "other";
 export function supportsImagesResponseFormat(imageModelID: string, mode?: string): boolean;
@@ -44,6 +58,8 @@ export function shouldUseImagesNewAPICompat(payload?: SharedImageRequestPayload 
 export function fileNameFromPath(path?: string): string;
 export function dataURLFromBase64Image(b64: string, mimeType?: string): string;
 export function buildResponsesInputContent(prompt: string, sourceDataURLs: string[]): Array<Record<string, unknown>>;
+export function buildBatchVariationInstruction(payload?: SharedImageRequestPayload | null): string;
+export function promptWithBatchVariation(payload?: SharedImageRequestPayload | null): string;
 export function buildResponsesImageTool(
   payload: SharedImageRequestPayload,
   sourceDataURLs: string[],
@@ -57,7 +73,14 @@ export function buildResponsesPayload(
 export function buildPromptOptimizePayload(
   input: {
     prompt?: string;
+    optimizationGuidance?: string;
     mode?: string;
+    textModelID?: string;
+  },
+  sourceDataURLs: string[],
+): Record<string, unknown>;
+export function buildPromptReversePayload(
+  input: {
     textModelID?: string;
   },
   sourceDataURLs: string[],

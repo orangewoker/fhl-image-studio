@@ -108,6 +108,7 @@ export async function nativeHttpRequestText(
       bodyBase64: encoded.bodyBase64,
       contentType: encoded.contentType,
       streamLines: Boolean(onStreamLine),
+      responseBase64: false,
       proxyMode: proxyConfig?.proxyMode || "system",
       proxyURL: proxyConfig?.proxyURL || "",
     });
@@ -115,6 +116,43 @@ export async function nativeHttpRequestText(
     return response;
   } finally {
     nativeHttpProgressHandlers.delete(requestKey);
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+export async function nativeHttpRequestBase64(
+  url: string,
+  method: string,
+  headers: Record<string, string>,
+  body: BodyInit | null | undefined,
+  signal?: AbortSignal,
+  proxyConfig?: NativeHTTPProxyConfig,
+): Promise<NativeTextResponse> {
+  const requestKey = `native-http-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const encoded = await encodeRequestBody(body, headers);
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  let aborted = false;
+  const onAbort = () => {
+    aborted = true;
+    void invokeAndroidNative<void>("CancelHttpRequest", requestKey).catch(() => undefined);
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    const response = await invokeAndroidNative<NativeTextResponse>("HttpRequestText", {
+      requestKey,
+      url,
+      method,
+      headers,
+      bodyBase64: encoded.bodyBase64,
+      contentType: encoded.contentType,
+      streamLines: false,
+      responseBase64: true,
+      proxyMode: proxyConfig?.proxyMode || "system",
+      proxyURL: proxyConfig?.proxyURL || "",
+    });
+    if (aborted) throw new DOMException("Aborted", "AbortError");
+    return response;
+  } finally {
     signal?.removeEventListener("abort", onAbort);
   }
 }

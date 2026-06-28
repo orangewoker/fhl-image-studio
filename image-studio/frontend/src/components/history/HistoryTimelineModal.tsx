@@ -5,6 +5,7 @@ import { useStudioStore } from "../../state/studioStore";
 import type { HistoryItem, Mode } from "../../types/domain";
 import { usePlatform } from "../../platform/context";
 import { ContextMenu } from "../common/ContextMenu";
+import { copyImageB64ToClipboard, copyImageURLToClipboard } from "../canvas/canvasImage";
 import { RawResponseModal } from "./RawResponseModal";
 import {
   historyDayKey,
@@ -40,12 +41,29 @@ export function HistoryTimelineModal() {
     shareHistoryItem,
     pushToast,
   } = useStudioStore();
-  const { usesFluentUI } = usePlatform();
+  const { isAndroidPhone, usesFluentUI } = usePlatform();
   const [query, setQuery] = useState("");
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [pickedDate, setPickedDate] = useState("");
   const [expandedPromptGroups, setExpandedPromptGroups] = useState<Set<string>>(() => new Set());
+
+  async function copyHistoryImage(item: HistoryItem) {
+    try {
+      const full = await materializeCurrentImage(item);
+      const ok = full.fullUrl
+        ? await copyImageURLToClipboard(full.fullUrl)
+        : await copyImageB64ToClipboard(full.imageB64 ?? "");
+      if (ok) {
+        pushToast("已复制图片到剪贴板", "success");
+      } else {
+        pushToast("当前环境不支持复制图片，可改用分享或保存", "warn", 4200);
+      }
+    } catch (error: any) {
+      pushToast(`复制失败:${error?.message ?? error}`, "error", 4200);
+    }
+  }
+
   const {
     buildMenu,
     closeMenu,
@@ -58,6 +76,7 @@ export function HistoryTimelineModal() {
     compareItemId: compareB?.id ?? null,
     onOpenDetail: openResultDetail,
     onApplyParams: applyHistoryParams,
+    onCopyImage: (item) => { void copyHistoryImage(item); },
     onRegenerate: (item) => void regenerateFromHistory(item),
     onReuseAsSource: (item) => void reuseAsSource(item),
     onSaveOriginal: (item) => void saveHistoryItemAs(item),
@@ -108,9 +127,16 @@ export function HistoryTimelineModal() {
   if (!historyTimelineOpen) return null;
 
   return (
-    <Modal open onClose={closeHistoryTimeline} title="更多历史" width={920}>
-      <div className="flex flex-col gap-4">
-        <div className="grid grid-cols-[minmax(0,1fr)_140px_140px] gap-2">
+    <Modal
+      open
+      onClose={closeHistoryTimeline}
+      title="更多历史"
+      width={920}
+      cardClassName={isAndroidPhone ? "android-history-timeline-card" : ""}
+      bodyClassName={isAndroidPhone ? "android-history-timeline-body" : ""}
+    >
+      <div className={`flex flex-col gap-4 ${isAndroidPhone ? "android-history-timeline-content" : ""}`}>
+        <div className={isAndroidPhone ? "grid grid-cols-1 gap-2" : "grid grid-cols-[minmax(0,1fr)_140px_140px] gap-2"}>
           <label className={`flex items-center gap-2 border border-black/[0.08] bg-[var(--surface)] px-3 py-2.5 dark:border-white/[0.08] ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}>
             <Search className="h-3.5 w-3.5 text-zinc-400" />
             <input
@@ -146,11 +172,11 @@ export function HistoryTimelineModal() {
             type="date"
             value={pickedDate}
             onChange={(e) => setPickedDate(e.target.value)}
-            className={`focus-ring w-[220px] border border-black/[0.08] bg-[var(--surface)] px-3 py-2.5 text-[12px] text-zinc-700 dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
+            className={`focus-ring ${isAndroidPhone ? "w-full" : "w-[220px]"} border border-black/[0.08] bg-[var(--surface)] px-3 py-2.5 text-[12px] text-zinc-700 dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
           />
         )}
 
-        <div className="max-h-[68vh] overflow-y-auto pr-1">
+        <div className={`max-h-[68vh] overflow-y-auto ${isAndroidPhone ? "android-history-timeline-list pr-0" : "pr-1"}`}>
           {groups.length === 0 ? (
             <div className={`border border-dashed border-black/[0.08] py-12 text-center text-[13px] text-zinc-500 dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[12px]" : "rounded-[20px]"}`}>
               没有匹配的历史记录

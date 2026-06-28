@@ -3,14 +3,12 @@ import { Check, Clipboard, ExternalLink, Image as ImageIcon, KeyRound } from "lu
 import { usePlatform } from "../../platform/context";
 import { useStudioStore } from "../../state/studioStore";
 import { FHL_BASE_URL, FHL_IMAGE_MODEL_ID } from "../../lib/profiles";
-import { ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
-import { FHLAPIChoiceModal } from "../panel/FHLAPIChoiceModal";
 import { HitokotoStrip } from "./HitokotoStrip";
 import { openExternalURLForPlatform } from "../../platform/android/bridge";
 import { OpenExternalURL } from "../../platform/runtime/host";
 
-const BRAND_TITLE = "FHL Studio 方汤圆版";
-const BRAND_VERSION = "V2.0.1";
+const BRAND_TITLE = "FHL Image Studio 方汤圆版";
+const BRAND_VERSION = "V2.0.2";
 const HEADER_LOGO_SRC = "favicon.png";
 const FHL_QQ_GROUP = "207550870";
 const FHL_QQ_PROMO = `FHL官方QQ交流群:${FHL_QQ_GROUP} 进群免费获取GPT image2生图福利！`;
@@ -56,7 +54,6 @@ export function AppHeaderBrand() {
   const imageModelID = useStudioStore((state) => state.imageModelID);
   const [copiedGroup, setCopiedGroup] = useState(false);
   const [copiedRegisterURL, setCopiedRegisterURL] = useState(false);
-  const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
   const isFHLAPIConfigured = apiKey.trim().length > 0
     && apiMode === "responses"
     && baseURL.trim().replace(/\/+$/, "") === FHL_BASE_URL
@@ -109,15 +106,7 @@ export function AppHeaderBrand() {
   const openFHLAPIConfig = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    setFHLChoiceOpen(true);
-  };
-
-  const useExistingFHLAPI = async () => {
-    setFHLChoiceOpen(false);
-    const store = useStudioStore.getState();
-    await ensureFHLResponsesProfile(store);
     useStudioStore.getState().openUpstreamConfig("app");
-    focusFHLAPIKeyInput();
   };
 
   if (usesAndroidUI) {
@@ -213,11 +202,6 @@ export function AppHeaderBrand() {
             <HitokotoStrip />
           </div>
         </div>
-        <FHLAPIChoiceModal
-          open={fhlChoiceOpen}
-          onClose={() => setFHLChoiceOpen(false)}
-          onUseExistingAPI={useExistingFHLAPI}
-        />
       </>
     );
   }

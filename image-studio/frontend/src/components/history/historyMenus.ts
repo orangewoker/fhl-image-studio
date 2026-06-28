@@ -6,6 +6,7 @@ type SharedHistoryMenuActions = {
   onOpenDetail: () => void;
   onCopyPrompt: () => void;
   onCopySavedPath: () => void;
+  onCopyImage: () => void;
   onSaveOriginal: () => void;
   onShare: () => void;
   onOpenRaw: () => void;
@@ -34,6 +35,12 @@ export function buildSharedHistoryMenu(
       icon: "📁",
       disabled: !item.savedPath,
       onClick: actions.onCopySavedPath,
+    },
+    {
+      label: "复制图片",
+      icon: "🖼",
+      disabled: !(item.savedPath || item.imageB64 || item.fullUrl || item.imageId),
+      onClick: actions.onCopyImage,
     },
     {
       label: "保存原图",

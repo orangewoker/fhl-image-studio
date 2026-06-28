@@ -13,20 +13,23 @@ import {
   PlugZap,
   Shield,
   SlidersHorizontal,
+  Smartphone,
   Sun,
   Trash2,
   Upload,
 } from "lucide-react";
-import { SettingsPresetsRow } from "../../../components/panel/SettingsPresetsRow";
-import type { KernelRuntimeMode, ProxyMode, ThemeMode, UpstreamProfile } from "../../../types/domain";
+import { apiModeLabel } from "../../../lib/profiles";
+import type { APIMode, KernelRuntimeMode, ProxyMode, ThemeMode, UpstreamProfile } from "../../../types/domain";
 import { androidSaveHint } from "../bridge";
+import { AndroidSettingsPresetsRow } from "./AndroidSettingsPresetsRow";
 
 export type AndroidSettingsSurface = "phone" | "pad";
 
 export type AndroidSettingsPanelProps = {
   activeProfile: UpstreamProfile | undefined;
   activeProfileId: string;
-  apiMode: "responses" | "images";
+  apiMode: APIMode;
+  canTestUpstream: boolean;
   clearAPIKey: () => void;
   clearHistory: () => void;
   exportHistory: () => void;
@@ -35,6 +38,7 @@ export type AndroidSettingsPanelProps = {
   importHistory: () => void;
   isTestingKey: boolean;
   kernelRuntimeMode: KernelRuntimeMode;
+  onCopyDeviceDiagnostics: () => void;
   onOpenAbout: () => void;
   onOpenFeedback: () => void;
   onOpenRepo: () => void;
@@ -84,6 +88,7 @@ export function AndroidSettingsPanel({
   activeProfile,
   activeProfileId,
   apiMode,
+  canTestUpstream,
   clearAPIKey,
   clearHistory,
   exportHistory,
@@ -92,6 +97,7 @@ export function AndroidSettingsPanel({
   importHistory,
   isTestingKey,
   kernelRuntimeMode,
+  onCopyDeviceDiagnostics,
   onOpenAbout,
   onOpenFeedback,
   onOpenRepo,
@@ -112,7 +118,7 @@ export function AndroidSettingsPanel({
   theme,
   upstreamReady,
 }: AndroidSettingsPanelProps) {
-  const upstreamModeLabel = apiMode === "responses" ? "Responses API" : "Images API";
+  const upstreamModeLabel = apiModeLabel(apiMode);
   const historyCountLabel = `${historyCount} 条`;
   const currentSummary = [
     upstreamReady ? "上游已配置" : "上游未配置",
@@ -164,14 +170,14 @@ export function AndroidSettingsPanel({
           >
             {profiles.map((profile) => (
               <option key={profile.id} value={profile.id}>
-                {profile.name} · {profile.apiMode === "responses" ? "Responses" : "Images"}
+                {profile.name} · {apiModeLabel(profile.apiMode)}
               </option>
             ))}
           </select>
         ) : null}
         <div className="android-settings-action-grid android-settings-upstream-actions">
           <button type="button" onClick={onOpenUpstream}>管理配置</button>
-          <button type="button" onClick={testAPIKey} disabled={!upstreamReady || isTestingKey}>
+          <button type="button" onClick={testAPIKey} disabled={!canTestUpstream || isTestingKey}>
             {isTestingKey ? "检查中..." : "测试连通性"}
           </button>
         </div>
@@ -279,7 +285,7 @@ export function AndroidSettingsPanel({
   const presetsSection = (
     <section className="android-settings-card android-settings-card-presets">
       <div className="android-settings-section-title">参数预设</div>
-      <SettingsPresetsRow />
+      <AndroidSettingsPresetsRow />
     </section>
   );
 
@@ -326,6 +332,7 @@ export function AndroidSettingsPanel({
       <div className="android-settings-section-title">支持</div>
       <div className="android-settings-action-grid">
         <button type="button" onClick={onOpenAbout}><Info className="h-4 w-4" /> 关于</button>
+        <button type="button" onClick={onCopyDeviceDiagnostics}><Smartphone className="h-4 w-4" /> 适配信息</button>
         <button type="button" onClick={onOpenRepo}><Github className="h-4 w-4" /> GitHub</button>
         <button type="button" onClick={onOpenFeedback}><MessageSquare className="h-4 w-4" /> 反馈</button>
       </div>

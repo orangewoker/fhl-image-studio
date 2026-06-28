@@ -1,11 +1,13 @@
 import type { backend } from "../../wailsjs/go/models";
-import type { ProgressInfo, StreamPreview, StreamPreviewMap, Workspace } from "../types/domain";
+import type { APIMartRecoveryTask, ProgressInfo, StreamPreview, StreamPreviewMap, Workspace } from "../types/domain";
 
-export type APIModeValue = "responses" | "images";
+export type APIModeValue = "responses" | "images" | "apimart" | "runninghub";
 
 export interface RunningJobMeta {
   workspaceId: string;
   apiMode: APIModeValue;
+  apiLabel?: string;
+  batchIndex?: number;
 }
 
 export interface WorkspacePatch extends Partial<Workspace> {
@@ -24,6 +26,8 @@ export interface WorkspaceRuntimeState {
   lastLogLine: string;
   errorMessage: string | null;
   errorRawPath: string | null;
+  apimartRecoveryTask?: APIMartRecoveryTask | null;
+  apimartRecoveryTasks?: APIMartRecoveryTask[];
   lastPayload: backend.GenerateOptions | null;
   workspaces: Workspace[];
 }
@@ -38,16 +42,28 @@ export interface WorkspaceRuntimeMirror {
   lastLogLine: string;
   errorMessage: string | null;
   errorRawPath: string | null;
+  apimartRecoveryTask?: APIMartRecoveryTask | null;
+  apimartRecoveryTasks?: APIMartRecoveryTask[];
   lastPayload: backend.GenerateOptions | null;
   isRunning: boolean;
 }
 
 export function normalizeAPIMode(mode: string): APIModeValue {
-  return String(mode).trim() === "images" ? "images" : "responses";
+  const normalized = String(mode).trim().toLowerCase();
+  if (normalized === "images" || normalized === "apimart" || normalized === "runninghub") return normalized;
+  return "responses";
 }
 
 export function apiModeLabel(mode: string): string {
-  return normalizeAPIMode(mode) === "images" ? "Images API" : "Responses API";
+  const shortLabel = apiModeShortLabel(mode);
+  return shortLabel === "APIMart" || shortLabel === "RunningHub" ? shortLabel : `${shortLabel} API`;
+}
+
+export function apiModeShortLabel(mode: string): string {
+  const normalized = normalizeAPIMode(mode);
+  if (normalized === "apimart") return "APIMart";
+  if (normalized === "runninghub") return "RunningHub";
+  return normalized === "images" ? "Images" : "Responses";
 }
 
 export function normalizeConcurrencyLimit(value: unknown): number {
@@ -66,6 +82,7 @@ export function patchWorkspaceRuntime(workspaces: Workspace[], workspaceId: stri
     if (w.id !== workspaceId) return w;
     const next: Workspace = { ...w };
     if (patch.name !== undefined) next.name = patch.name;
+    if (patch.promptPrefix !== undefined) next.promptPrefix = patch.promptPrefix;
     if (patch.currentImageId !== undefined) next.currentImageId = patch.currentImageId;
     if (patch.batchResultIds !== undefined) next.batchResultIds = patch.batchResultIds;
     if (patch.resultGridOpen !== undefined) next.resultGridOpen = patch.resultGridOpen;
@@ -79,6 +96,8 @@ export function patchWorkspaceRuntime(workspaces: Workspace[], workspaceId: stri
     if (patch.lastLogLine !== undefined) next.lastLogLine = patch.lastLogLine;
     if (patch.errorMessage !== undefined) next.errorMessage = patch.errorMessage;
     if (patch.errorRawPath !== undefined) next.errorRawPath = patch.errorRawPath;
+    if (patch.apimartRecoveryTask !== undefined) next.apimartRecoveryTask = patch.apimartRecoveryTask;
+    if (patch.apimartRecoveryTasks !== undefined) next.apimartRecoveryTasks = patch.apimartRecoveryTasks;
     if (patch.lastPayload !== undefined) next.lastPayload = patch.lastPayload;
     return next;
   });
@@ -107,6 +126,8 @@ export function workspaceRuntimeFromState(
       lastLogLine: s.lastLogLine,
       errorMessage: s.errorMessage,
       errorRawPath: s.errorRawPath,
+      apimartRecoveryTask: s.apimartRecoveryTask,
+      apimartRecoveryTasks: s.apimartRecoveryTasks,
       lastPayload: s.lastPayload,
       isRunning: s.runningJobs.length > 0,
     };
@@ -123,6 +144,8 @@ export function workspaceRuntimeFromState(
     lastLogLine: w?.lastLogLine ?? "",
     errorMessage: w?.errorMessage ?? null,
     errorRawPath: w?.errorRawPath ?? null,
+    apimartRecoveryTask: w?.apimartRecoveryTask ?? null,
+    apimartRecoveryTasks: w?.apimartRecoveryTasks ?? [],
     lastPayload: w?.lastPayload ?? null,
     isRunning: runningJobs.length > 0,
   };
@@ -146,6 +169,8 @@ export function activeRuntimePatch(patch: WorkspacePatch): Partial<WorkspaceRunt
   if (patch.lastLogLine !== undefined) out.lastLogLine = patch.lastLogLine;
   if (patch.errorMessage !== undefined) out.errorMessage = patch.errorMessage;
   if (patch.errorRawPath !== undefined) out.errorRawPath = patch.errorRawPath;
+  if (patch.apimartRecoveryTask !== undefined) out.apimartRecoveryTask = patch.apimartRecoveryTask;
+  if (patch.apimartRecoveryTasks !== undefined) out.apimartRecoveryTasks = patch.apimartRecoveryTasks;
   if (patch.lastPayload !== undefined) out.lastPayload = patch.lastPayload;
   return out;
 }

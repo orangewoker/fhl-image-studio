@@ -22,7 +22,7 @@ cd android-shell
 ./gradlew assembleRelease
 ```
 
-MuMu emulator debugging:
+Android Studio / emulator debugging:
 
 - See `../docs/mumu-android-debug.md` for the shared ADB connection,
-  Docker build, install, screenshot, rotation, and troubleshooting workflow.
+  emulator setup, install, screenshot, rotation, and troubleshooting workflow.

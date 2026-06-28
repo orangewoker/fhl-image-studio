@@ -5,6 +5,8 @@ import {
   Generate as wailsGenerate,
   Edit as wailsEdit,
   OptimizePrompt as wailsOptimizePrompt,
+  ReversePrompt as wailsReversePrompt,
+  QueryAPIMartTask as wailsQueryAPIMartTask,
   Cancel as wailsCancel,
   ImportImageFromB64,
   ReadImageAsBase64,
@@ -33,6 +35,7 @@ import {
 import type { backend } from "../../wailsjs/go/models";
 import {
   APIMode,
+  APIMartRecoveryTask,
   HistoryItem,
   JobGroupSnapshot,
   KernelRuntimeMode,
@@ -65,6 +68,7 @@ import {
   cleanBaseURL,
 } from "../lib/security";
 import { normalizeAPIKeyInput, validateAPIKeyForHeader } from "../lib/apiKey";
+import { ensureBase64FromSource } from "../lib/images";
 import { loadProxyConfig, normalizeProxyMode, persistProxyConfig } from "../lib/proxy";
 import { syncCLIConfigQuietly, type CLIConfigSyncInput } from "../lib/cliConfigSync";
 import {
@@ -74,9 +78,12 @@ import {
   FHL_PROFILE_ID,
   FHL_TEXT_MODEL_ID,
   genProfileId,
+  isFHLBaseURL,
+  isRunningHubBaseURL,
   keyringUserFor,
   makeFHLResponsesProfile,
   pickActiveProfile,
+  upstreamConfigShortLabel,
 } from "../lib/profiles";
 import { loadLocalFHLConfig } from "../lib/localFHLConfig";
 import { isMac, readRuntimePlatformState } from "../platform";
@@ -85,6 +92,7 @@ import {
   activeRuntimePatch,
   apiModeLabel,
   normalizeBatchCount,
+  normalizeAPIMode,
   normalizeConcurrencyLimit,
   patchWorkspaceRuntime,
   resetWorkspaceSourcesAfterServiceRestart,
@@ -94,7 +102,7 @@ import {
   type RunningJobMeta,
   type WorkspacePatch,
 } from "./workspaceRuntime";
-import { normalizeSizeSelection } from "../components/panel/sizeCapabilities";
+import { normalizeFHLImagesBillingSize, normalizeSizeSelection } from "../components/panel/sizeCapabilities";
 import { buildMacWorkspacePreview, readPreviewScenario } from "../app/dev/previewData";
 import {
   applyTheme,
@@ -118,7 +126,7 @@ import {
   tempDataURLFromB64,
   trimHistory,
 } from "./studioStore.shared";
-import type { ModeConfig, PromptOptimizeRequest, Stroke, StudioState, UndoEntry } from "./studioStore.types";
+import type { ModeConfig, PromptOptimizeRequest, PromptReverseRequest, Stroke, StudioState, UndoEntry } from "./studioStore.types";
 import {
   historyItemsByIds,
   cryptoIDFallback,
@@ -133,6 +141,7 @@ import { createMediaActions } from "./studioStore.media";
 import { createProfileActions } from "./studioStore.profiles";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
+import { getRememberedReversePromptImage } from "./reversePromptImageCache";
 import {
   mergeWorkspaceJobGroup,
   replaceWorkspaceJobGroups,
@@ -148,9 +157,14 @@ import {
   streamPreviewStatePatch,
   type StreamPreviewPayload,
 } from "./studioStore.streamPreview";
+import { buildEffectivePrompt } from "./promptComposition";
 
 type RuntimeGenerateOptions = backend.GenerateOptions & {
   sourceImages?: SourceImage[];
+  requestRunId?: string;
+  batchVariationKey?: string;
+  batchIndex?: number;
+  batchCount?: number;
 };
 
 const browserJobSubscriptions = new Map<string, () => void>();
@@ -163,7 +177,95 @@ const PRESETS_KEY = storageKey("gptcodex.presets");
 const THEME_KEY = storageKey("gptcodex.theme");
 const FONT_SCALE_KEY = storageKey("gptcodex.fontScale");
 const OUTPUT_DIR_KEY = storageKey("gptcodex.outputDir");
+const ANDROID_CONTINUOUS_DEFAULT_KEY = storageKey("gptcodex.androidContinuousDefault.v1");
 const INITIAL_HISTORY_LOAD = 48;
+const ANDROID_FHL_TEXT_TOOLS_NOTICE = "AI 优化、提示词反推和指令改写需要调用 FHL GPT-5.5，请先配置 FHL API。";
+
+function shouldApplyAndroidContinuousDefault(): boolean {
+  try {
+    if (localStorage.getItem(ANDROID_CONTINUOUS_DEFAULT_KEY) === "1") return false;
+    localStorage.setItem(ANDROID_CONTINUOUS_DEFAULT_KEY, "1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolvePromptTextProfile(s: StudioState): Promise<{
+  apiKey: string;
+  baseURL: string;
+  textModelID: string;
+}> {
+  if (readRuntimePlatformState().isAndroid) {
+    return resolveAndroidFHLPromptTextProfile(s);
+  }
+
+  let apiKey = s.apiKey;
+  let baseURL = s.baseURL;
+  let textModelID = s.textModelID;
+
+  if (s.apiMode === "apimart") {
+    if (s.apiKey.trim() && s.baseURL.trim() && s.textModelID.trim()) {
+      return {
+        apiKey: s.apiKey.trim(),
+        baseURL: cleanBaseURL(s.baseURL),
+        textModelID: s.textModelID.trim(),
+      };
+    }
+
+    const responsesProfile = s.profiles.find((profile) => profile.apiMode === "responses" && profile.baseURL.trim());
+    if (!responsesProfile) {
+      return { apiKey: "", baseURL: "", textModelID: "" };
+    }
+    apiKey = "";
+    baseURL = responsesProfile.baseURL;
+    textModelID = responsesProfile.textModelID;
+    const storedKey = await GetStoredAPIKey(keyringUserFor(responsesProfile.id)).catch(() => "");
+    if (storedKey) apiKey = storedKey;
+  } else if (s.apiMode !== "responses") {
+    const responsesProfile = s.profiles.find((profile) => profile.apiMode === "responses" && profile.baseURL.trim());
+    if (responsesProfile) {
+      baseURL = responsesProfile.baseURL;
+      textModelID = responsesProfile.textModelID;
+      const storedKey = await GetStoredAPIKey(keyringUserFor(responsesProfile.id)).catch(() => "");
+      if (storedKey) apiKey = storedKey;
+    }
+  }
+
+  return {
+    apiKey: apiKey.trim(),
+    baseURL: cleanBaseURL(baseURL),
+    textModelID: textModelID.trim(),
+  };
+}
+
+async function resolveAndroidFHLPromptTextProfile(s: StudioState): Promise<{
+  apiKey: string;
+  baseURL: string;
+  textModelID: string;
+}> {
+  const activeStateIsFHL = isFHLBaseURL(s.baseURL);
+  const fhlProfile = s.profiles.find((profile) => isFHLBaseURL(profile.baseURL));
+
+  if (fhlProfile) {
+    const storedKey = await GetStoredAPIKey(keyringUserFor(fhlProfile.id)).catch(() => "");
+    return {
+      apiKey: (storedKey || (activeStateIsFHL ? s.apiKey : "")).trim(),
+      baseURL: cleanBaseURL(fhlProfile.baseURL),
+      textModelID: (fhlProfile.textModelID || FHL_TEXT_MODEL_ID).trim(),
+    };
+  }
+
+  if (activeStateIsFHL) {
+    return {
+      apiKey: s.apiKey.trim(),
+      baseURL: cleanBaseURL(s.baseURL),
+      textModelID: (s.textModelID || FHL_TEXT_MODEL_ID).trim(),
+    };
+  }
+
+  return { apiKey: "", baseURL: "", textModelID: "" };
+}
 const HISTORY_MEDIA_HYDRATE_CONCURRENCY = 4;
 
 let deferredHistoryLoadPromise: Promise<void> | null = null;
@@ -255,7 +357,7 @@ function isBrowserTaskProxyMode(): boolean {
 }
 
 function isAndroidTaskProxyMode(): boolean {
-  return false;
+  return detectHostKind() === "android-shell" && canUseAndroidJobs();
 }
 
 function isBackgroundTaskProxyMode(): boolean {
@@ -263,7 +365,9 @@ function isBackgroundTaskProxyMode(): boolean {
 }
 
 function shouldUseBackgroundTaskProxyForSubmit(apiMode: APIMode): boolean {
-  return isBrowserTaskProxyMode() || (isAndroidTaskProxyMode() && apiMode !== "images");
+  void apiMode;
+  if (isBrowserTaskProxyMode()) return true;
+  return isAndroidTaskProxyMode();
 }
 
 function effectiveAPIModeForSubmit(_mode: Mode, apiMode: APIMode): APIMode {
@@ -335,6 +439,39 @@ function isVirtualImagePath(filePath: string | null | undefined): boolean {
   return String(filePath || "").trim().startsWith("memory://image/");
 }
 
+async function inlineSourceImageBase64(source: SourceImage): Promise<string> {
+  const imageB64 = await ensureBase64FromSource(source).catch(() => "");
+  if (imageB64) return imageB64;
+  const previewUrl = String(source.previewUrl || "").trim();
+  if (/^data:image\//i.test(previewUrl) && previewUrl.includes(",")) {
+    return stripDataURLPrefix(previewUrl).trim();
+  }
+  return "";
+}
+
+async function materializeInlineEditSources(sources: SourceImage[]): Promise<SourceImage[]> {
+  let changed = false;
+  const nextSources = await Promise.all(sources.map(async (source) => {
+    const rawPath = String(source.path || "").trim();
+    if (rawPath) return source;
+    const imageB64 = await inlineSourceImageBase64(source);
+    if (!imageB64) return source;
+    const imported = await ImportImageFromB64(imageB64, source.name || "source.png").catch(() => null);
+    const nextPath = String(imported?.path || "").trim();
+    if (!nextPath) return source;
+    changed = true;
+    return {
+      ...source,
+      path: nextPath,
+      name: pathLeaf(nextPath),
+      previewUrl: imported?.previewUrl || source.previewUrl,
+      imageB64: imported?.previewUrl ? undefined : imageB64,
+      imageBlob: null,
+    };
+  }));
+  return changed ? nextSources : sources;
+}
+
 async function materializeEditSourcesForBrowserProxy(sources: SourceImage[]): Promise<SourceImage[]> {
   let changed = false;
   const nextSources = await Promise.all(sources.map(async (source) => {
@@ -362,6 +499,20 @@ async function materializeEditSourcesForBrowserProxy(sources: SourceImage[]): Pr
   return changed ? nextSources : sources;
 }
 
+async function materializeEditSourcesForRemoteUpload(sources: SourceImage[]): Promise<SourceImage[]> {
+  let changed = false;
+  const nextSources = await Promise.all(sources.map(async (source) => {
+    if (source.imageB64 || source.imageBlob) return source;
+    const rawPath = String(source.path || "").trim();
+    if (!rawPath) return source;
+    const imageB64 = await ReadImageAsBase64(rawPath).catch(() => "");
+    if (!imageB64) return source;
+    changed = true;
+    return { ...source, imageB64 };
+  }));
+  return changed ? nextSources : sources;
+}
+
 function browserRuntimePatchFromGroups(groups: JobGroupSnapshot[]): WorkspacePatch {
   const runtime = runtimeStateFromJobGroups(groups);
   return {
@@ -375,6 +526,29 @@ function browserRuntimePatchFromGroups(groups: JobGroupSnapshot[]): WorkspacePat
     errorMessage: runtime.errorMessage,
     errorRawPath: runtime.errorRawPath,
   };
+}
+
+function sortAPIMartRecoveryTasks(tasks: APIMartRecoveryTask[]): APIMartRecoveryTask[] {
+  return [...tasks].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+}
+
+function upsertAPIMartRecoveryTask(
+  tasks: APIMartRecoveryTask[] | undefined,
+  task: APIMartRecoveryTask,
+): APIMartRecoveryTask[] {
+  const withoutCurrent = (tasks ?? []).filter((item) => item.taskId !== task.taskId);
+  return sortAPIMartRecoveryTasks([task, ...withoutCurrent]);
+}
+
+function removeAPIMartRecoveryTask(
+  tasks: APIMartRecoveryTask[] | undefined,
+  taskId: string,
+): APIMartRecoveryTask[] {
+  return sortAPIMartRecoveryTasks((tasks ?? []).filter((item) => item.taskId !== taskId));
+}
+
+function primaryAPIMartRecoveryTask(tasks: APIMartRecoveryTask[] | undefined): APIMartRecoveryTask | null {
+  return sortAPIMartRecoveryTasks(tasks ?? [])[0] ?? null;
 }
 
 function cliConfigFromState(state: StudioState, overrides: Partial<CLIConfigSyncInput> = {}): CLIConfigSyncInput {
@@ -402,7 +576,9 @@ function buildRunningJobMetaFromBrowserGroups(
       for (const jobId of runningJobIdsFromGroup(group)) {
         out[jobId] = {
           workspaceId: group.workspaceId,
-          apiMode: group.apiMode === "images" ? "images" : "responses",
+          apiMode: normalizeAPIMode(group.apiMode),
+          apiLabel: group.apiLabel,
+          batchIndex: group.slots.find((slot) => slot.jobId === jobId)?.batchIndex,
         };
       }
     }
@@ -417,8 +593,17 @@ async function buildHistoryItemFromBrowserSlot(
 ): Promise<HistoryItem | null> {
   const savedPath = String(slot.savedPath || existing?.savedPath || "").trim();
   if (slot.status !== "succeeded" || !savedPath) return null;
-  const imageB64 = existing?.imageB64 || await ReadImageAsBase64(savedPath).catch(() => "");
-  if (!imageB64) return null;
+  const slotThumbPath = String(slot.thumbPath || existing?.thumbPath || "").trim();
+  const slotPreviewUrl = String(slot.previewUrl || existing?.previewUrl || "").trim();
+  const mediaRef = !slotPreviewUrl
+    ? await (slotThumbPath
+      ? RegisterMediaAsset(savedPath, slotThumbPath)
+      : RegisterImportedImageAsset(savedPath)
+    ).catch(() => null)
+    : null;
+  const previewUrl = slotPreviewUrl || mediaRef?.previewUrl || "";
+  const imageB64 = previewUrl ? "" : (existing?.imageB64 || await ReadImageAsBase64(savedPath).catch(() => ""));
+  if (!previewUrl && !imageB64 && !mediaRef?.imageId && !mediaRef?.fullUrl) return null;
   const seedBase = Number.isFinite(Number(group.seed)) ? Number(group.seed) : 0;
   return {
     ...existing,
@@ -429,6 +614,7 @@ async function buildHistoryItemFromBrowserSlot(
     size: group.size,
     quality: group.quality,
     outputFormat: group.outputFormat,
+    apiLabel: group.apiLabel || undefined,
     createdAt: slot.finishedAt ?? slot.updatedAt ?? group.createdAt,
     seed: seedBase > 0 ? seedBase + slot.batchIndex : undefined,
     negativePrompt: group.negativePrompt || undefined,
@@ -438,8 +624,23 @@ async function buildHistoryItemFromBrowserSlot(
     sourceImages: group.mode === "edit" ? sourceImagesFromPaths(group.sourceImagePaths) : undefined,
     parentId: group.mode === "edit" ? group.sourceImagePaths?.[0] : undefined,
     savedPath,
+    galleryUri: String(slot.galleryUri || existing?.galleryUri || "") || undefined,
+    imageId: mediaRef?.imageId || existing?.imageId,
+    thumbPath: mediaRef?.thumbPath || slotThumbPath || existing?.thumbPath,
+    previewUrl: previewUrl || undefined,
+    fullUrl: mediaRef?.fullUrl || existing?.fullUrl,
+    previewWidth: Number.isFinite(Number(slot.previewWidth))
+      ? Number(slot.previewWidth)
+      : mediaRef?.previewWidth || existing?.previewWidth,
+    previewHeight: Number.isFinite(Number(slot.previewHeight))
+      ? Number(slot.previewHeight)
+      : mediaRef?.previewHeight || existing?.previewHeight,
+    width: Number.isFinite(Number(slot.width)) ? Number(slot.width) : existing?.width,
+    height: Number.isFinite(Number(slot.height)) ? Number(slot.height) : existing?.height,
     rawPath: String(slot.rawPath || existing?.rawPath || ""),
-    imageB64,
+    taskId: String(slot.taskId || existing?.taskId || "") || undefined,
+    runningHubRecoverable: slot.runningHubRecoverable ?? existing?.runningHubRecoverable,
+    imageB64: imageB64 || undefined,
     imageBlob: null,
     previewBlob: null,
     previewOnly: true,
@@ -469,6 +670,12 @@ async function hydrateHistoryFromBrowserGroups(
         previous
         && previous.savedPath === nextItem.savedPath
         && previous.rawPath === nextItem.rawPath
+        && previous.thumbPath === nextItem.thumbPath
+        && previous.previewUrl === nextItem.previewUrl
+        && previous.previewWidth === nextItem.previewWidth
+        && previous.previewHeight === nextItem.previewHeight
+        && previous.width === nextItem.width
+        && previous.height === nextItem.height
         && previous.revisedPrompt === nextItem.revisedPrompt
         && previous.imageB64 === nextItem.imageB64
       ) {
@@ -520,7 +727,7 @@ async function syncHistoryItemFromBrowserJobSlot(
   if (!historyItem) return;
   const activeItem: HistoryItem = {
     ...historyItem,
-    previewOnly: false,
+    previewOnly: true,
   };
   store.setState((state) => {
     const nextHistory = trimHistory([
@@ -536,11 +743,12 @@ async function syncHistoryItemFromBrowserJobSlot(
       ? [...state.batchResults.filter((item) => item.id !== historyItem.id), historyItem]
         .sort((a, b) => (a.batchIndex ?? 0) - (b.batchIndex ?? 0))
       : state.batchResults;
+    const keepResultGridOpen = group.batchCount > 1 || group.continuousGenerateTest === true;
     const workspacePatch: WorkspacePatch = options.updateWorkspaceSelection
       ? {
           currentImageId: historyItem.id,
           batchResultIds: nextBatchIds,
-          resultGridOpen: group.batchCount > 1,
+          resultGridOpen: keepResultGridOpen,
         }
       : {};
     return {
@@ -549,8 +757,8 @@ async function syncHistoryItemFromBrowserJobSlot(
       workspaces: patchWorkspaceRuntime(state.workspaces, group.workspaceId, workspacePatch),
       ...(options.updateWorkspaceSelection && state.activeWorkspaceId === group.workspaceId
         ? {
-            currentImage: group.batchCount > 1 ? historyItem : activeItem,
-            resultGridOpen: group.batchCount > 1,
+            currentImage: keepResultGridOpen ? historyItem : activeItem,
+            resultGridOpen: keepResultGridOpen,
             maskDataURL: null,
             annotations: [],
             tool: "pan",
@@ -649,7 +857,9 @@ const imageActions = createImageActions({
 export const useStudioStore = create<StudioState>((set, get) => ({
   apiKey: "",
   mode: "generate",
+  promptPrefix: "",
   prompt: "",
+  optimizationGuidance: "",
   negativePrompt: "",
   size: "1024x1024",
   quality: "medium",
@@ -668,6 +878,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   profiles: [],
   activeProfileId: "",
   sources: [],
+  reversePromptImage: null,
 
   runningJobs: [],
   jobsTotal: 0,
@@ -678,6 +889,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   lastLogLine: "",
   errorMessage: null,
   errorRawPath: null,
+  apimartRecoveryTask: null,
+  apimartRecoveryTasks: [],
   isRunning: false,
   lastPayload: null,
   runningJobMeta: {},
@@ -717,6 +930,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   starPromptSource: "auto",
   promptHistory: [],
   batchCount: 1,
+  continuousGenerateTest: true,
   presets: [],
   theme: "system",
   fontScale: 1,
@@ -725,6 +939,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   closeSettings: () => set({ settingsOpen: false }),
   isTestingKey: false,
   isOptimizingPrompt: false,
+  isReversingPrompt: false,
   upstreamModalOpen: false,
   upstreamReturnTarget: "app",
   openUpstreamConfig: (returnTarget = "app") => set({
@@ -779,11 +994,46 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           resultGridOpen: false,
         }),
       });
+    } else if (key === "promptPrefix") {
+      set({
+        workspaces: get().workspaces.map((w) => (
+          w.id === get().activeWorkspaceId ? { ...w, promptPrefix: normalizedValue as string } : w
+        )),
+      });
+    } else if (key === "optimizationGuidance") {
+      set({
+        workspaces: get().workspaces.map((w) => (
+          w.id === get().activeWorkspaceId ? { ...w, optimizationGuidance: normalizedValue as string } : w
+        )),
+      });
+    } else if (
+      key === "prompt" ||
+      key === "negativePrompt" ||
+      key === "mode" ||
+      key === "size" ||
+      key === "quality" ||
+      key === "outputFormat" ||
+      key === "seed" ||
+      key === "styleTag" ||
+      key === "sources"
+    ) {
+      set({
+        workspaces: get().workspaces.map((w) => (
+          w.id === get().activeWorkspaceId ? { ...w, [key]: normalizedValue } as Workspace : w
+        )),
+      });
     } else if (key === "batchCount") {
       const value = normalizedValue as number;
       set({
         workspaces: get().workspaces.map((w) => (
           w.id === get().activeWorkspaceId ? { ...w, batchCount: value } : w
+        )),
+      });
+    } else if (key === "continuousGenerateTest") {
+      const value = normalizedValue === true;
+      set({
+        workspaces: get().workspaces.map((w) => (
+          w.id === get().activeWorkspaceId ? { ...w, continuousGenerateTest: value } : w
         )),
       });
     } else if (key === "errorMessage") {
@@ -848,26 +1098,45 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({
       errorMessage: null,
       errorRawPath: null,
+      apimartRecoveryTask: null,
+      apimartRecoveryTasks: [],
       workspaces: patchWorkspaceRuntime(get().workspaces, wsId, {
         errorMessage: null,
         errorRawPath: null,
+        apimartRecoveryTask: null,
+        apimartRecoveryTasks: [],
       }),
     });
   },
 
   selectSourceImage: async () => imageActions.selectSourceImage(),
+  selectReversePromptImage: async () => imageActions.selectReversePromptImage(),
+  importReversePromptImageFile: async (file) => imageActions.importReversePromptImageFile(file),
+  clearReversePromptImage: () => imageActions.clearReversePromptImage(),
   removeSource: (index) => imageActions.removeSource(index),
   clearSources: () => imageActions.clearSources(),
   reorderSources: (from, to) => imageActions.reorderSources(from, to),
 
   submit: async () => {
     const s = get();
-    if (s.isRunning) return;
-    if (!s.apiKey.trim()) {
+    const appendingContinuousRun = s.isRunning && s.continuousGenerateTest === true;
+    if (s.isRunning && !s.continuousGenerateTest) {
+      s.pushToast("连续生成模式关闭时不会并发提交，请先在创作参数里开启连续生成", "warn", 5200);
+      return;
+    }
+    const activeProfile = s.profiles.find((p) => p.id === s.activeProfileId);
+    const submitAPIMode = activeProfile?.apiMode ?? s.apiMode;
+    const submitRequestPolicy = activeProfile?.requestPolicy ?? s.requestPolicy;
+    const submitBaseURL = activeProfile?.baseURL ?? s.baseURL;
+    const submitTextModelID = activeProfile?.textModelID ?? s.textModelID;
+    const submitImageModelID = activeProfile?.imageModelID ?? s.imageModelID;
+    const runningHubBridgeSubmit = submitAPIMode === "runninghub" || isRunningHubBaseURL(submitBaseURL);
+    if (!runningHubBridgeSubmit && !s.apiKey.trim()) {
       set({ errorMessage: "请填写 API Key", errorRawPath: null });
       return;
     }
     let cleanedAPIKey = "";
+    if (!runningHubBridgeSubmit) {
     try {
       cleanedAPIKey = validateAPIKeyForHeader(s.apiKey);
     } catch (error: any) {
@@ -881,24 +1150,48 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         try { await SetStoredAPIKey(keyringUserFor(activeId), cleanedAPIKey); } catch {}
       }
     }
-    if (!s.prompt.trim()) {
+    }
+    const effectivePrompt = buildEffectivePrompt(s.promptPrefix, s.prompt);
+    if (!effectivePrompt.trim()) {
       set({ errorMessage: "请填写提示词", errorRawPath: null });
       return;
     }
-    if (!s.baseURL.trim()) {
+    const submitImagesNewAPICompat = submitAPIMode === "images"
+      ? (activeProfile ? activeProfile.imagesNewAPICompat === true : s.imagesNewAPICompat === true)
+      : false;
+    if (!submitBaseURL.trim()) {
       set({ errorMessage: "请在右侧工作栏顶部的「上游配置」中填入你的中转站地址(必须兼容 OpenAI Responses API + image_generation 工具)", errorRawPath: null });
       return;
     }
-    const cleanedBaseURL = cleanBaseURL(s.baseURL);
-    const batchCount = normalizeBatchCount(s.batchCount);
-    const activeProfile = s.profiles.find((p) => p.id === s.activeProfileId);
-    const concurrencyLimit = normalizeConcurrencyLimit(activeProfile?.concurrencyLimit ?? 0);
-    const effectiveAPIMode = effectiveAPIModeForSubmit(s.mode, s.apiMode);
+    const cleanedBaseURL = cleanBaseURL(submitBaseURL);
+    const selectedBatchCount = normalizeBatchCount(s.batchCount);
+    const requestedBatchCount = s.continuousGenerateTest === true ? 1 : selectedBatchCount;
+    let batchCount = requestedBatchCount;
+    const rawConcurrencyLimit = normalizeConcurrencyLimit(activeProfile?.concurrencyLimit ?? 0);
+    const concurrencyLimit = readRuntimePlatformState().isAndroid
+      ? Math.min(2, Math.max(1, rawConcurrencyLimit || 1))
+      : rawConcurrencyLimit;
+    const effectiveAPIMode = effectiveAPIModeForSubmit(s.mode, submitAPIMode);
+    const submitAPIShortLabel = upstreamConfigShortLabel({
+      apiMode: effectiveAPIMode,
+      baseURL: cleanedBaseURL,
+    });
     if (concurrencyLimit > 0) {
       const activeCount = workspaceRunningCount(s, effectiveAPIMode);
       const available = concurrencyLimit - activeCount;
-      if (available < batchCount) {
-        const apiLabel = effectiveAPIMode === "responses" ? "Responses API" : "Images API";
+      if (available <= 0) {
+        const apiLabel = apiModeLabel(effectiveAPIMode);
+        set({
+          errorMessage: `${apiLabel} 并发限制 ${concurrencyLimit},当前共享并发已满，请等待正在生成的任务完成后再追加。`,
+          errorRawPath: null,
+        });
+        return;
+      }
+      if (appendingContinuousRun && available < batchCount) {
+        batchCount = available;
+        s.pushToast(`已按共享并发上限追加 ${batchCount} 个任务`, "info", 4200);
+      } else if (!appendingContinuousRun && available < batchCount) {
+        const apiLabel = apiModeLabel(effectiveAPIMode);
         set({
           errorMessage: `${apiLabel} 并发限制 ${concurrencyLimit},当前还可提交 ${Math.max(0, available)} 个,本次需要 ${batchCount} 个。`,
           errorRawPath: null,
@@ -909,12 +1202,19 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     let editSourcePaths: string[] = [];
     let preparedSources = s.sources;
     if (s.mode === "edit") {
+      const inlineMaterializedSources = await materializeInlineEditSources(preparedSources);
+      if (inlineMaterializedSources !== preparedSources) {
+        preparedSources = inlineMaterializedSources;
+        set({ sources: inlineMaterializedSources });
+      }
       if (shouldUseBackgroundTaskProxyForSubmit(effectiveAPIMode)) {
         const materializedSources = await materializeEditSourcesForBrowserProxy(preparedSources);
         if (materializedSources !== preparedSources) {
           preparedSources = materializedSources;
           set({ sources: materializedSources });
         }
+      } else {
+        preparedSources = await materializeEditSourcesForRemoteUpload(preparedSources);
       }
       editSourcePaths = preparedSources.map((src) => src.path).filter(Boolean);
       if (editSourcePaths.length === 0 && s.currentImage) {
@@ -943,34 +1243,48 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
 
     const workspaceId = s.activeWorkspaceId;
-    const clearCurrentForNewRun = s.mode === "generate";
+    const requestRunId = cryptoIDFallback();
+    const clearCurrentForNewRun = s.mode === "generate" && !appendingContinuousRun;
+    const previousRuntime = workspaceRuntimeFromState(s, workspaceId);
+    const existingJobsTotal = appendingContinuousRun ? previousRuntime.jobsTotal : 0;
+    const existingJobsCompleted = appendingContinuousRun ? previousRuntime.jobsCompleted : 0;
+    const existingRunningJobs = appendingContinuousRun ? previousRuntime.runningJobs : [];
+    const existingStreamPreviews = appendingContinuousRun ? previousRuntime.streamPreviews ?? {} : {};
+    const existingBatchResults = appendingContinuousRun ? s.batchResults : [];
+    const existingBatchResultIds = appendingContinuousRun
+      ? (s.workspaces.find((workspace) => workspace.id === workspaceId)?.batchResultIds ?? [])
+      : [];
     const runPatch = {
       errorMessage: null,
       errorRawPath: null,
-      progress: null,
-      streamPreview: null,
-      streamPreviews: {},
+      progress: appendingContinuousRun ? previousRuntime.progress : null,
+      streamPreview: appendingContinuousRun ? previousRuntime.streamPreview : null,
+      streamPreviews: existingStreamPreviews,
       lastLogLine: "",
       isRunning: true,
-      jobsTotal: batchCount,
-      jobsCompleted: 0,
-      runningJobs: [],
+      jobsTotal: existingJobsTotal + batchCount,
+      jobsCompleted: existingJobsCompleted,
+      runningJobs: existingRunningJobs,
     };
     set({
       ...runPatch,
-      batchCount,
-      batchResults: [],
-      resultGridOpen: batchCount > 1,
+      batchCount: selectedBatchCount,
+      batchResults: existingBatchResults,
+      apimartRecoveryTask: null,
+      apimartRecoveryTasks: [],
+      resultGridOpen: appendingContinuousRun ? true : batchCount > 1,
       compareB: null,
       currentImage: clearCurrentForNewRun ? null : s.currentImage,
-      maskDataURL: null,
-      annotations: [],
-      strokes: [],
+      maskDataURL: appendingContinuousRun ? s.maskDataURL : null,
+      annotations: appendingContinuousRun ? s.annotations : [],
+      strokes: appendingContinuousRun ? s.strokes : [],
       workspaces: patchWorkspaceRuntime(s.workspaces, workspaceId, {
         ...runPatch,
         currentImageId: clearCurrentForNewRun ? null : s.currentImage?.id ?? null,
-        batchResultIds: [],
-        resultGridOpen: batchCount > 1,
+        batchResultIds: existingBatchResultIds,
+        resultGridOpen: appendingContinuousRun ? true : batchCount > 1,
+        apimartRecoveryTask: null,
+        apimartRecoveryTasks: [],
       }),
     });
 
@@ -978,23 +1292,28 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       ? buildMaskPNGDataURL(s.strokes, s.currentImage?.imageB64 ? imageDims(s.currentImage.imageB64) : null)
       : null;
     const maskB64 = maskDataURL ? stripDataURLPrefix(maskDataURL) : "";
-    let augmentedPrompt = augmentPromptWithAnnotations(s.prompt, s.annotations, s.currentImage?.imageB64 ? imageDims(s.currentImage.imageB64) : null);
+    let augmentedPrompt = augmentPromptWithAnnotations(effectivePrompt, s.annotations, s.currentImage?.imageB64 ? imageDims(s.currentImage.imageB64) : null);
     // Append style chip suffix if the user picked one (other than "全部").
     const styleSuffix = STYLE_SUFFIXES[s.styleTag];
     if (styleSuffix) {
       augmentedPrompt = `${augmentedPrompt}, ${styleSuffix}`;
     }
 
-    const resolvedSize = normalizeSizeSelection(s.size, {
+    const selectedSize = normalizeSizeSelection(s.size, {
       apiMode: effectiveAPIMode,
-      requestPolicy: s.requestPolicy,
-      imageModelID: s.imageModelID,
+      requestPolicy: submitRequestPolicy,
+      imageModelID: submitImageModelID,
+    });
+    const resolvedSize = normalizeFHLImagesBillingSize(selectedSize, {
+      apiMode: effectiveAPIMode,
+      baseURL: cleanedBaseURL,
     });
 
-    const basePayload: backend.GenerateOptions = {
+    const basePayload: RuntimeGenerateOptions = {
       apiKey: cleanedAPIKey,
       mode: s.mode,
       requestedJobId: "",
+      requestRunId,
       prompt: augmentedPrompt,
       size: resolvedSize,
       quality: s.quality,
@@ -1005,13 +1324,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       seed: s.seed,
       negativePrompt: s.negativePrompt,
       baseURL: cleanedBaseURL,
-      textModelID: s.textModelID,
-      imageModelID: s.imageModelID,
+      textModelID: submitTextModelID,
+      imageModelID: submitImageModelID,
       proxyMode: s.proxyMode,
       proxyURL: s.proxyURL,
-      requestPolicy: s.requestPolicy,
+      requestPolicy: submitRequestPolicy,
       apiMode: effectiveAPIMode,
-      imagesNewAPICompat: effectiveAPIMode === "images" && s.imagesNewAPICompat === true,
+      imagesNewAPICompat: effectiveAPIMode === "images" && submitImagesNewAPICompat,
       noPromptRevision: true,
       concurrencyLimit,
       partialImages: 1,
@@ -1043,18 +1362,23 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           quality: s.quality,
           outputFormat: s.outputFormat,
           batchCount,
+          concurrencyLimit,
+          continuousGenerateTest: s.continuousGenerateTest === true,
+          continuousBatchIndex: appendingContinuousRun ? existingJobsTotal : 0,
           seed: s.seed,
           negativePrompt: s.negativePrompt,
           styleTag: s.styleTag,
           sourceImagePaths: editSourcePaths,
           maskB64,
+          requestRunId,
           apiKey: cleanedAPIKey,
           baseURL: cleanedBaseURL,
           apiMode: effectiveAPIMode,
-          requestPolicy: s.requestPolicy,
-          imagesNewAPICompat: effectiveAPIMode === "images" && s.imagesNewAPICompat === true,
-          textModelID: s.textModelID,
-          imageModelID: s.imageModelID,
+          apiLabel: submitAPIShortLabel,
+          requestPolicy: submitRequestPolicy,
+          imagesNewAPICompat: effectiveAPIMode === "images" && submitImagesNewAPICompat,
+          textModelID: submitTextModelID,
+          imageModelID: submitImageModelID,
         });
         const nextJobGroupsByWorkspace = mergeWorkspaceJobGroup(get().jobGroupsByWorkspace, response.group);
         const runtimePatch = browserRuntimePatchFromGroups(nextJobGroupsByWorkspace[workspaceId] ?? []);
@@ -1068,27 +1392,31 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         syncBrowserJobSubscriptions(nextJobGroupsByWorkspace);
       } catch (error: any) {
         const failedPatch: WorkspacePatch = {
-          runningJobs: [],
-          jobsTotal: 0,
-          jobsCompleted: 0,
-          progress: null,
-          streamPreview: null,
-          streamPreviews: {},
-          lastLogLine: "",
+          runningJobs: appendingContinuousRun ? existingRunningJobs : [],
+          jobsTotal: appendingContinuousRun ? existingJobsTotal : 0,
+          jobsCompleted: appendingContinuousRun ? existingJobsCompleted : 0,
+          progress: appendingContinuousRun ? previousRuntime.progress : null,
+          streamPreview: appendingContinuousRun ? previousRuntime.streamPreview : null,
+          streamPreviews: appendingContinuousRun ? existingStreamPreviews : {},
+          lastLogLine: appendingContinuousRun ? previousRuntime.lastLogLine : "",
           errorMessage: `提交失败:${error?.message ?? error}`,
           errorRawPath: null,
         };
         set((state) => ({
-          runningJobs: [],
-          jobsTotal: 0,
-          jobsCompleted: 0,
-          progress: null,
-          streamPreview: null,
-          streamPreviews: {},
-          lastLogLine: "",
           errorMessage: failedPatch.errorMessage ?? null,
           errorRawPath: null,
-          isRunning: false,
+          ...(appendingContinuousRun
+            ? {}
+            : {
+                runningJobs: [],
+                jobsTotal: 0,
+                jobsCompleted: 0,
+                progress: null,
+                streamPreview: null,
+                streamPreviews: {},
+                lastLogLine: "",
+                isRunning: false,
+              }),
           runningJobMeta: buildRunningJobMetaFromBrowserGroups(state.jobGroupsByWorkspace),
           workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, failedPatch),
         } as Partial<StudioState>));
@@ -1096,13 +1424,23 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return;
     }
 
+    const batchIndexOffset = appendingContinuousRun ? existingJobsTotal : 0;
     for (let i = 0; i < batchCount; i++) {
-      const jobSeed = s.seed ? s.seed + i : 0;
-      const p: RuntimeGenerateOptions = { ...remotePayload, seed: jobSeed };
+      const batchIndex = batchIndexOffset + i;
+      const jobSeed = s.seed ? s.seed + batchIndex : 0;
+      const p: RuntimeGenerateOptions = {
+        ...remotePayload,
+        seed: jobSeed,
+        requestRunId,
+        batchIndex,
+        batchCount: existingJobsTotal + batchCount,
+        batchVariationKey: `${requestRunId}-${batchIndex + 1}`,
+      };
       void launchOneJob(s.mode, p, {
         workspaceId,
         apiMode: effectiveAPIMode,
-        batchIndex: i,
+        apiLabel: submitAPIShortLabel,
+        batchIndex,
         size: s.size,
         quality: s.quality,
         outputFormat: s.outputFormat,
@@ -1147,6 +1485,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   applyHistoryParams: (item) => imageActions.applyHistoryParams(item),
+  applyJobSlotParams: (group, slot) => imageActions.applyJobSlotParams(group, slot),
+  regenerateJobSlot: async (group, slot) => imageActions.regenerateJobSlot(group, slot),
   regenerateFromHistory: async (item) => imageActions.regenerateFromHistory(item),
   reuseAsSource: async (item) => imageActions.reuseAsSource(item),
   deleteHistoryItem: async (id) => imageActions.deleteHistoryItem(id),
@@ -1167,7 +1507,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set({
         apiKey: "sk-preview",
         mode: "edit",
+        promptPrefix: preview.workspace.promptPrefix,
         prompt: preview.currentImage.prompt,
+        optimizationGuidance: preview.workspace.optimizationGuidance ?? "",
         negativePrompt: preview.currentImage.negativePrompt ?? "",
         size: preview.currentImage.size,
         quality: preview.currentImage.quality,
@@ -1195,6 +1537,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         lastLogLine: "",
         errorMessage: null,
         errorRawPath: null,
+        apimartRecoveryTask: null,
+        apimartRecoveryTasks: [],
         isRunning: false,
         lastPayload: null,
         runningJobMeta: {},
@@ -1226,6 +1570,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         fullscreen: false,
         promptHistory: [],
         batchCount: 1,
+        continuousGenerateTest: true,
         presets: [],
         theme: "dark",
         fontScale: 1,
@@ -1369,22 +1714,34 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       }
     }
 
-    // 决定 active profile 与对应顶层镜像。空列表 → 全置空,后面会自动弹首次配置。
+    // 决定 active profile 与对应顶层镜像。Android 首装保持空配置,引导用户点一键配置。
     const localFHLConfig = await loadLocalFHLConfig();
     const localFHLBaseURL = cleanBaseURL(localFHLConfig?.baseURL || FHL_BASE_URL);
     const localFHLTextModelID = (localFHLConfig?.textModelID || FHL_TEXT_MODEL_ID).trim();
     const localFHLImageModelID = (localFHLConfig?.imageModelID || FHL_IMAGE_MODEL_ID).trim();
+    const shouldKeepAndroidProfilesEmpty = readRuntimePlatformState().isAndroid && !localFHLConfig;
     let profilesChangedForFHL = false;
+
+    if (shouldKeepAndroidProfilesEmpty && profiles.length === 1 && profiles[0]?.id === FHL_PROFILE_ID) {
+      const storedDefaultKey = await GetStoredAPIKey(keyringUserFor(profiles[0].id)).catch(() => "");
+      if (!storedDefaultKey.trim()) {
+        profiles = [];
+        activeProfileId = "";
+        profilesChangedForFHL = true;
+        persistActiveProfileId("");
+      }
+    }
+
     let fhlProfileId = profiles.find((profile) => (
       profile.id === FHL_PROFILE_ID
       || (
-        profile.apiMode === "responses"
+        (profile.apiMode === "images" || profile.apiMode === "responses")
         && cleanBaseURL(profile.baseURL) === FHL_BASE_URL
         && profile.imageModelID === FHL_IMAGE_MODEL_ID
       )
     ))?.id;
 
-    if (!fhlProfileId && (profiles.length === 0 || localFHLConfig)) {
+    if (!fhlProfileId && (localFHLConfig || (profiles.length === 0 && !shouldKeepAndroidProfilesEmpty))) {
       const profile = makeFHLResponsesProfile();
       profiles = [...profiles, profile];
       fhlProfileId = profile.id;
@@ -1392,17 +1749,18 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
 
     if (fhlProfileId) {
+      const nextFHLAPIMode: APIMode = localFHLConfig?.apiMode ?? "responses";
       profiles = profiles.map((profile) => {
         if (profile.id !== fhlProfileId) return profile;
         const next: UpstreamProfile = {
           ...profile,
           name: profile.name || "FHL Responses",
-          apiMode: localFHLConfig?.apiMode ?? "responses",
+          apiMode: nextFHLAPIMode,
           requestPolicy: localFHLConfig?.requestPolicy ?? "openai",
           baseURL: localFHLBaseURL,
           textModelID: localFHLTextModelID,
           imageModelID: localFHLImageModelID,
-          imagesNewAPICompat: false,
+          imagesNewAPICompat: nextFHLAPIMode === "images",
         };
         if (JSON.stringify(next) !== JSON.stringify(profile)) profilesChangedForFHL = true;
         return next;
@@ -1416,7 +1774,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       }
     }
 
-    if (profiles.length === 0) {
+    if (profiles.length === 0 && !shouldKeepAndroidProfilesEmpty) {
       const profile = makeFHLResponsesProfile();
       profiles = [profile];
       activeProfileId = profile.id;
@@ -1426,6 +1784,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     if (profilesChangedForFHL) {
       persistProfiles(profiles);
+    }
+
+    if (profiles.length === 0 && activeProfileId) {
+      activeProfileId = "";
+      persistActiveProfileId("");
     }
 
     const activeProfile = pickActiveProfile(profiles, activeProfileId);
@@ -1465,7 +1828,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const initialWorkspace: Workspace = {
       id: wsId,
       name: "图片 1",
+      promptPrefix: "",
       prompt: "",
+      optimizationGuidance: "",
       negativePrompt: "",
       mode: "generate",
       size: "1024x1024",
@@ -1473,6 +1838,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       outputFormat,
       seed: 0,
       batchCount: 1,
+      continuousGenerateTest: true,
       styleTag: "",
       sources: [],
       currentImageId: null,
@@ -1487,6 +1853,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       lastLogLine: "",
       errorMessage: null,
       errorRawPath: null,
+      apimartRecoveryTask: null,
+      apimartRecoveryTasks: [],
       lastPayload: null,
     };
     const restoredSession = loadWorkspaceSession(outputFormat);
@@ -1496,6 +1864,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     let restoredWorkspaces = restoredSession?.workspaces ?? [initialWorkspace];
     if (serviceRestarted) {
       restoredWorkspaces = resetWorkspaceSourcesAfterServiceRestart(restoredWorkspaces);
+    }
+    const runtimePlatform = readRuntimePlatformState();
+    if (runtimePlatform.isAndroid && shouldApplyAndroidContinuousDefault()) {
+      restoredWorkspaces = restoredWorkspaces.map((workspace) => ({
+        ...workspace,
+        continuousGenerateTest: true,
+      }));
     }
     let jobGroupsByWorkspace: Record<string, JobGroupSnapshot[]> = {};
     if (isBackgroundTaskProxyMode()) {
@@ -1536,14 +1911,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const restoredRunningJobs = isBackgroundTaskProxyMode()
       ? browserRuntime.runningJobs ?? []
       : restoredActiveWorkspace.runningJobIds ?? [];
-    const runtimePlatform = readRuntimePlatformState();
     const shouldAutoOpenSettings = runtimePlatform.isAndroid
       ? false
       : !activeProfile || !activeKey.trim() || !baseURL.trim();
     set({
       apiKey: activeKey,
       mode: restoredActiveWorkspace.mode,
+      promptPrefix: restoredActiveWorkspace.promptPrefix ?? "",
       prompt: restoredActiveWorkspace.prompt,
+      optimizationGuidance: restoredActiveWorkspace.optimizationGuidance ?? "",
       negativePrompt: restoredActiveWorkspace.negativePrompt,
       size: restoredActiveWorkspace.size,
       quality: restoredActiveWorkspace.quality,
@@ -1594,6 +1970,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       errorRawPath: isBackgroundTaskProxyMode()
         ? browserRuntime.errorRawPath ?? null
         : restoredActiveWorkspace.errorRawPath ?? null,
+      apimartRecoveryTask: restoredActiveWorkspace.apimartRecoveryTask ?? null,
+      apimartRecoveryTasks: restoredActiveWorkspace.apimartRecoveryTasks ?? [],
       isRunning: restoredRunningJobs.length > 0,
       lastPayload: restoredActiveWorkspace.lastPayload ?? null,
       promptHistory,
@@ -1601,6 +1979,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       theme,
       fontScale,
       batchCount: restoredActiveWorkspace.batchCount,
+      continuousGenerateTest: restoredActiveWorkspace.continuousGenerateTest ?? true,
       styleTag: restoredActiveWorkspace.styleTag ?? "",
       profiles,
       activeProfileId,
@@ -1824,44 +2203,39 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({ isTestingKey: true });
     s.pushToast("正在测试连接...", "info", 8000);
     try {
-      await probeCurrentUpstream(cleanedBaseURL, cleanedAPIKey, s.proxyMode, s.proxyURL);
+      await probeCurrentUpstream(cleanedBaseURL, cleanedAPIKey, s.proxyMode, s.proxyURL, s.apiMode);
       set({ isTestingKey: false });
       syncCLIConfigQuietly(cliConfigFromState(get(), {
         apiKey: cleanedAPIKey,
         baseURL: cleanedBaseURL,
       }));
-      s.pushToast("连接 OK · 上游 models 列表可访问", "success");
+      s.pushToast(
+        s.apiMode === "apimart"
+          ? "连接 OK · APIMart balance 可访问"
+          : "连接 OK · 上游 models 列表可访问",
+        "success",
+      );
     } catch (e: any) {
       set({ isTestingKey: false });
       s.pushToast(`连接失败:${e?.message ?? e}`, "error", 6000);
     }
   },
 
-  optimizePrompt: async () => {
+  optimizePrompt: async (options: { useGuidance?: boolean } = {}) => {
     const s = get();
-    if (s.isRunning || s.isOptimizingPrompt) return;
+    if (s.isOptimizingPrompt || s.isReversingPrompt) return;
+    const optimizeProfile = await resolvePromptTextProfile(s);
+    if (readRuntimePlatformState().isAndroid && (!optimizeProfile.apiKey || !optimizeProfile.baseURL || !optimizeProfile.textModelID)) {
+      s.pushToast(ANDROID_FHL_TEXT_TOOLS_NOTICE, "warn", 5200);
+      return;
+    }
     // prompt 优化必须走 Responses(它要文本模型),如果用户 active 的是 Images
     // profile,要回头找一个 Responses profile 来跑;它的 key 还是从 keyring 拿。
-    let optimizeAPIKey = s.apiKey;
-    let optimizeBaseURL = s.baseURL;
-    let optimizeTextModelID = s.textModelID;
-    if (s.apiMode !== "responses") {
-      const responsesProfile = s.profiles.find((p) => p.apiMode === "responses" && p.baseURL);
-      if (responsesProfile) {
-        optimizeBaseURL = responsesProfile.baseURL;
-        optimizeTextModelID = responsesProfile.textModelID;
-        const k = await GetStoredAPIKey(keyringUserFor(responsesProfile.id)).catch(() => "");
-        if (k) optimizeAPIKey = k;
-      }
-    }
-    optimizeAPIKey = optimizeAPIKey.trim();
-    optimizeBaseURL = cleanBaseURL(optimizeBaseURL);
-    optimizeTextModelID = optimizeTextModelID.trim();
-    if (!optimizeAPIKey) {
+    if (!optimizeProfile.apiKey) {
       s.pushToast("先填入 API Key", "warn");
       return;
     }
-    if (!optimizeBaseURL) {
+    if (!optimizeProfile.baseURL) {
       s.pushToast("先在上游配置里填入可用于 AI 优化的 Responses API 地址", "warn", 5000);
       return;
     }
@@ -1878,11 +2252,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({ isOptimizingPrompt: true, errorMessage: null, errorRawPath: null });
     try {
       const optimized = await wailsOptimizePrompt({
-        apiKey: optimizeAPIKey,
+        apiKey: optimizeProfile.apiKey,
         prompt: s.prompt,
+        optimizationGuidance: options.useGuidance === false ? "" : s.optimizationGuidance,
         mode: s.mode,
-        baseURL: optimizeBaseURL,
-        textModelID: optimizeTextModelID,
+        baseURL: optimizeProfile.baseURL,
+        textModelID: optimizeProfile.textModelID,
         proxyMode: s.proxyMode,
         proxyURL: s.proxyURL,
         imagePaths: sourcePaths,
@@ -1900,6 +2275,254 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       s.pushToast(msg, "error", 6000);
     } finally {
       set({ isOptimizingPrompt: false });
+    }
+  },
+
+  reversePromptFromImage: async (imageOverride = null) => {
+    const s = get();
+    if (s.isOptimizingPrompt || s.isReversingPrompt) return;
+    const reverseProfile = await resolvePromptTextProfile(s);
+
+    if (readRuntimePlatformState().isAndroid && (!reverseProfile.apiKey || !reverseProfile.baseURL || !reverseProfile.textModelID)) {
+      s.pushToast(ANDROID_FHL_TEXT_TOOLS_NOTICE, "warn", 5200);
+      return;
+    }
+    if (!reverseProfile.apiKey) {
+      s.pushToast("先填入 API Key", "warn");
+      return;
+    }
+    if (!reverseProfile.baseURL) {
+      s.pushToast("先在上游配置里填入可用于反推的 API 地址", "warn", 5000);
+      return;
+    }
+
+    const sourcePaths: string[] = [];
+    const sourceImages: PromptReverseRequest["sourceImages"] = [];
+    let current = s.currentImage;
+    if (current?.previewOnly) {
+      const materialized = await materializeHistoryItem(current).catch(() => null);
+      if (materialized) {
+        if (useStudioStore.getState().currentImage?.id === current.id) {
+          set({ currentImage: materialized });
+        }
+        current = materialized;
+      }
+    }
+
+    const reverseImage = imageOverride || s.reversePromptImage || getRememberedReversePromptImage();
+
+    const appendReverseSource = async (source: {
+      path?: string;
+      name?: string;
+      imageB64?: string | null;
+      imageBlob?: Blob | null;
+    } | null | undefined): Promise<boolean> => {
+      if (!source) return false;
+      const path = source.path || "";
+      let imageB64 = source.imageB64 || "";
+      if (!imageB64 && !source.imageBlob && path) {
+        imageB64 = await ReadImageAsBase64(path).catch(() => "");
+      }
+      if (imageB64 || source.imageBlob) {
+        sourceImages.push({
+          path,
+          name: source.name || (path ? path.split(/[\\/]/).pop() : "reverse-source.png"),
+          imageB64: imageB64 || null,
+          imageBlob: source.imageBlob || null,
+        });
+        return true;
+      }
+      if (path) {
+        sourcePaths.push(path);
+        return true;
+      }
+      return false;
+    };
+
+    if (!(await appendReverseSource(reverseImage))) {
+      if (!(await appendReverseSource(current ? {
+        path: current.savedPath || "",
+        name: "current-image.png",
+        imageB64: current.imageB64 || null,
+        imageBlob: current.imageBlob || null,
+      } : null))) {
+        const first = s.sources[0];
+        await appendReverseSource(first ? {
+          path: first.path,
+          name: first.name,
+          imageB64: first.imageB64 || null,
+          imageBlob: first.imageBlob || null,
+        } : null);
+      }
+    }
+
+    if (sourcePaths.length === 0 && sourceImages.length === 0) {
+      s.pushToast("先选择一张图片", "warn", 3000);
+      return;
+    }
+
+    set({ isReversingPrompt: true, errorMessage: null, errorRawPath: null });
+    try {
+      const reversed = await wailsReversePrompt({
+        apiKey: reverseProfile.apiKey,
+        baseURL: reverseProfile.baseURL,
+        textModelID: reverseProfile.textModelID,
+        proxyMode: s.proxyMode,
+        proxyURL: s.proxyURL,
+        imagePaths: sourcePaths,
+        imagePath: "",
+        sourceImages,
+      } satisfies PromptReverseRequest);
+      const trimmed = reversed.trim();
+      if (!trimmed) {
+        throw new Error("上游没有返回可用的反推提示词");
+      }
+      const promptHistory = [trimmed, ...get().promptHistory.filter((entry) => entry !== trimmed)].slice(0, 50);
+      set({ prompt: trimmed, promptHistory });
+      try { localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(promptHistory)); } catch {}
+      s.pushToast("已反推提示词", "success");
+    } catch (e: any) {
+      const msg = `反推失败:${e?.message ?? e}`;
+      set({ errorMessage: msg, errorRawPath: typeof e?.rawPath === "string" && e.rawPath ? e.rawPath : null });
+      s.pushToast(msg, "error", 6000);
+    } finally {
+      set({ isReversingPrompt: false });
+    }
+  },
+
+  queryAPIMartRecoveryTask: async (taskId?: string) => {
+    const s = get();
+    const task = taskId
+      ? s.apimartRecoveryTasks.find((item) => item.taskId === taskId) ?? null
+      : s.apimartRecoveryTask ?? s.apimartRecoveryTasks[0] ?? null;
+    if (!task?.taskId) {
+      s.pushToast("当前没有可查询的 APIMart 后台任务", "warn", 3200);
+      return;
+    }
+    const activeProfile = s.profiles.find((profile) => profile.id === s.activeProfileId);
+    if ((activeProfile?.apiMode ?? s.apiMode) !== "apimart") {
+      s.pushToast("当前不是 APIMart 配置，不会用 FHL Key 查询 APIMart；请先切换到 APIMart", "warn", 4600);
+      return;
+    }
+    const apiKey = s.apiKey.trim();
+    if (!apiKey) {
+      s.pushToast("先填入 APIMart API Key", "warn", 4200);
+      return;
+    }
+    s.pushToast("正在查询 APIMart 后台任务...", "info", 5000);
+    try {
+      const result = await wailsQueryAPIMartTask({
+        apiKey,
+        baseURL: task.baseURL || s.baseURL,
+        taskId: task.taskId,
+        prompt: task.prompt,
+        mode: task.mode,
+        size: task.size,
+        quality: task.quality,
+        outputFormat: task.outputFormat,
+        imageModelID: s.imageModelID,
+        proxyMode: s.proxyMode,
+        proxyURL: s.proxyURL,
+      });
+      const checkedAt = Date.now();
+      if (result.errorMessage) {
+        const msg = `APIMart 后台任务失败:${result.errorMessage}`;
+        const nextTask = { ...task, status: result.status, lastCheckedAt: checkedAt };
+        const nextTasks = upsertAPIMartRecoveryTask(s.apimartRecoveryTasks, nextTask);
+        set((state) => ({
+          errorMessage: msg,
+          errorRawPath: result.rawPath || task.rawPath || null,
+          apimartRecoveryTask: nextTask,
+          apimartRecoveryTasks: nextTasks,
+          workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
+            errorMessage: msg,
+            errorRawPath: result.rawPath || task.rawPath || null,
+            apimartRecoveryTask: nextTask,
+            apimartRecoveryTasks: nextTasks,
+          }),
+        }));
+        s.pushToast(msg, "error", 6000);
+        return;
+      }
+      if (!result.imageB64) {
+        const nextTask = { ...task, status: result.status, rawPath: result.rawPath || task.rawPath, lastCheckedAt: checkedAt };
+        const nextTasks = upsertAPIMartRecoveryTask(s.apimartRecoveryTasks, nextTask);
+        set((state) => ({
+          apimartRecoveryTask: nextTask,
+          apimartRecoveryTasks: nextTasks,
+          workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
+            apimartRecoveryTask: nextTask,
+            apimartRecoveryTasks: nextTasks,
+          }),
+        }));
+        s.pushToast("APIMart 后台任务还在处理中，可稍后再查", "info", 4200);
+        return;
+      }
+      const dims = imageDims(result.imageB64);
+      const item: HistoryItem = {
+        id: cryptoIDFallback(),
+        imageB64: result.imageB64,
+        imageBlob: null,
+        previewBlob: null,
+        previewOnly: false,
+        prompt: task.prompt,
+        mode: task.mode,
+        size: task.size,
+        quality: task.quality,
+        outputFormat: task.outputFormat,
+        apiLabel: "APIMart",
+        createdAt: checkedAt,
+        batchIndex: task.batchIndex,
+        width: dims?.w,
+        height: dims?.h,
+        rawPath: result.rawPath || task.rawPath,
+        apimartTaskId: task.taskId,
+        apimartTaskStatus: result.status || "succeeded",
+        apimartTaskLastCheckedAt: checkedAt,
+      };
+      const trimmed = trimHistory([item, ...get().history]);
+      set((state) => {
+        const nextRecoveryTasks = removeAPIMartRecoveryTask(state.apimartRecoveryTasks, task.taskId);
+        const nextRecoveryTask = primaryAPIMartRecoveryTask(nextRecoveryTasks);
+        const nextBatchResults = typeof task.batchIndex === "number"
+          ? [...state.batchResults.filter((entry) => entry.batchIndex !== task.batchIndex), item]
+            .sort((a, b) => (a.batchIndex ?? 0) - (b.batchIndex ?? 0))
+          : state.batchResults;
+        const workspacePatch: WorkspacePatch = {
+          currentImageId: item.id,
+          batchResultIds: nextBatchResults.map((entry) => entry.id),
+          resultGridOpen: nextBatchResults.length > 1 ? state.resultGridOpen : state.resultGridOpen,
+          errorMessage: null,
+          errorRawPath: null,
+          apimartRecoveryTask: nextRecoveryTask,
+          apimartRecoveryTasks: nextRecoveryTasks,
+        };
+        return {
+          history: trimmed,
+          currentImage: item,
+          batchResults: nextBatchResults,
+          errorMessage: null,
+          errorRawPath: null,
+          apimartRecoveryTask: nextRecoveryTask,
+          apimartRecoveryTasks: nextRecoveryTasks,
+          workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, workspacePatch),
+        } as Partial<StudioState>;
+      });
+      persistTrimmedHistory(trimmed);
+      await persistHistoryItem(item).catch(() => undefined);
+      s.pushToast("已从 APIMart 后台接收结果", "success", 4200);
+    } catch (error: any) {
+      const msg = `APIMart 后台查询失败:${error?.message ?? error}`;
+      const errorRawPath = typeof error?.rawPath === "string" ? error.rawPath : null;
+      set((state) => ({
+        errorMessage: msg,
+        errorRawPath,
+        workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
+          errorMessage: msg,
+          errorRawPath,
+        }),
+      }));
+      s.pushToast(msg, "error", 6000);
     }
   },
 
@@ -1933,6 +2556,7 @@ async function launchOneJob(
   snapshot: {
     workspaceId: string;
     apiMode: APIModeValue;
+    apiLabel?: string;
     batchIndex: number;
     size: SizeValue;
     quality: QualityValue;
@@ -1947,9 +2571,10 @@ async function launchOneJob(
   let offProgress = () => {};
   let offLog = () => {};
   let offPreview = () => {};
+  let offAPIMartTask = () => {};
   let offResult = () => {};
   let offError = () => {};
-  const cleanup = () => { offProgress(); offLog(); offPreview(); offResult(); offError(); };
+  const cleanup = () => { offProgress(); offLog(); offPreview(); offAPIMartTask(); offResult(); offError(); };
   try {
     store.setState((state) => {
       const runtime = workspaceRuntimeFromState(state, snapshot.workspaceId);
@@ -1960,7 +2585,12 @@ async function launchOneJob(
       return {
         runningJobMeta: {
           ...state.runningJobMeta,
-          [jobId]: { workspaceId: snapshot.workspaceId, apiMode: snapshot.apiMode },
+          [jobId]: {
+            workspaceId: snapshot.workspaceId,
+            apiMode: snapshot.apiMode,
+            apiLabel: snapshot.apiLabel,
+            batchIndex: snapshot.batchIndex,
+          },
         },
         workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
         ...(state.activeWorkspaceId === snapshot.workspaceId ? activeRuntimePatch(patch) : {}),
@@ -2024,6 +2654,49 @@ async function launchOneJob(
         }) ?? {}
       ));
     });
+    offAPIMartTask = EventsOn(`apimart-task:${jobId}`, (event: {
+      taskId?: string;
+      status?: string;
+      rawPath?: string | null;
+    }) => {
+      const taskId = typeof event?.taskId === "string" ? event.taskId.trim() : "";
+      if (!taskId) return;
+      const recoveryTask: APIMartRecoveryTask = {
+        taskId,
+        workspaceId: snapshot.workspaceId,
+        baseURL: payload.baseURL,
+        prompt: payload.prompt,
+        mode: mode === "edit" ? "edit" : "generate",
+        size: snapshot.size,
+        quality: snapshot.quality,
+        outputFormat: snapshot.outputFormat,
+        batchIndex: snapshot.batchIndex,
+        rawPath: typeof event.rawPath === "string" ? event.rawPath : "",
+        status: typeof event.status === "string" && event.status.trim() ? event.status.trim() : "submitted",
+        createdAt: Date.now(),
+      };
+      store.setState((state) => {
+        const workspace = state.workspaces.find((entry) => entry.id === snapshot.workspaceId);
+        const existingRecoveryTasks = state.activeWorkspaceId === snapshot.workspaceId
+          ? state.apimartRecoveryTasks
+          : workspace?.apimartRecoveryTasks ?? [];
+        const nextRecoveryTasks = upsertAPIMartRecoveryTask(existingRecoveryTasks, recoveryTask);
+        const nextRecoveryTask = primaryAPIMartRecoveryTask(nextRecoveryTasks);
+        const patch: WorkspacePatch = {
+          apimartRecoveryTask: nextRecoveryTask,
+          apimartRecoveryTasks: nextRecoveryTasks,
+        };
+        return {
+          workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
+          ...(state.activeWorkspaceId === snapshot.workspaceId
+            ? {
+                apimartRecoveryTask: nextRecoveryTask,
+                apimartRecoveryTasks: nextRecoveryTasks,
+              }
+            : {}),
+        } as Partial<StudioState>;
+      });
+    });
 
     const startedAt = Date.now();
     offResult = EventsOn(`result:${jobId}`, (r: any) => {
@@ -2035,8 +2708,11 @@ async function launchOneJob(
           const willNotify = typeof document !== "undefined" && document.visibilityState !== "visible";
           const parentId = mode === "edit" ? (snapshot.sources[0]?.path || snapshot.currentImage?.savedPath) : undefined;
           const sourceImages = sourceImagesForHistory(mode, snapshot.sources);
-          const itemID = cryptoIDFallback();
+          const itemID = browserHistoryId(jobId);
           const fallbackB64 = typeof r.imageB64 === "string" ? r.imageB64 : "";
+          const resultDims = Number.isFinite(Number(r.width)) && Number.isFinite(Number(r.height))
+            ? { w: Number(r.width), h: Number(r.height) }
+            : fallbackB64 ? imageDims(fallbackB64) : null;
           const previewItem: HistoryItem = {
             id: itemID,
             imageId: r.imageId || undefined,
@@ -2044,6 +2720,8 @@ async function launchOneJob(
             thumbPath: r.thumbPath || undefined,
             previewWidth: typeof r.previewWidth === "number" ? r.previewWidth : undefined,
             previewHeight: typeof r.previewHeight === "number" ? r.previewHeight : undefined,
+            width: resultDims?.w,
+            height: resultDims?.h,
             imageB64: fallbackB64 || undefined,
             imageBlob: null,
             previewBlob: null,
@@ -2054,6 +2732,7 @@ async function launchOneJob(
             size: snapshot.size,
             quality: snapshot.quality,
             outputFormat: snapshot.outputFormat,
+            apiLabel: snapshot.apiLabel,
             parentId,
             createdAt: Date.now(),
             seed: payload.seed || undefined,
@@ -2064,6 +2743,9 @@ async function launchOneJob(
             sourceImages,
             savedPath: r.savedPath,
             rawPath: r.rawPath,
+            apimartTaskId: typeof r.apimartTaskId === "string" && r.apimartTaskId.trim() ? r.apimartTaskId.trim() : undefined,
+            apimartTaskStatus: typeof r.apimartTaskStatus === "string" && r.apimartTaskStatus.trim() ? r.apimartTaskStatus.trim() : undefined,
+            apimartTaskLastCheckedAt: typeof r.apimartTaskId === "string" && r.apimartTaskId.trim() ? Date.now() : undefined,
           };
           const activeItem: HistoryItem = {
             ...previewItem,
@@ -2076,7 +2758,10 @@ async function launchOneJob(
           };
           const { completed: completedNow, total: totalNow } = removeFromRunning();
           const currentItem = totalNow > 1 ? historyItem : activeItem;
-          const trimmed = trimHistory([historyItem, ...store.getState().history]);
+          const trimmed = trimHistory([
+            historyItem,
+            ...store.getState().history.filter((entry) => entry.id !== historyItem.id),
+          ]);
           store.setState((state) => {
             const workspace = state.workspaces.find((w) => w.id === snapshot.workspaceId);
             const existingBatchIDs = state.activeWorkspaceId === snapshot.workspaceId
@@ -2090,8 +2775,16 @@ async function launchOneJob(
               : [...existingBatchIDs, historyItem.id];
             const nextGridOpen = gridWasOpen;
             const batchResults = state.activeWorkspaceId === snapshot.workspaceId
-              ? [...state.batchResults, historyItem]
+              ? [...state.batchResults.filter((item) => item.id !== historyItem.id), historyItem]
+                .sort((a, b) => (a.batchIndex ?? 0) - (b.batchIndex ?? 0))
               : state.batchResults;
+            const existingRecoveryTasks = state.activeWorkspaceId === snapshot.workspaceId
+              ? state.apimartRecoveryTasks
+              : workspace?.apimartRecoveryTasks ?? [];
+            const nextRecoveryTasks = historyItem.apimartTaskId
+              ? removeAPIMartRecoveryTask(existingRecoveryTasks, historyItem.apimartTaskId)
+              : existingRecoveryTasks;
+            const nextRecoveryTask = primaryAPIMartRecoveryTask(nextRecoveryTasks);
             return {
               history: trimmed,
               recentDurations: rd,
@@ -2099,12 +2792,24 @@ async function launchOneJob(
                 currentImageId: historyItem.id,
                 batchResultIds: nextBatchIDs,
                 resultGridOpen: nextGridOpen,
+                ...(historyItem.apimartTaskId
+                  ? {
+                      apimartRecoveryTask: nextRecoveryTask,
+                      apimartRecoveryTasks: nextRecoveryTasks,
+                    }
+                  : {}),
               }),
               ...(state.activeWorkspaceId === snapshot.workspaceId
                 ? {
                     currentImage: currentItem,
                     batchResults,
                     resultGridOpen: nextGridOpen,
+                    ...(historyItem.apimartTaskId
+                      ? {
+                          apimartRecoveryTask: nextRecoveryTask,
+                          apimartRecoveryTasks: nextRecoveryTasks,
+                        }
+                      : {}),
                     maskDataURL: null,
                     annotations: [],
                     tool: "pan",
@@ -2160,22 +2865,63 @@ async function launchOneJob(
         }
       })();
     });
-    offError = EventsOn(`error:${jobId}`, (e: { message: string; rawPath?: string }) => {
+    offError = EventsOn(`error:${jobId}`, (e: {
+      message: string;
+      rawPath?: string;
+      apimartTaskId?: string;
+      apimartTaskStatus?: string;
+    }) => {
       cleanup();
+      const apimartTaskId = typeof e?.apimartTaskId === "string" ? e.apimartTaskId.trim() : "";
+      const apimartRecoveryTask: APIMartRecoveryTask | null = apimartTaskId ? {
+        taskId: apimartTaskId,
+        workspaceId: snapshot.workspaceId,
+        baseURL: payload.baseURL,
+        prompt: payload.prompt,
+        mode: mode === "edit" ? "edit" : "generate",
+        size: snapshot.size,
+        quality: snapshot.quality,
+        outputFormat: snapshot.outputFormat,
+        batchIndex: snapshot.batchIndex,
+        errorMessage: e?.message ?? "",
+        rawPath: typeof e?.rawPath === "string" ? e.rawPath : "",
+        status: typeof e?.apimartTaskStatus === "string" ? e.apimartTaskStatus : "",
+        createdAt: Date.now(),
+      } : null;
       store.setState((state) => {
         const runtime = workspaceRuntimeFromState(state, snapshot.workspaceId);
         const prunedPreview = removeStreamPreview(runtime.streamPreviews, jobId);
+        const workspace = state.workspaces.find((entry) => entry.id === snapshot.workspaceId);
+        const existingRecoveryTasks = state.activeWorkspaceId === snapshot.workspaceId
+          ? state.apimartRecoveryTasks
+          : workspace?.apimartRecoveryTasks ?? [];
+        const nextRecoveryTasks = apimartRecoveryTask
+          ? upsertAPIMartRecoveryTask(existingRecoveryTasks, apimartRecoveryTask)
+          : existingRecoveryTasks;
+        const nextRecoveryTask = primaryAPIMartRecoveryTask(nextRecoveryTasks);
         const patch: WorkspacePatch = {
           errorMessage: e?.message ?? "未知错误",
           errorRawPath: (typeof e?.rawPath === "string" && e.rawPath) ? e.rawPath : null,
           streamPreview: prunedPreview.streamPreview,
           streamPreviews: prunedPreview.streamPreviews,
+          ...(apimartRecoveryTask
+            ? {
+                apimartRecoveryTask: nextRecoveryTask,
+                apimartRecoveryTasks: nextRecoveryTasks,
+              }
+            : {}),
         };
         return {
           workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
           ...(state.activeWorkspaceId === snapshot.workspaceId
             ? {
                 ...activeRuntimePatch(patch),
+                ...(apimartRecoveryTask
+                  ? {
+                      apimartRecoveryTask: nextRecoveryTask,
+                      apimartRecoveryTasks: nextRecoveryTasks,
+                    }
+                  : {}),
                 currentImage: restoreCurrentImageAfterPreviewError(state, jobId, {
                   workspaceId: snapshot.workspaceId,
                   mode: mode === "edit" ? "edit" : "generate",
@@ -2247,6 +2993,7 @@ useStudioStore.subscribe((state, prevState) => {
   const workspaceSessionChanged =
     state.activeWorkspaceId !== prevState.activeWorkspaceId
     || state.workspaces !== prevState.workspaces
+    || state.promptPrefix !== prevState.promptPrefix
     || state.prompt !== prevState.prompt
     || state.negativePrompt !== prevState.negativePrompt
     || state.mode !== prevState.mode
@@ -2255,6 +3002,7 @@ useStudioStore.subscribe((state, prevState) => {
     || state.outputFormat !== prevState.outputFormat
     || state.seed !== prevState.seed
     || state.batchCount !== prevState.batchCount
+    || state.continuousGenerateTest !== prevState.continuousGenerateTest
     || state.styleTag !== prevState.styleTag
     || state.sources !== prevState.sources
     || state.currentImage !== prevState.currentImage

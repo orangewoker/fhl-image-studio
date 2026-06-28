@@ -1,6 +1,7 @@
 import type React from "react";
 import { ChevronDown, ChevronRight, Clock3, Ellipsis, Layers3 } from "lucide-react";
 import { historyPreviewSrc, useBlobURL } from "../../lib/images";
+import { usePlatform } from "../../platform/context";
 import type { HistoryItem } from "../../types/domain";
 import { HistoryPromptThumbnailStack } from "./HistoryPromptThumbnailStack";
 import { HistoryModeBadge } from "./HistoryModeBadge";
@@ -35,6 +36,8 @@ export function TimelinePromptStackGroup({
   const isCompareGroup = historyPromptGroupContains(group, compareItemId);
   const label = historyPromptGroupLabel(group);
   const timeLabel = new Date(latest.createdAt).toLocaleTimeString();
+  const { isAndroidPhone } = usePlatform();
+  const compact = isAndroidPhone;
 
   function openLatestMenu(event: React.MouseEvent) {
     event.preventDefault();
@@ -43,13 +46,13 @@ export function TimelinePromptStackGroup({
   }
 
   return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3">
+    <div className={compact ? "grid min-w-0 grid-cols-[22px_minmax(0,1fr)] gap-2" : "grid grid-cols-[120px_minmax(0,1fr)] gap-3"}>
       <div className="flex flex-col items-center gap-2 pt-1">
         <div className="h-2.5 w-2.5 rounded-full bg-[var(--accent)] shadow-[0_0_8px_rgb(0_122_255_/_0.55)]" />
         <div className="h-full w-px bg-black/[0.08] dark:bg-white/[0.08]" />
       </div>
       <div
-        className={`timeline-prompt-stack-card ${usesFluentUI ? "fluent" : ""} ${expanded ? "expanded" : ""} ${isCurrentGroup ? "active" : ""} ${isCompareGroup ? "compare" : ""}`}
+        className={`timeline-prompt-stack-card ${compact ? "compact" : ""} ${usesFluentUI ? "fluent" : ""} ${expanded ? "expanded" : ""} ${isCurrentGroup ? "active" : ""} ${isCompareGroup ? "compare" : ""}`}
         onContextMenu={openLatestMenu}
       >
         <div className="timeline-prompt-stack-head">

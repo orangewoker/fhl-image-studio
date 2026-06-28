@@ -163,6 +163,7 @@ function buildWorkspace(
   return {
     id: workspaceId,
     name: "联调样例",
+    promptPrefix: "",
     prompt: currentImage.prompt,
     negativePrompt: currentImage.negativePrompt ?? "",
     mode: "edit",

@@ -2,17 +2,19 @@ import { ClipboardCopy, Folder, RotateCw, Save, Share2, Sparkles } from "lucide-
 import { useStudioStore } from "../../state/studioStore";
 import { OpenOutputDir } from "../../platform/runtime/host";
 import { submitShortcutLabel } from "../../platform";
+import { copyImageB64ToClipboard, copyImageURLToClipboard } from "../canvas/canvasImage";
 import { historyPreviewSrc, useBlobURL } from "../../lib/images";
 import { androidSaveHint, androidTarget, openOutputLocationForPlatform } from "../../platform/android/bridge";
 import { Modal } from "../common/Modal";
 import { usePlatform } from "../../platform/context";
-import { qualityLabel, sizeLabel } from "../history/historyLabels";
+import { pixelSizeLabel, qualityLabel, sizeLabel } from "../history/historyLabels";
 
 export function ResultDetailDrawer() {
   const item = useStudioStore((s) => s.resultDetail);
   const close = useStudioStore((s) => s.closeResultDetail);
   const setField = useStudioStore((s) => s.setField);
   const pushToast = useStudioStore((s) => s.pushToast);
+  const materializeCurrentImage = useStudioStore((s) => s.materializeCurrentImage);
   const saveHistoryItemAs = useStudioStore((s) => s.saveHistoryItemAs);
   const shareHistoryItem = useStudioStore((s) => s.shareHistoryItem);
   const { usesFluentUI } = usePlatform();
@@ -23,6 +25,7 @@ export function ResultDetailDrawer() {
   const created = new Date(detail.createdAt).toLocaleString();
   const previewURL = useBlobURL(detail.previewBlob ?? detail.imageBlob ?? null, detail.imageB64 ?? null);
   const imageSrc = historyPreviewSrc(detail, previewURL);
+  const pixelLabel = pixelSizeLabel(detail);
 
   function copy(text: string, label: string) {
     navigator.clipboard.writeText(text).then(
@@ -41,6 +44,22 @@ export function ResultDetailDrawer() {
     openOutputLocationForPlatform(OpenOutputDir).catch((e) => pushToast(e?.message ?? "无法打开保存位置", "warn"));
   }
 
+  async function copyImage() {
+    try {
+      const full = await materializeCurrentImage(detail);
+      const ok = full.fullUrl
+        ? await copyImageURLToClipboard(full.fullUrl)
+        : await copyImageB64ToClipboard(full.imageB64 ?? "");
+      if (ok) {
+        pushToast("已复制图片到剪贴板", "success");
+      } else {
+        pushToast("当前环境不支持复制图片，可改用分享或保存", "warn", 4200);
+      }
+    } catch (error: any) {
+      pushToast(`复制失败:${error?.message ?? error}`, "error", 4200);
+    }
+  }
+
   return (
     <Modal open onClose={close} title="生成详情" width={720}>
       <div className="grid gap-4 md:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
@@ -54,6 +73,7 @@ export function ResultDetailDrawer() {
             />
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
+            <Btn onClick={() => void copyImage()}><ClipboardCopy className="w-3 h-3" /> 复制图片</Btn>
             <Btn onClick={() => void saveHistoryItemAs(detail)}><Save className="w-3 h-3" /> 保存原图</Btn>
             <Btn onClick={() => void shareHistoryItem(detail)}><Share2 className="w-3 h-3" /> 分享</Btn>
             <Btn onClick={openOutputLocation}><Folder className="w-3 h-3" /> 打开文件夹</Btn>
@@ -67,6 +87,7 @@ export function ResultDetailDrawer() {
           <Section title="参数">
             <Kv label="模式" value={detail.mode === "edit" ? "图生图" : "文生图"} />
             <Kv label="尺寸" value={sizeLabel(detail.size)} />
+            {pixelLabel ? <Kv label="真实像素" value={pixelLabel} mono /> : null}
             <Kv label="质量" value={qualityLabel(detail.quality)} />
             {detail.seed ? <Kv label="种子" value={String(detail.seed)} mono /> : null}
             {detail.styleTag ? <Kv label="风格" value={`#${detail.styleTag}`} /> : null}

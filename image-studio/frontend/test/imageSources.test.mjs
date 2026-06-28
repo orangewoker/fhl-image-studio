@@ -80,3 +80,14 @@ test("sourceToDataURL can read project image paths through local preview endpoin
     }
   }
 });
+
+test("sourceToDataURL falls back to Android data preview URLs", async () => {
+  assert.equal(
+    await virtualHostStore.sourceToDataURL({
+      path: "/data/user/0/top.fangtangyuan.fhlstudio.android.debug/files/imports/ref.png",
+      name: "ref.png",
+      previewUrl: "data:image/jpeg;base64,anBlZw==",
+    }),
+    "data:image/jpeg;base64,anBlZw==",
+  );
+});

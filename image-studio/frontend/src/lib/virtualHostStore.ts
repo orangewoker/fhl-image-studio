@@ -692,6 +692,7 @@ export async function sourceToDataURL(source: {
   mimeType?: string | null;
   imageB64?: string | null;
   imageBlob?: Blob | null;
+  previewUrl?: string | null;
 } | null | undefined): Promise<string> {
   if (!source) return "";
   let imageB64 = source.imageB64?.trim() ?? "";
@@ -712,6 +713,10 @@ export async function sourceToDataURL(source: {
   }
   if (!imageB64 && source.path) {
     imageB64 = await readLocalProjectImageAsBase64(source.path);
+  }
+  const previewUrl = source.previewUrl?.trim() ?? "";
+  if (!imageB64 && previewUrl.startsWith("data:image/") && previewUrl.includes(";base64,")) {
+    return previewUrl;
   }
   if (!imageB64) return "";
   return dataURLFromBase64(imageB64, mimeType);

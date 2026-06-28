@@ -1,4 +1,6 @@
 import { Copy, Plus, RadioTower, Trash2 } from "lucide-react";
+import { isAPIMartAsyncProfile } from "../../../lib/apimartAPI";
+import { isFHLBaseURL } from "../../../lib/profiles";
 import type { UpstreamProfile } from "../../../types/domain";
 
 export function AndroidUpstreamProfileRail({
@@ -50,7 +52,7 @@ export function AndroidUpstreamProfileRail({
               <span className="android-upstream-profile-main">
                 <strong>{profile.name || "未命名配置"}</strong>
                 <small>
-                  {profile.apiMode === "responses" ? "Responses" : "Images"}
+                  {profileModeLabel(profile)}
                   {profile.baseURL ? ` · ${profile.baseURL}` : " · 未填写地址"}
                 </small>
               </span>
@@ -63,4 +65,10 @@ export function AndroidUpstreamProfileRail({
       </div>
     </section>
   );
+}
+
+function profileModeLabel(profile: UpstreamProfile): string {
+  if (isAPIMartAsyncProfile(profile)) return "APIMart 异步参数";
+  if (isFHLBaseURL(profile.baseURL)) return "FHL";
+  return profile.apiMode === "responses" ? "Responses" : "Images";
 }

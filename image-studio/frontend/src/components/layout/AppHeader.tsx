@@ -1,44 +1,75 @@
 import { type MouseEvent, useState } from "react";
-import { Check, ChevronDown, ChevronUp, Clipboard, Github, KeyRound, Monitor, Moon, Plus, Settings, Star, Sun } from "lucide-react";
+import { Check, ChevronDown, Clipboard, Github, KeyRound, Monitor, Moon, Plus, Settings, Star, Sun } from "lucide-react";
 import { useStudioStore } from "../../state/studioStore";
 import { OpenExternalURL } from "../../platform/runtime/host";
 import { usePlatform } from "../../platform/context";
 import { openExternalURLForPlatform } from "../../platform/android/bridge";
-import { FHL_BASE_URL, FHL_IMAGE_MODEL_ID } from "../../lib/profiles";
-import { copyText, ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
-import { FHLAPIChoiceModal } from "../panel/FHLAPIChoiceModal";
+import { copyText } from "../../lib/fhlAPI";
+import { isFHLBaseURL, isRunningHubBaseURL } from "../../lib/profiles";
 import { AppHeaderBrand } from "./AppHeaderBrand";
 import { HeaderIconBtn, HeaderToggleBtn } from "./headerPrimitives";
+import {
+  ANDROID_FHL_REPO_URL,
+  ANDROID_ORIGINAL_REPO_URL,
+  AndroidBrandAboutSheet,
+} from "../../platform/android/AndroidBrandAboutSheet";
+import { AndroidQuickProfileSheet } from "../../platform/android/AndroidQuickProfileSheet";
 
 const REPO_URL = "https://github.com/RoseKhlifa/Image-Studio";
 const FHL_QQ_GROUP_TEXT = "FHL官方QQ交流群：207550870";
 
 export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const [androidProfileOpen, setAndroidProfileOpen] = useState(false);
+  const [androidBrandAboutOpen, setAndroidBrandAboutOpen] = useState(false);
   const {
     fullscreen, theme, setTheme, pushToast, workspaces, newWorkspace, openStarPrompt,
-    apiKey, apiMode, baseURL, imageModelID,
+    apiKey, profiles, activeProfileId,
   } = useStudioStore();
   const { isAndroid, isMac, usesFluentUI, usesAndroidUI, usesAppleUI } = usePlatform();
-  const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
-  const [androidConfigRowOpen, setAndroidConfigRowOpen] = useState(false);
-  const isFHLAPIConfigured = apiKey.trim().length > 0
-    && apiMode === "responses"
-    && baseURL.trim().replace(/\/+$/, "") === FHL_BASE_URL
-    && imageModelID.trim() === FHL_IMAGE_MODEL_ID;
-  const showAndroidConfigRow = usesAndroidUI && (!isFHLAPIConfigured || androidConfigRowOpen);
+  const showAndroidConfigRow = usesAndroidUI;
+  const hasMultipleProfiles = profiles.length > 1;
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0] ?? null;
+  const activeProfileUsesBridgeKey = activeProfile?.apiMode === "runninghub"
+    || (activeProfile ? isRunningHubBaseURL(activeProfile.baseURL) : false);
+  const hasConfiguredAPIKey = apiKey.trim().length > 0 || activeProfileUsesBridgeKey;
+  const activeProfileModeLabel = activeProfile?.apiMode === "apimart"
+    ? "APIMart"
+    : activeProfile?.apiMode === "runninghub"
+      ? "RH"
+    : activeProfile && isFHLBaseURL(activeProfile.baseURL)
+      ? "FHL"
+      : activeProfile?.apiMode === "responses"
+        ? "FHL"
+      : activeProfile?.apiMode === "images"
+        ? "Images"
+        : "API";
 
   const openFHLAPIConfig = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    setFHLChoiceOpen(true);
+    useStudioStore.getState().openUpstreamConfig("app");
   };
 
-  const useExistingFHLAPI = async () => {
-    setFHLChoiceOpen(false);
-    const store = useStudioStore.getState();
-    await ensureFHLResponsesProfile(store);
+  const openAndroidProfilePicker = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (hasMultipleProfiles) {
+      setAndroidProfileOpen(true);
+      return;
+    }
     useStudioStore.getState().openUpstreamConfig("app");
-    focusFHLAPIKeyInput();
+  };
+
+  const openAndroidBrandAbout = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setAndroidBrandAboutOpen(true);
+  };
+
+  const openAndroidExternal = (url: string) => {
+    openExternalURLForPlatform(url, OpenExternalURL).catch(() => {
+      pushToast("无法打开浏览器，请稍后重试", "error", 4200);
+    });
   };
 
   const copyFHLQQGroup = async (event: MouseEvent<HTMLButtonElement>) => {
@@ -56,80 +87,98 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
 
   if (usesAndroidUI) {
     return (
-      <header
-        data-audit-area="header"
-        className="drag-region app-header sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--toolbar)] backdrop-blur-2xl android-app-header"
-      >
-        <div className="min-w-0 flex-1 android-header-copy">
-          <AppHeaderBrand />
-        </div>
-
-        <div className="no-drag android-header-top-actions">
-          {isFHLAPIConfigured && (
-            <button
-              type="button"
-              data-audit-id="toggle-fhl-config-row"
-              className="android-header-config-toggle"
-              title={androidConfigRowOpen ? "收起配置按钮" : "展开配置按钮"}
-              aria-label={androidConfigRowOpen ? "收起配置按钮" : "展开配置按钮"}
-              onPointerDown={(event) => event.stopPropagation()}
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setAndroidConfigRowOpen((value) => !value);
-              }}
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-              {androidConfigRowOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            </button>
-          )}
-          <HeaderIconBtn
-            onClick={onOpenSettings}
-            title="设置"
-            auditId="open-settings"
+      <>
+        <header
+          data-audit-area="header"
+          className="drag-region app-header sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--toolbar)] android-app-header"
+        >
+          <button
+            type="button"
+            className="no-drag min-w-0 flex-1 android-header-copy android-header-brand-button"
+            title="关于 FHL Image Studio"
+            aria-label="关于 FHL Image Studio"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={openAndroidBrandAbout}
           >
-            <Settings className="h-4 w-4" />
-          </HeaderIconBtn>
-        </div>
+            <AppHeaderBrand />
+          </button>
 
-        {showAndroidConfigRow && (
-          <div className="no-drag android-header-actions">
-            <button
-              type="button"
-              data-audit-id="copy-qq"
-              className="android-header-qq-btn"
-              title={FHL_QQ_GROUP_TEXT}
-              aria-label={`复制${FHL_QQ_GROUP_TEXT}`}
-              onPointerDown={(event) => event.stopPropagation()}
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={copyFHLQQGroup}
+          <div className="no-drag android-header-top-actions">
+            <HeaderIconBtn
+              onClick={onOpenSettings}
+              title="设置"
+              auditId="open-settings"
             >
-              <Clipboard className="h-3.5 w-3.5" />
-              <span>QQ群</span>
-            </button>
-            <button
-              type="button"
-              data-audit-id="fhl-config"
-              className={`android-header-fhl-config-btn ${isFHLAPIConfigured ? "is-configured" : "needs-config"}`}
-              title={isFHLAPIConfigured ? "FHL API 已配置，点击可修改" : "一键配置 FHL API"}
-              aria-label={isFHLAPIConfigured ? "FHL API 已配置，点击可修改" : "一键配置 FHL API"}
-              onPointerDown={(event) => event.stopPropagation()}
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={openFHLAPIConfig}
-            >
-              {isFHLAPIConfigured ? <Check className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
-              <span>{isFHLAPIConfigured ? "已配置" : "一键配置"}</span>
-            </button>
+              <Settings className="h-4 w-4" />
+            </HeaderIconBtn>
           </div>
-        )}
 
-        <FHLAPIChoiceModal
-          open={fhlChoiceOpen}
-          onClose={() => setFHLChoiceOpen(false)}
-          onUseExistingAPI={useExistingFHLAPI}
+          {showAndroidConfigRow && (
+            <div className="no-drag android-header-actions">
+              <button
+                type="button"
+                data-audit-id="copy-qq"
+                className="android-header-qq-btn"
+                title={FHL_QQ_GROUP_TEXT}
+                aria-label={`复制${FHL_QQ_GROUP_TEXT}`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={copyFHLQQGroup}
+              >
+                <Clipboard className="h-3.5 w-3.5" />
+                <span>QQ群</span>
+              </button>
+              <button
+                type="button"
+                data-audit-id="fhl-config"
+                className={`android-header-fhl-config-btn ${hasConfiguredAPIKey ? "is-configured" : "needs-config"}`}
+                title={hasConfiguredAPIKey ? "API 已配置，点击可修改" : "一键配置 API"}
+                aria-label={hasConfiguredAPIKey ? "API 已配置，点击可修改" : "一键配置 API"}
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={openFHLAPIConfig}
+              >
+                {hasConfiguredAPIKey ? <Check className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
+                <span>{hasConfiguredAPIKey ? "已配置" : "一键配置"}</span>
+              </button>
+              <button
+                type="button"
+                data-audit-id="android-quick-profile"
+                className={`android-header-api-chip ${hasMultipleProfiles ? "has-menu" : ""}`}
+                title={activeProfile ? `当前 API：${activeProfile.name || activeProfileModeLabel}${hasMultipleProfiles ? "，点击切换" : ""}` : "选择当前 API"}
+                aria-label={hasMultipleProfiles ? "选择当前 API" : "当前 API"}
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={openAndroidProfilePicker}
+              >
+                <span>{activeProfileModeLabel}</span>
+                {hasMultipleProfiles ? <ChevronDown className="h-3 w-3" /> : null}
+              </button>
+              <button
+                type="button"
+                data-audit-id="open-upstream-config"
+                className="android-header-config-toggle"
+                title="管理上游配置"
+                aria-label="管理上游配置"
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={openFHLAPIConfig}
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+        </header>
+        <AndroidQuickProfileSheet open={androidProfileOpen} onClose={() => setAndroidProfileOpen(false)} />
+        <AndroidBrandAboutSheet
+          open={androidBrandAboutOpen}
+          onClose={() => setAndroidBrandAboutOpen(false)}
+          onOpenRepo={() => openAndroidExternal(ANDROID_FHL_REPO_URL)}
+          onOpenOriginalRepo={() => openAndroidExternal(ANDROID_ORIGINAL_REPO_URL)}
         />
-      </header>
+      </>
     );
   }
 
@@ -173,15 +222,15 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
           <button
             type="button"
             data-audit-id="fhl-config"
-            className={`android-header-fhl-config-btn ${isFHLAPIConfigured ? "is-configured" : "needs-config"}`}
-            title={isFHLAPIConfigured ? "FHL API 已配置，点击可修改" : "一键配置 FHL API"}
-            aria-label={isFHLAPIConfigured ? "FHL API 已配置，点击可修改" : "一键配置 FHL API"}
+            className={`android-header-fhl-config-btn ${hasConfiguredAPIKey ? "is-configured" : "needs-config"}`}
+            title={hasConfiguredAPIKey ? "API 已配置，点击可修改" : "一键配置 API"}
+            aria-label={hasConfiguredAPIKey ? "API 已配置，点击可修改" : "一键配置 API"}
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={openFHLAPIConfig}
           >
-            {isFHLAPIConfigured ? <Check className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
-            <span>{isFHLAPIConfigured ? "已配置" : "一键配置"}</span>
+            {hasConfiguredAPIKey ? <Check className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
+            <span>{hasConfiguredAPIKey ? "已配置" : "一键配置"}</span>
           </button>
         )}
         {!isAndroid && <HeaderIconBtn
@@ -243,11 +292,6 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
           <Settings className="h-4 w-4" />
         </HeaderIconBtn>
       </div>
-      <FHLAPIChoiceModal
-        open={fhlChoiceOpen}
-        onClose={() => setFHLChoiceOpen(false)}
-        onUseExistingAPI={useExistingFHLAPI}
-      />
     </header>
   );
 }

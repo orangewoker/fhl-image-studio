@@ -1,3 +1,7 @@
+html[data-platform="android"] {
+  --android-backdrop-filter-none: none;
+}
+
 html[data-platform="android"] .android-canvas-workspace {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
@@ -6,7 +10,7 @@ html[data-platform="android"] .android-canvas-workspace {
   min-width: 0;
   min-height: 0;
   gap: 8px;
-  padding: 10px calc(var(--android-safe-right-value, env(safe-area-inset-right, 0px)) + 10px) 10px calc(var(--android-safe-left-value, env(safe-area-inset-left, 0px)) + 10px);
+  padding: 10px calc(var(--android-safe-right-value, 0px) + 10px) 10px calc(var(--android-safe-left-value, 0px) + 10px);
   background: var(--bg);
   overflow: hidden;
 }
@@ -73,13 +77,24 @@ html[data-platform="android"] .android-canvas-status-dot {
   color: var(--accent);
 }
 
-html[data-platform="android"] .android-canvas-status-dot[data-running="true"] svg {
-  animation: spin-emerald 0.9s linear infinite;
-}
-
 html[data-platform="android"] .android-canvas-status-dot svg {
   width: 19px;
   height: 19px;
+}
+
+html[data-platform="android"] .android-canvas-spinner {
+  display: block;
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: spin-emerald 0.9s linear infinite;
+  backface-visibility: hidden;
+  contain: layout paint style;
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 html[data-platform="android"] .android-canvas-header-copy {
@@ -142,6 +157,17 @@ html[data-platform="android"] .android-canvas-status-chip.active {
   color: var(--accent);
 }
 
+html[data-platform="android"] .android-canvas-status-chip.compare-exit {
+  gap: 4px;
+  border: 1px solid rgb(0 122 105 / 0.24);
+  background: #007a69;
+  color: #fff;
+}
+
+html[data-platform="android"] .android-canvas-status-chip.compare-exit svg {
+  flex: 0 0 auto;
+}
+
 html[data-platform="android"] .android-canvas-status-chip.stream-preview-chip {
   min-width: 0;
   padding-inline: 7px;
@@ -153,7 +179,7 @@ html[data-platform="android"] .android-canvas-status-chip.stream-preview-chip .s
   background: transparent;
   padding: 0;
   box-shadow: none;
-  backdrop-filter: none;
+  backdrop-filter: var(--android-backdrop-filter-none);
 }
 
 html[data-platform="android"] .android-canvas-main {
@@ -173,6 +199,7 @@ html[data-platform="android"] .android-canvas-stage-panel {
   border: 1px solid rgb(15 23 42 / 0.08);
   border-radius: 26px;
   background: var(--canvas-bg);
+  contain: layout paint style;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.38), 0 18px 42px rgb(15 23 42 / 0.08);
 }
 
@@ -195,99 +222,6 @@ html[data-platform="android"] .android-stage-host {
 
 html[data-platform="android"] .android-stage-host canvas {
   touch-action: none;
-}
-
-html[data-platform="android"] .android-canvas-empty {
-  position: absolute;
-  inset: auto 18px 18px 18px;
-  z-index: 4;
-  display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  border: 1px solid rgb(15 23 42 / 0.07);
-  border-radius: 24px;
-  background: rgb(255 255 255 / 0.88);
-  padding: 14px;
-  box-shadow: 0 18px 40px rgb(15 23 42 / 0.1);
-}
-
-html.dark[data-platform="android"] .android-canvas-empty {
-  border-color: rgb(255 255 255 / 0.08);
-  background: rgb(24 24 27 / 0.9);
-  box-shadow: 0 18px 44px rgb(0 0 0 / 0.32);
-}
-
-html[data-platform="android"] .android-canvas-empty-icon {
-  display: grid;
-  width: 46px;
-  height: 46px;
-  place-items: center;
-  border-radius: 17px;
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-html[data-platform="android"] .android-canvas-empty-icon svg {
-  width: 22px;
-  height: 22px;
-}
-
-html[data-platform="android"] .android-canvas-empty-copy {
-  min-width: 0;
-}
-
-html[data-platform="android"] .android-canvas-empty-copy strong {
-  display: block;
-  color: var(--text);
-  font-size: 17px;
-  font-weight: 850;
-  line-height: 1.2;
-}
-
-html[data-platform="android"] .android-canvas-empty-copy span {
-  display: block;
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.45;
-}
-
-html[data-platform="android"] .android-canvas-empty-actions {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: 8px;
-}
-
-html[data-platform="android"] .android-canvas-empty-actions button {
-  display: inline-flex;
-  min-width: 0;
-  min-height: 46px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border-radius: 17px;
-  background: rgb(15 23 42 / 0.05);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-html.dark[data-platform="android"] .android-canvas-empty-actions button {
-  background: rgb(255 255 255 / 0.07);
-}
-
-html[data-platform="android"] .android-canvas-empty-actions button.primary {
-  background: var(--accent);
-  color: white;
-}
-
-html[data-platform="android"] .android-canvas-empty-actions svg {
-  width: 16px;
-  height: 16px;
 }
 
 html[data-platform="android"] .android-canvas-floating-meta {
@@ -323,11 +257,15 @@ html[data-platform="android"] .android-canvas-progress {
   bottom: 12px;
   z-index: 5;
   min-width: min(260px, calc(100% - 24px));
+  min-height: 68px;
   border-radius: 20px;
   background: rgb(10 10 12 / 0.78);
   color: white;
+  contain: layout paint style;
   padding: 12px;
-  box-shadow: 0 16px 36px rgb(0 0 0 / 0.24);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.18);
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 html[data-platform="android"] .android-canvas-progress.android-canvas-progress-compose {
@@ -339,7 +277,6 @@ html[data-platform="android"] .android-canvas-progress.android-canvas-progress-c
   margin: 0 0 10px auto;
   border: 1px solid rgb(255 255 255 / 0.08);
   background: rgb(10 10 12 / 0.82);
-  backdrop-filter: blur(18px);
   pointer-events: none;
 }
 
@@ -351,10 +288,9 @@ html[data-platform="android"] .android-canvas-progress-head {
   font-weight: 800;
 }
 
-html[data-platform="android"] .android-canvas-progress-head svg {
+html[data-platform="android"] .android-canvas-progress-head .android-canvas-spinner {
   width: 16px;
   height: 16px;
-  animation: spin-emerald 0.9s linear infinite;
 }
 
 html[data-platform="android"] .android-canvas-progress-meta {
@@ -365,12 +301,14 @@ html[data-platform="android"] .android-canvas-progress-meta {
 }
 
 html[data-platform="android"] .android-canvas-progress-meta span {
+  min-width: 44px;
   border-radius: 999px;
   background: rgb(255 255 255 / 0.12);
   color: rgb(255 255 255 / 0.82);
   font-size: 10px;
   font-weight: 700;
   padding: 4px 7px;
+  text-align: center;
 }
 
 html[data-platform="android"] .android-canvas-source-strip {
@@ -443,9 +381,14 @@ html[data-platform="android"] .android-canvas-source-preview img {
 html[data-platform="android"] .android-canvas-source-preview {
   display: grid;
   place-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 800;
+  text-align: center;
+  cursor: pointer;
 }
 
 html[data-platform="android"] .android-canvas-source-preview img {
@@ -672,6 +615,179 @@ html[data-platform="android"] .android-canvas-source-add:active {
   transform: scale(0.97);
 }
 
+html[data-platform="android"] .android-canvas-action-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(15 23 42 / 0.42);
+  padding: 0 10px calc(10px + var(--android-safe-bottom-value, 0px));
+}
+
+html[data-platform="android"] .android-canvas-action-backdrop {
+  position: absolute;
+  inset: 0;
+}
+
+html[data-platform="android"] .android-canvas-action-sheet {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 760px);
+  max-height: min(78vh, 720px);
+  overflow-y: auto;
+  border: 1px solid rgb(15 23 42 / 0.08);
+  border-radius: 28px;
+  background: rgb(255 255 255 / 0.96);
+  padding: 16px 16px 18px;
+  box-shadow: 0 26px 70px rgb(15 23 42 / 0.24);
+}
+
+html.dark[data-platform="android"] .android-canvas-action-sheet {
+  border-color: rgb(255 255 255 / 0.08);
+  background: rgb(24 24 27 / 0.96);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 0.45);
+}
+
+html[data-platform="android"] .android-canvas-action-grabber {
+  width: 44px;
+  height: 5px;
+  margin: 0 auto 14px;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.14);
+}
+
+html.dark[data-platform="android"] .android-canvas-action-grabber {
+  background: rgb(255 255 255 / 0.18);
+}
+
+html[data-platform="android"] .android-canvas-action-head {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 42px;
+  gap: 12px;
+  align-items: center;
+}
+
+html[data-platform="android"] .android-canvas-action-preview {
+  position: relative;
+  width: 76px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px rgb(15 23 42 / 0.06);
+}
+
+html[data-platform="android"] .android-canvas-action-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+html[data-platform="android"] .android-canvas-action-copy {
+  min-width: 0;
+}
+
+html[data-platform="android"] .android-canvas-action-copy span {
+  display: block;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+html[data-platform="android"] .android-canvas-action-copy strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-platform="android"] .android-canvas-action-copy small {
+  display: block;
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-platform="android"] .android-canvas-action-close {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.05);
+  color: var(--text-muted);
+}
+
+html[data-platform="android"] .android-canvas-action-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+html[data-platform="android"] .android-canvas-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+html[data-platform="android"] .android-canvas-action-grid button {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  min-height: 58px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgb(15 23 42 / 0.07);
+  border-radius: 20px;
+  background: rgb(255 255 255 / 0.7);
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 850;
+  text-align: left;
+}
+
+html.dark[data-platform="android"] .android-canvas-action-grid button {
+  border-color: rgb(255 255 255 / 0.08);
+  background: rgb(255 255 255 / 0.05);
+}
+
+html[data-platform="android"] .android-canvas-action-grid button span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+html[data-platform="android"] .android-canvas-action-grid button span svg {
+  width: 19px;
+  height: 19px;
+}
+
+html[data-platform="android"] .android-canvas-action-grid button.danger {
+  border-color: rgb(239 68 68 / 0.18);
+  background: rgb(254 242 242 / 0.72);
+  color: var(--danger);
+}
+
+html[data-platform="android"] .android-canvas-action-grid button.danger span {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 html[data-platform="android"] .android-canvas-context-card {
   flex-direction: column;
   align-items: stretch;
@@ -751,7 +867,7 @@ html[data-platform="android"] .android-canvas-color-row button.active {
 
 html[data-target-platform="android-pad"] .android-canvas-workspace {
   gap: 10px;
-  padding: calc(var(--android-safe-top-value, env(safe-area-inset-top, 0px)) + 14px) calc(var(--android-safe-right-value, env(safe-area-inset-right, 0px)) + 16px) calc(var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)) + 14px) calc(var(--android-safe-left-value, env(safe-area-inset-left, 0px)) + 16px);
+  padding: calc(var(--android-safe-top-value, 0px) + 14px) calc(var(--android-safe-right-value, 0px) + 16px) calc(var(--android-safe-bottom-value, 0px) + 14px) calc(var(--android-safe-left-value, 0px) + 16px);
 }
 
 html[data-target-platform="android-pad"] .android-canvas-header {
@@ -792,7 +908,7 @@ html[data-target-platform="android"][data-android-orientation="landscape"] .stud
 
 html[data-target-platform="android"][data-android-orientation="landscape"] .android-canvas-workspace {
   grid-template-rows: auto minmax(0, 1fr) auto;
-  padding: calc(var(--android-safe-top-value, env(safe-area-inset-top, 0px)) + 8px) calc(var(--android-safe-right-value, env(safe-area-inset-right, 0px)) + 10px) calc(var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)) + 8px) calc(var(--android-safe-left-value, env(safe-area-inset-left, 0px)) + 10px);
+  padding: calc(var(--android-safe-top-value, 0px) + 8px) calc(var(--android-safe-right-value, 0px) + 10px) calc(var(--android-safe-bottom-value, 0px) + 8px) calc(var(--android-safe-left-value, 0px) + 10px);
 }
 
 html[data-target-platform="android"][data-android-orientation="landscape"] .android-canvas-header {
@@ -856,7 +972,7 @@ html[data-target-platform="android-pad"][data-android-orientation="landscape"] .
 html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-workspace {
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 8px;
-  padding: calc(var(--android-safe-top-value, env(safe-area-inset-top, 0px)) + 10px) calc(var(--android-safe-right-value, env(safe-area-inset-right, 0px)) + 14px) calc(var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)) + 10px) calc(var(--android-safe-left-value, env(safe-area-inset-left, 0px)) + 14px);
+  padding: calc(var(--android-safe-top-value, 0px) + 10px) calc(var(--android-safe-right-value, 0px) + 14px) calc(var(--android-safe-bottom-value, 0px) + 10px) calc(var(--android-safe-left-value, 0px) + 14px);
 }
 
 html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-header {
@@ -885,38 +1001,6 @@ html[data-target-platform="android-pad"][data-android-orientation="landscape"] .
 
 html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-stage-panel {
   border-radius: 24px;
-}
-
-html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-empty {
-  inset: auto 16px 16px 16px;
-  grid-template-columns: 42px minmax(0, 1fr) minmax(220px, 0.9fr);
-  align-items: center;
-  border-radius: 22px;
-  padding: 12px;
-}
-
-html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-empty-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 15px;
-}
-
-html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-empty-copy strong {
-  font-size: 16px;
-}
-
-html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-empty-copy span {
-  font-size: 11px;
-}
-
-html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-empty-actions {
-  grid-column: auto;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-empty-actions button {
-  min-height: 44px;
-  border-radius: 16px;
 }
 
 html[data-target-platform="android-pad"][data-android-orientation="landscape"] .android-canvas-source-strip {
@@ -960,6 +1044,135 @@ html[data-target-platform="android-pad"][data-android-orientation="landscape"] .
   width: 44px;
   height: 44px;
   border-radius: 15px;
+}
+
+html[data-platform="android"] .android-app-header {
+  backdrop-filter: var(--android-backdrop-filter-none) !important;
+  -webkit-backdrop-filter: var(--android-backdrop-filter-none) !important;
+}
+
+html[data-platform="android"] .android-stage-host {
+  animation: none !important;
+  background-position: 0 0, 0 12px, 12px -12px, 12px 0;
+  contain: layout paint;
+  will-change: auto;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .android-canvas-stage-panel {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.28);
+}
+
+html.dark[data-platform="android"] .android-canvas-workspace[data-running="true"] .android-canvas-stage-panel {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05);
+}
+
+html[data-platform="android"] .android-stage-host[data-running="true"] {
+  background: var(--canvas-bg) !important;
+  background-image: none !important;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .android-canvas-progress {
+  background: rgb(10 10 12 / 0.72);
+  box-shadow: none;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .android-canvas-status-dot .android-canvas-spinner {
+  animation: none !important;
+  border-right-color: currentColor;
+  opacity: 0.72;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .android-canvas-progress .android-canvas-spinner-progress {
+  animation: none !important;
+  border-right-color: transparent;
+  opacity: 0.9;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .stream-preview-final-wait {
+  background: rgb(0 0 0 / 0.54);
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .stream-preview-image-cover,
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .stream-preview-overlay {
+  contain: layout paint style;
+  filter: none !important;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid-overlay,
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid {
+  contain: layout paint style;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid-tile {
+  box-shadow: none !important;
+  transition: none !important;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid-tile:hover {
+  transform: none !important;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid-tile.pending {
+  background: var(--surface) !important;
+}
+
+html[data-platform="android"] .stage-canvas-wrap.stream-preview-blur canvas {
+  filter: none !important;
+}
+
+html[data-platform="android"] .batch-grid-tile.previewing img {
+  filter: none !important;
+  transform: none !important;
+}
+
+html[data-platform="android"] .batch-grid-tile.previewing::after {
+  background: rgb(15 23 42 / 0.1);
+  box-shadow: none !important;
+}
+
+html[data-platform="android"] .stream-preview-final-wait,
+html[data-platform="android"] .stream-preview-badge,
+html[data-platform="android"] .batch-grid-preview-wait,
+html[data-platform="android"] .batch-grid-index,
+html[data-platform="android"] .batch-grid-meta,
+html[data-platform="android"] .batch-grid-api-label,
+html[data-platform="android"] .batch-grid-pixels,
+html[data-platform="android"] .android-canvas-progress.android-canvas-progress-compose {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+}
+
+html[data-platform="android"] .batch-grid-preview-wait,
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid-preview-wait {
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+}
+
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid-index,
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid-meta,
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid-api-label,
+html[data-platform="android"] .android-canvas-workspace[data-running="true"] .batch-grid-pixels {
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+}
+
+html[data-platform="android"] .stream-preview-badge svg,
+html[data-platform="android"] .batch-grid-pending-ring {
+  animation: none !important;
+}
+
+html[data-platform="android"] .android-canvas-spinner {
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 html[data-ui-family="android"] .studio.fullscreen {

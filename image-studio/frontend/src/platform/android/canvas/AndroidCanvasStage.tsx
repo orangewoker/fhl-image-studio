@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Arrow, Image as KonvaImage, Layer, Line, Rect, Stage } from "react-konva";
 import Konva from "konva";
+import { shallow } from "zustand/shallow";
 import { useStudioStore } from "../../../state/studioStore";
-import type { HistoryItem } from "../../../types/domain";
+import type { APIMode, HistoryItem, JobGroupSnapshot, JobSlotSnapshot } from "../../../types/domain";
 import type { Stroke } from "../../../state/studioStore.types";
 import { AnnotationShape } from "../../../components/canvas/AnnotationShape";
 import { BatchResultGrid, type BatchGridSlot } from "../../../components/canvas/BatchResultGrid";
@@ -10,7 +11,9 @@ import { CompareOverlay } from "../../../components/canvas/CompareOverlay";
 import { copyImageB64ToClipboard, copyImageURLToClipboard, useImageFromSource } from "../../../components/canvas/canvasImage";
 import { StreamPreviewBadge } from "../../../components/canvas/StreamPreviewBadge";
 import { useCanvasShortcuts } from "../../../components/canvas/useCanvasShortcuts";
-import { historyFullSrc, isTransientPreviewItem } from "../../../lib/images";
+import { historyPreviewSrc, isTransientPreviewItem } from "../../../lib/images";
+import { upstreamConfigShortLabel } from "../../../lib/profiles";
+import { latestGroup } from "../../../state/browserJobs";
 import { streamPreviewItemsFromPreviews } from "../../../state/studioStore.streamPreview";
 import { vibrateForPlatform } from "../bridge";
 
@@ -24,6 +27,64 @@ type PinchState = {
 const MIN_VIEW_SCALE = 0.05;
 const MAX_VIEW_SCALE = 8;
 const ZOOM_STEP = 1.2;
+const ANDROID_KONVA_PIXEL_RATIO = 1;
+
+if (typeof window !== "undefined") {
+  Konva.pixelRatio = ANDROID_KONVA_PIXEL_RATIO;
+}
+
+function batchApiShortLabel(apiMode: APIMode) {
+  if (apiMode === "apimart") return "APIMart";
+  if (apiMode === "responses") return "Responses";
+  return "Images";
+}
+
+function firstBatchAPIItemLabel(items: HistoryItem[]) {
+  for (const item of items) {
+    const label = item.apiLabel?.trim();
+    if (label) return label;
+  }
+  return "";
+}
+
+function androidJobSlotIsLive(slot: JobSlotSnapshot) {
+  return slot.status === "queued" || slot.status === "running";
+}
+
+export function androidJobGroupHasLiveSlots(group: JobGroupSnapshot) {
+  return group.slots.some(androidJobSlotIsLive);
+}
+
+export function androidJobGroupSlotCount(group: JobGroupSnapshot | null | undefined) {
+  if (!group) return 0;
+  return group.slots.reduce((slotMax, slot) => (
+    Math.max(slotMax, Number.isFinite(Number(slot.batchIndex)) ? Number(slot.batchIndex) + 1 : 0)
+  ), group.batchCount);
+}
+
+export function androidCanvasScopedJobGroups(groups: JobGroupSnapshot[], isRunning: boolean) {
+  const liveGroups = groups.filter(androidJobGroupHasLiveSlots);
+  if (isRunning) return liveGroups;
+  const latest = latestGroup(groups);
+  return latest ? [latest] : [];
+}
+
+function isGenericAPIShortLabel(label: string) {
+  const trimmed = label.trim();
+  return trimmed === "Images"
+    || trimmed === "Images API"
+    || trimmed === "Responses"
+    || trimmed === "Responses API";
+}
+
+function preferredProviderAPIShortLabel(label: string, providerLabel: string) {
+  return providerLabel && isGenericAPIShortLabel(label) ? "" : label;
+}
+
+function providerAPIShortLabel(label: string) {
+  const trimmed = label.trim();
+  return trimmed === "FHL" || trimmed === "APIMart" ? trimmed : "";
+}
 
 export function AndroidCanvasStage() {
   const {
@@ -38,92 +99,202 @@ export function AndroidCanvasStage() {
     isRunning, cancel, errorMessage, setField,
     streamPreview,
     streamPreviews,
+    apimartRecoveryTasks,
+    applyJobSlotParams,
+    jobGroupsByWorkspace,
+    queryAPIMartRecoveryTask,
+    regenerateJobSlot,
+    runningJobMeta,
     runningJobs,
     jobsTotal,
     jobsCompleted,
     activeWorkspaceId,
+    activeProfileId,
+    apiMode,
+    baseURL,
+    profiles,
+    mode,
+    prompt,
+    size,
+    quality,
+    outputFormat,
     toggleFullscreen,
     batchResults, resultGridOpen, selectBatchResult, closeResultGrid,
     canvasViewResetTick,
-  } = useStudioStore();
+  } = useStudioStore((state) => ({
+    currentImage: state.currentImage,
+    tool: state.tool,
+    brushSize: state.brushSize,
+    brushMode: state.brushMode,
+    annotationKind: state.annotationKind,
+    annotationColor: state.annotationColor,
+    selectedAnnotationId: state.selectedAnnotationId,
+    annotations: state.annotations,
+    addAnnotation: state.addAnnotation,
+    removeAnnotation: state.removeAnnotation,
+    setMaskDataURL: state.setMaskDataURL,
+    strokes: state.strokes,
+    pushStroke: state.pushStroke,
+    undo: state.undo,
+    redo: state.redo,
+    compareB: state.compareB,
+    compareSplit: state.compareSplit,
+    setCompareSplit: state.setCompareSplit,
+    setCompareB: state.setCompareB,
+    isRunning: state.isRunning,
+    cancel: state.cancel,
+    errorMessage: state.errorMessage,
+    setField: state.setField,
+    streamPreview: state.streamPreview,
+    streamPreviews: state.streamPreviews,
+    apimartRecoveryTasks: state.apimartRecoveryTasks,
+    applyJobSlotParams: state.applyJobSlotParams,
+    jobGroupsByWorkspace: state.jobGroupsByWorkspace,
+    queryAPIMartRecoveryTask: state.queryAPIMartRecoveryTask,
+    regenerateJobSlot: state.regenerateJobSlot,
+    runningJobMeta: state.runningJobMeta,
+    runningJobs: state.runningJobs,
+    jobsTotal: state.jobsTotal,
+    jobsCompleted: state.jobsCompleted,
+    activeWorkspaceId: state.activeWorkspaceId,
+    activeProfileId: state.activeProfileId,
+    apiMode: state.apiMode,
+    baseURL: state.baseURL,
+    profiles: state.profiles,
+    mode: state.mode,
+    prompt: state.prompt,
+    size: state.size,
+    quality: state.quality,
+    outputFormat: state.outputFormat,
+    toggleFullscreen: state.toggleFullscreen,
+    batchResults: state.batchResults,
+    resultGridOpen: state.resultGridOpen,
+    selectBatchResult: state.selectBatchResult,
+    closeResultGrid: state.closeResultGrid,
+    canvasViewResetTick: state.canvasViewResetTick,
+  }), shallow);
   const streamPreviewItems = streamPreviewItemsFromPreviews(streamPreviews, {
     workspaceId: activeWorkspaceId,
-    mode: useStudioStore.getState().mode,
-    prompt: useStudioStore.getState().prompt,
-    size: useStudioStore.getState().size,
-    quality: useStudioStore.getState().quality,
-    outputFormat: useStudioStore.getState().outputFormat,
+    mode,
+    prompt,
+    size,
+    quality,
+    outputFormat,
     currentImage,
   });
-  const visibleBatchSlotCount = Math.max(jobsTotal, batchResults.length + runningJobs.length, batchResults.length + streamPreviewItems.length);
-  const liveBatchSlots: BatchGridSlot[] = Array.from({ length: visibleBatchSlotCount }, (_, index) => ({ type: "pending", id: `pending-${index}` }));
+  const workspaceJobGroups = jobGroupsByWorkspace[activeWorkspaceId] ?? [];
+  const displayJobGroups = androidCanvasScopedJobGroups(workspaceJobGroups, isRunning);
+  const jobGroupSlotCount = displayJobGroups.reduce((maxCount, group) => (
+    Math.max(maxCount, androidJobGroupSlotCount(group))
+  ), 0);
+  const visibleBatchSlotCount = Math.max(
+    jobsTotal,
+    jobGroupSlotCount,
+    batchResults.length + runningJobs.length,
+    batchResults.length + streamPreviewItems.length,
+  );
+  const activeJobGroup = latestGroup(displayJobGroups);
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
+  const selectedAPIShortLabel = upstreamConfigShortLabel({
+    apiMode: activeProfile?.apiMode ?? apiMode,
+    baseURL: activeProfile?.baseURL ?? baseURL,
+  });
+  const activeJobGroupModeLabel = activeJobGroup ? batchApiShortLabel(activeJobGroup.apiMode) : "";
+  const selectedAPIProviderLabel = providerAPIShortLabel(selectedAPIShortLabel);
+  const selectedAPIProviderFitsBatch = selectedAPIProviderLabel === "FHL"
+    ? !activeJobGroup || activeJobGroup.apiMode === "responses" || activeJobGroup.apiMode === "images"
+    : !activeJobGroup || activeJobGroup.apiMode === (activeProfile?.apiMode ?? apiMode);
+  const selectedBatchProviderLabel = selectedAPIProviderFitsBatch ? selectedAPIProviderLabel : "";
+  const batchItemApiLabel = firstBatchAPIItemLabel(batchResults);
+  const preferredBatchItemApiLabel = preferredProviderAPIShortLabel(batchItemApiLabel, selectedBatchProviderLabel);
+  const preferredJobGroupApiLabel = preferredProviderAPIShortLabel(activeJobGroup?.apiLabel?.trim() || "", selectedBatchProviderLabel);
+  const batchApiLabel = preferredBatchItemApiLabel
+    || preferredJobGroupApiLabel
+    || providerAPIShortLabel(activeJobGroupModeLabel)
+    || selectedBatchProviderLabel
+    || activeJobGroupModeLabel
+    || undefined;
+  const apimartRecoveryByBatchIndex = new Map<number, (typeof apimartRecoveryTasks)[number]>();
+  for (const task of apimartRecoveryTasks) {
+    if (task.workspaceId !== activeWorkspaceId) continue;
+    if (typeof task.batchIndex !== "number") continue;
+    apimartRecoveryByBatchIndex.set(task.batchIndex, task);
+  }
+  const jobEntryByBatchIndex = new Map<number, { group: JobGroupSnapshot; slot: JobSlotSnapshot }>();
+  const jobEntryGroups = displayJobGroups;
+  for (const group of [...jobEntryGroups].sort((a, b) => a.createdAt - b.createdAt)) {
+    for (const slot of group.slots) {
+      jobEntryByBatchIndex.set(slot.batchIndex, { group, slot });
+    }
+  }
+  const runningMetaByBatchIndex = new Map<number, (typeof runningJobMeta)[string]>();
+  for (const jobId of runningJobs) {
+    const meta = runningJobMeta[jobId];
+    if (!meta || meta.workspaceId !== activeWorkspaceId || typeof meta.batchIndex !== "number") continue;
+    runningMetaByBatchIndex.set(meta.batchIndex, meta);
+  }
+  const apiLabelForBatchIndex = (index: number) => {
+    const entry = jobEntryByBatchIndex.get(index);
+    const recoveryTask = apimartRecoveryByBatchIndex.get(index);
+    const meta = runningMetaByBatchIndex.get(index);
+    return recoveryTask
+      ? "APIMart"
+      : meta?.apiLabel?.trim()
+        || entry?.group.apiLabel?.trim()
+        || (meta ? batchApiShortLabel(meta.apiMode) : "")
+        || (entry ? batchApiShortLabel(entry.group.apiMode) : "")
+        || batchApiLabel;
+  };
+  const liveBatchSlots: BatchGridSlot[] = Array.from({ length: visibleBatchSlotCount }, (_, index) => {
+    const entry = jobEntryByBatchIndex.get(index);
+    return {
+      type: "pending",
+      id: `pending-${index}`,
+      apiLabel: apiLabelForBatchIndex(index),
+      jobGroup: entry?.group,
+      jobSlot: entry?.slot,
+    };
+  });
   for (const item of batchResults) {
     const index = typeof item.batchIndex === "number" ? item.batchIndex : liveBatchSlots.findIndex((slot) => slot.type === "pending");
-    if (index >= 0 && index < liveBatchSlots.length) liveBatchSlots[index] = { type: "result", item };
+    if (index >= 0 && index < liveBatchSlots.length) liveBatchSlots[index] = { type: "result", item, apiLabel: item.apiLabel || apiLabelForBatchIndex(index) };
   }
   for (const item of streamPreviewItems) {
     const index = typeof item.batchIndex === "number" ? item.batchIndex : liveBatchSlots.findIndex((slot) => slot.type === "pending");
     if (index >= 0 && index < liveBatchSlots.length && liveBatchSlots[index].type === "pending") {
-      liveBatchSlots[index] = { type: "preview", item };
+      liveBatchSlots[index] = { type: "preview", item, apiLabel: item.apiLabel || apiLabelForBatchIndex(index) };
     }
   }
-  const completedBatchSlots: BatchGridSlot[] = liveBatchSlots.map((slot, index) => (
-    slot.type === "pending" ? { type: "failed", id: `failed-${index}` } : slot
-  ));
+  const completedBatchSlots: BatchGridSlot[] = liveBatchSlots.map((slot, index) => {
+    if (slot.type !== "pending") return slot;
+    const entry = jobEntryByBatchIndex.get(index);
+    return {
+      type: "failed",
+      id: `failed-${index}`,
+      apiLabel: apiLabelForBatchIndex(index),
+      recoveryTask: apimartRecoveryByBatchIndex.get(index),
+      jobGroup: entry?.group,
+      jobSlot: entry?.slot,
+    };
+  });
+  const activeJobGroupHasFailedSlot = activeJobGroup?.slots.some((slot) => (
+    slot.status === "failed" || slot.status === "interrupted" || slot.status === "cancelled"
+  )) ?? false;
   const showingLiveBatchGrid = isRunning && visibleBatchSlotCount > 1;
-  const showingCompletedBatchGrid = !isRunning && resultGridOpen && visibleBatchSlotCount > 1;
+  const showingCompletedBatchGrid = !isRunning && (resultGridOpen || activeJobGroupHasFailedSlot) && visibleBatchSlotCount > 1;
   const showingResultGrid = showingLiveBatchGrid || showingCompletedBatchGrid;
+  const showingSingleLivePlaceholder = isRunning && visibleBatchSlotCount === 1 && !showingResultGrid && !currentImage;
 
   const stageRef = useRef<Konva.Stage | null>(null);
-  const previewImageRef = useRef<Konva.Image | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
   const pinchRef = useRef<PinchState | null>(null);
   const [pinching, setPinching] = useState(false);
   const effectiveTool = pinching ? "pan" : tool;
 
-  const currentImageURL = historyFullSrc(currentImage, null);
-  const image = useImageFromSource(currentImage?.imageBlob ?? null, currentImage?.imageB64, currentImageURL);
+  const currentImageURL = historyPreviewSrc(currentImage, null);
+  const image = useImageFromSource(currentImage?.previewBlob ?? currentImage?.imageBlob ?? null, currentImage?.previewUrl ? undefined : currentImage?.imageB64, currentImageURL);
   const isCurrentStreamPreview = isTransientPreviewItem(currentImage);
 
-  useEffect(() => {
-    const node = previewImageRef.current;
-    if (!node) return;
-    if (isCurrentStreamPreview) {
-      node.cache();
-    } else {
-      node.clearCache();
-    }
-    node.getLayer()?.batchDraw();
-    return () => {
-      node.clearCache();
-    };
-  }, [image, isCurrentStreamPreview]);
-
-  useEffect(() => {
-    if (!currentImage?.previewOnly) return;
-    if (currentImage.fullUrl || currentImage.imageId || currentImage.imageB64 || currentImage.imageBlob) return;
-    if (currentImage.id.startsWith("preview-")) return;
-
-    let cancelled = false;
-    const selectedId = currentImage.id;
-    void useStudioStore.getState().materializeCurrentImage(currentImage).then((full) => {
-      if (cancelled || !full || full.previewOnly) return;
-      if (useStudioStore.getState().currentImage?.id !== selectedId) return;
-      setField("currentImage", full);
-    }).catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    currentImage?.id,
-    currentImage?.previewOnly,
-    currentImage?.fullUrl,
-    currentImage?.imageId,
-    currentImage?.imageB64,
-    currentImage?.imageBlob,
-    setField,
-  ]);
   const [hostSize, setHostSize] = useState({ w: 0, h: 0 });
   const hostRef = useCallback((node: HTMLDivElement | null) => {
     if (roRef.current) {
@@ -134,7 +305,9 @@ export function AndroidCanvasStage() {
     const update = () => {
       const w = node.clientWidth;
       const h = node.clientHeight;
-      if (w > 0 && h > 0) setHostSize({ w, h });
+      if (w > 0 && h > 0) {
+        setHostSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+      }
     };
     update();
     if (typeof ResizeObserver === "function") {
@@ -180,7 +353,9 @@ export function AndroidCanvasStage() {
     stage.scaleX(view.scale);
     stage.scaleY(view.scale);
     stage.batchDraw();
-    setField("viewZoom", view.scale);
+    if (Math.abs(useStudioStore.getState().viewZoom - view.scale) > 0.001) {
+      setField("viewZoom", view.scale);
+    }
   }, [view.x, view.y, view.scale, image, hostSize.w, hostSize.h, setField]);
 
   function resetView() {
@@ -476,10 +651,16 @@ export function AndroidCanvasStage() {
     undo,
   });
 
+  const activeStroke = drawingRef.current.current;
+  const activeFreehand = freehandRef.current;
+  const hasStrokeLayer = strokes.length > 0 || !!activeStroke;
+  const hasAnnotationLayer = annotations.length > 0 || !!drag || !!activeFreehand;
+
   return (
     <div
       ref={hostRef}
       className="stage-host android-stage-host"
+      data-running={isRunning ? "true" : "false"}
       style={{ cursor: !currentImage ? "default" : effectiveTool === "pan" ? "grab" : "crosshair" }}
     >
       {showingResultGrid ? (
@@ -489,18 +670,29 @@ export function AndroidCanvasStage() {
           currentId={currentImage?.id ?? null}
           onSelect={selectBatchResult}
           onClose={closeResultGrid}
+          onApplyJobSlotParams={applyJobSlotParams}
+          onRegenerateJobSlot={(group, slot) => { void regenerateJobSlot(group, slot); }}
+          onQueryAPIMartTask={(taskId) => { void queryAPIMartRecoveryTask(taskId); }}
+          apiLabel={batchApiLabel}
           showClose={!showingLiveBatchGrid}
           title={showingLiveBatchGrid ? `本批预览 · ${jobsCompleted}/${jobsTotal}` : `本批结果 · ${batchResults.length}/${visibleBatchSlotCount} 张`}
+        />
+      ) : null}
+      {showingSingleLivePlaceholder ? (
+        <AndroidSinglePendingPreview
+          completed={jobsCompleted}
+          total={Math.max(jobsTotal, 1)}
+          apiLabel={apiLabelForBatchIndex(0)}
         />
       ) : null}
       {!showingResultGrid && currentImage && compareB ? (
         <CompareOverlay
           aBlob={currentImage.imageBlob ?? null}
           aB64={currentImage.imageB64}
-          aUrl={currentImage.fullUrl}
+          aUrl={currentImage.fullUrl || currentImage.previewUrl}
           bBlob={compareB.imageBlob ?? null}
           bB64={compareB.imageB64}
-          bUrl={compareB.fullUrl}
+          bUrl={compareB.fullUrl || compareB.previewUrl}
           split={compareSplit}
           onSplit={setCompareSplit}
         />
@@ -529,92 +721,99 @@ export function AndroidCanvasStage() {
             onTouchEnd={endPinch}
             onTouchCancel={endPinch}
           >
-            <Layer>
+            <Layer listening={false}>
               {image ? (
                 <KonvaImage
-                  ref={previewImageRef}
                   image={image}
                   listening={false}
-                  filters={isCurrentStreamPreview ? [Konva.Filters.Blur] : undefined}
-                  blurRadius={isCurrentStreamPreview ? 24 : 0}
+                  perfectDrawEnabled={false}
                 />
               ) : null}
             </Layer>
 
-            <Layer>
-              {strokes.map((s, i) => (
-                <Line
-                  key={i}
-                  points={s.points}
-                  stroke={s.erase ? "rgba(226,85,85,0.55)" : "rgba(77,124,255,0.55)"}
-                  strokeWidth={s.size}
-                  lineCap="round"
-                  lineJoin="round"
-                  tension={0.4}
-                  dash={s.erase ? [s.size * 0.4, s.size * 0.4] : undefined}
-                  listening={false}
-                  globalCompositeOperation={s.erase ? "destination-out" : "source-over"}
-                />
-              ))}
-              {drawingRef.current.current ? (
-                <Line
-                  points={drawingRef.current.current.points.slice()}
-                  stroke={drawingRef.current.current.erase ? "rgba(226,85,85,0.55)" : "rgba(77,124,255,0.55)"}
-                  strokeWidth={drawingRef.current.current.size}
-                  lineCap="round"
-                  lineJoin="round"
-                  tension={0.4}
-                  dash={drawingRef.current.current.erase ? [drawingRef.current.current.size * 0.4, drawingRef.current.current.size * 0.4] : undefined}
-                  listening={false}
-                  globalCompositeOperation={drawingRef.current.current.erase ? "destination-out" : "source-over"}
-                />
-              ) : null}
-            </Layer>
+            {hasStrokeLayer ? (
+              <Layer listening={false}>
+                {strokes.map((s, i) => (
+                  <Line
+                    key={i}
+                    points={s.points}
+                    stroke={s.erase ? "rgba(226,85,85,0.55)" : "rgba(77,124,255,0.55)"}
+                    strokeWidth={s.size}
+                    lineCap="round"
+                    lineJoin="round"
+                    tension={0.4}
+                    dash={s.erase ? [s.size * 0.4, s.size * 0.4] : undefined}
+                    listening={false}
+                    perfectDrawEnabled={false}
+                    globalCompositeOperation={s.erase ? "destination-out" : "source-over"}
+                  />
+                ))}
+                {activeStroke ? (
+                  <Line
+                    points={activeStroke.points.slice()}
+                    stroke={activeStroke.erase ? "rgba(226,85,85,0.55)" : "rgba(77,124,255,0.55)"}
+                    strokeWidth={activeStroke.size}
+                    lineCap="round"
+                    lineJoin="round"
+                    tension={0.4}
+                    dash={activeStroke.erase ? [activeStroke.size * 0.4, activeStroke.size * 0.4] : undefined}
+                    listening={false}
+                    perfectDrawEnabled={false}
+                    globalCompositeOperation={activeStroke.erase ? "destination-out" : "source-over"}
+                  />
+                ) : null}
+              </Layer>
+            ) : null}
 
-            <Layer>
-              {annotations.map((a) => (
-                <AnnotationShape
-                  key={a.id}
-                  annotation={a}
-                  selected={selectedAnnotationId === a.id}
-                  onSelect={() => setField("selectedAnnotationId", a.id)}
-                />
-              ))}
-              {drag && drag.kind === "rect" ? (
-                <Rect
-                  x={Math.min(drag.sx, drag.x)}
-                  y={Math.min(drag.sy, drag.y)}
-                  width={Math.abs(drag.x - drag.sx)}
-                  height={Math.abs(drag.y - drag.sy)}
-                  stroke={annotationColor}
-                  strokeWidth={2 / view.scale}
-                  dash={[6 / view.scale, 4 / view.scale]}
-                  listening={false}
-                />
-              ) : null}
-              {drag && drag.kind === "arrow" ? (
-                <Arrow
-                  points={[drag.sx, drag.sy, drag.x, drag.y]}
-                  stroke={annotationColor}
-                  strokeWidth={2 / view.scale}
-                  fill={annotationColor}
-                  pointerLength={12 / view.scale}
-                  pointerWidth={12 / view.scale}
-                  listening={false}
-                />
-              ) : null}
-              {freehandRef.current && freehandRef.current.length >= 4 ? (
-                <Line
-                  points={freehandRef.current.slice()}
-                  stroke={annotationColor}
-                  strokeWidth={3 / view.scale}
-                  lineCap="round"
-                  lineJoin="round"
-                  tension={0.4}
-                  listening={false}
-                />
-              ) : null}
-            </Layer>
+            {hasAnnotationLayer ? (
+              <Layer listening={effectiveTool === "annotate"}>
+                {annotations.map((a) => (
+                  <AnnotationShape
+                    key={a.id}
+                    annotation={a}
+                    selected={selectedAnnotationId === a.id}
+                    onSelect={() => setField("selectedAnnotationId", a.id)}
+                  />
+                ))}
+                {drag && drag.kind === "rect" ? (
+                  <Rect
+                    x={Math.min(drag.sx, drag.x)}
+                    y={Math.min(drag.sy, drag.y)}
+                    width={Math.abs(drag.x - drag.sx)}
+                    height={Math.abs(drag.y - drag.sy)}
+                    stroke={annotationColor}
+                    strokeWidth={2 / view.scale}
+                    dash={[6 / view.scale, 4 / view.scale]}
+                    listening={false}
+                    perfectDrawEnabled={false}
+                  />
+                ) : null}
+                {drag && drag.kind === "arrow" ? (
+                  <Arrow
+                    points={[drag.sx, drag.sy, drag.x, drag.y]}
+                    stroke={annotationColor}
+                    strokeWidth={2 / view.scale}
+                    fill={annotationColor}
+                    pointerLength={12 / view.scale}
+                    pointerWidth={12 / view.scale}
+                    listening={false}
+                    perfectDrawEnabled={false}
+                  />
+                ) : null}
+                {activeFreehand && activeFreehand.length >= 4 ? (
+                  <Line
+                    points={activeFreehand.slice()}
+                    stroke={annotationColor}
+                    strokeWidth={3 / view.scale}
+                    lineCap="round"
+                    lineJoin="round"
+                    tension={0.4}
+                    listening={false}
+                    perfectDrawEnabled={false}
+                  />
+                ) : null}
+              </Layer>
+            ) : null}
           </Stage>
           {streamPreviewImageBounds ? (
             <div
@@ -641,4 +840,30 @@ export function AndroidCanvasStage() {
 export function androidCanvasModeLabel(item: HistoryItem | null) {
   if (!item) return "空画布";
   return item.mode === "edit" ? "编辑结果" : "生成结果";
+}
+
+function AndroidSinglePendingPreview({
+  completed,
+  total,
+  apiLabel,
+}: {
+  completed: number;
+  total: number;
+  apiLabel?: string;
+}) {
+  return (
+    <div className="batch-grid-overlay android-single-live-placeholder">
+      <div className="batch-grid-head">
+        <span className="batch-grid-title">{`本批预览 · ${completed}/${total}`}</span>
+      </div>
+      <div className="batch-grid" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+        <div className="batch-grid-tile pending" aria-label="等待第 1 张预览">
+          <span className="batch-grid-index">1</span>
+          <span className="batch-grid-pending-ring" />
+          <span className="batch-grid-pending-label">等待预览</span>
+          {apiLabel ? <span className="batch-grid-api-label">{apiLabel}</span> : null}
+        </div>
+      </div>
+    </div>
+  );
 }

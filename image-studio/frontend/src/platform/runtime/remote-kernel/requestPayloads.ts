@@ -5,6 +5,8 @@ import {
 import {
   buildResponsesPayload as buildSharedResponsesPayload,
   normalizePartialImages,
+  promptWithBatchVariation,
+  repairSizeForOpenAI,
   shouldSendExtendedImageParameters,
   shouldUseImagesNewAPICompat,
   supportsImagesResponseFormat,
@@ -29,7 +31,9 @@ export async function buildImagesRequestBody(
   const baseURL = normalizeBaseURL(request.payload.baseURL);
   const mode = request.payload.mode === "edit" ? "edit" : "generate";
   const imageModel = normalizeImageModel(request.payload.imageModelID);
-  const size = request.payload.size || "1024x1024";
+  const rawSize = request.payload.size || "1024x1024";
+  const repairedPayload = repairSizeForOpenAI({ size: rawSize });
+  const size = repairedPayload?.size || rawSize;
   const quality = request.payload.quality || "auto";
   const outputFormat = request.payload.outputFormat || "png";
   const includeExtended = shouldSendExtendedImageParameters(request.payload.requestPolicy);
@@ -53,7 +57,7 @@ export async function buildImagesRequestBody(
       const ext = imageExtensionForMimeType(maskMime);
       form.append("mask", new Blob([Uint8Array.from(atob(request.payload.maskB64), (ch) => ch.charCodeAt(0))], { type: maskMime }), `mask.${ext}`);
     }
-    form.append("prompt", request.payload.prompt);
+    form.append("prompt", promptWithBatchVariation(request.payload));
     form.append("model", imageModel);
     form.append("n", "1");
     form.append("size", size);
@@ -73,7 +77,7 @@ export async function buildImagesRequestBody(
 
   const payload: Record<string, unknown> = {
     model: imageModel,
-    prompt: request.payload.prompt,
+    prompt: promptWithBatchVariation(request.payload),
     n: 1,
     size,
     quality,

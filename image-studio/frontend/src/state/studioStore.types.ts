@@ -1,9 +1,11 @@
 import type { backend } from "../../wailsjs/go/models";
 import type {
   Annotation,
+  APIMartRecoveryTask,
   APIMode,
   HistoryItem,
   JobGroupSnapshot,
+  JobSlotSnapshot,
   KernelRuntimeMode,
   Mode,
   OutputFormatValue,
@@ -31,9 +33,19 @@ export interface ModeConfig {
   concurrencyLimit: number;
 }
 
+export interface ReversePromptImage {
+  path: string;
+  name: string;
+  size: number;
+  previewUrl?: string;
+  imageB64?: string;
+  imageBlob?: Blob | null;
+}
+
 export interface PromptOptimizeRequest {
   apiKey: string;
   prompt: string;
+  optimizationGuidance?: string;
   mode: Mode;
   baseURL: string;
   textModelID: string;
@@ -41,6 +53,22 @@ export interface PromptOptimizeRequest {
   proxyURL: string;
   imagePaths: string[];
   imagePath: string;
+}
+
+export interface PromptReverseRequest {
+  apiKey: string;
+  baseURL: string;
+  textModelID: string;
+  proxyMode: ProxyMode;
+  proxyURL: string;
+  imagePaths: string[];
+  imagePath: string;
+  sourceImages?: Array<{
+    path?: string;
+    name?: string;
+    imageB64?: string | null;
+    imageBlob?: Blob | null;
+  }>;
 }
 
 export interface Stroke {
@@ -58,7 +86,9 @@ export interface UndoEntry {
 export interface StudioState {
   apiKey: string;
   mode: Mode;
+  promptPrefix: string;
   prompt: string;
+  optimizationGuidance: string;
   negativePrompt: string;
   size: SizeValue;
   quality: QualityValue;
@@ -77,6 +107,7 @@ export interface StudioState {
   profiles: UpstreamProfile[];
   activeProfileId: string;
   sources: SourceImage[];
+  reversePromptImage: ReversePromptImage | null;
   runningJobs: string[];
   jobsTotal: number;
   jobsCompleted: number;
@@ -86,6 +117,8 @@ export interface StudioState {
   lastLogLine: string;
   errorMessage: string | null;
   errorRawPath: string | null;
+  apimartRecoveryTask: APIMartRecoveryTask | null;
+  apimartRecoveryTasks: APIMartRecoveryTask[];
   isRunning: boolean;
   lastPayload: backend.GenerateOptions | null;
   runningJobMeta: Record<string, RunningJobMeta>;
@@ -117,6 +150,7 @@ export interface StudioState {
   fullscreen: boolean;
   promptHistory: string[];
   batchCount: number;
+  continuousGenerateTest: boolean;
   presets: Preset[];
   theme: ThemeMode;
   fontScale: number;
@@ -154,6 +188,8 @@ export interface StudioState {
   cancel: () => Promise<void>;
   reuseAsSource: (item: HistoryItem) => Promise<void>;
   applyHistoryParams: (item: HistoryItem) => void;
+  applyJobSlotParams: (group: JobGroupSnapshot, slot: JobSlotSnapshot) => void;
+  regenerateJobSlot: (group: JobGroupSnapshot, slot: JobSlotSnapshot) => Promise<void>;
   regenerateFromHistory: (item: HistoryItem) => Promise<void>;
   deleteHistoryItem: (id: string) => Promise<void>;
   saveCurrentImageAs: () => Promise<void>;
@@ -202,7 +238,13 @@ export interface StudioState {
   testAPIKey: () => Promise<void>;
   isTestingKey: boolean;
   isOptimizingPrompt: boolean;
-  optimizePrompt: () => Promise<void>;
+  isReversingPrompt: boolean;
+  optimizePrompt: (options?: { useGuidance?: boolean }) => Promise<void>;
+  selectReversePromptImage: () => Promise<void>;
+  importReversePromptImageFile: (file: File) => Promise<void>;
+  clearReversePromptImage: () => void;
+  reversePromptFromImage: (imageOverride?: ReversePromptImage | null) => Promise<void>;
+  queryAPIMartRecoveryTask: (taskId?: string) => Promise<void>;
   upstreamModalOpen: boolean;
   upstreamReturnTarget: "app" | "settings";
   openUpstreamConfig: (returnTarget?: "app" | "settings") => void;

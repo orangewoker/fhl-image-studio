@@ -7,6 +7,7 @@ function makeWorkspace(id, overrides = {}) {
   return {
     id,
     name: `tab-${id}`,
+    promptPrefix: "",
     prompt: "",
     negativePrompt: "",
     mode: "generate",
@@ -34,8 +35,13 @@ function makeWorkspace(id, overrides = {}) {
 test("normalizes api mode and concurrency values", () => {
   assert.equal(runtime.normalizeAPIMode("images"), "images");
   assert.equal(runtime.normalizeAPIMode("responses"), "responses");
+  assert.equal(runtime.normalizeAPIMode("apimart"), "apimart");
   assert.equal(runtime.apiModeLabel("images"), "Images API");
   assert.equal(runtime.apiModeLabel("responses"), "Responses API");
+  assert.equal(runtime.apiModeLabel("apimart"), "APIMart");
+  assert.equal(runtime.apiModeShortLabel("images"), "Images");
+  assert.equal(runtime.apiModeShortLabel("responses"), "Responses");
+  assert.equal(runtime.apiModeShortLabel("apimart"), "APIMart");
   assert.equal(runtime.normalizeConcurrencyLimit(3.8), 3);
   assert.equal(runtime.normalizeConcurrencyLimit(0), 0);
   assert.equal(runtime.normalizeConcurrencyLimit(-2), 0);

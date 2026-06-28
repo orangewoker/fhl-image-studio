@@ -1,4 +1,4 @@
-﻿# FHL Image Studio 方汤圆版 V2.0.1 Android Release Notes
+# FHL Image Studio 方汤圆版 V2.0.1 Android Release Notes
 
 ## 版本
 
@@ -17,6 +17,18 @@
 - 新增提示词复制/清空快捷按钮。
 - 画布底部工具栏新增横向滑动提示。
 - 修复真机状态栏、底部手势区与页面内容重叠问题。
+
+## 开源协议与来源
+
+本项目是基于 `RoseKhlifa/Image-Studio` 的独立修改发行版，不是上游官方版本。
+
+原项目地址：
+
+```text
+https://github.com/RoseKhlifa/Image-Studio
+```
+
+本仓库按 GNU AGPLv3.0 公开源码，许可证见仓库根目录 `LICENSE`。下载本 APK 的用户可以通过本 Release 对应的源码 tag/source archive 获取对应源码。
 
 ## 安全
 

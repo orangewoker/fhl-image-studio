@@ -1,10 +1,12 @@
 import type { StudioState } from "../state/studioStore.types";
 import { syncCLIConfigQuietly } from "./cliConfigSync";
 import {
+  DEFAULT_CONCURRENCY_LIMIT,
   FHL_BASE_URL,
   FHL_IMAGE_MODEL_ID,
   FHL_PROFILE_NAME,
   FHL_TEXT_MODEL_ID,
+  isFHLBaseURL,
   nextDefaultProfileName,
 } from "./profiles";
 
@@ -25,7 +27,7 @@ function officialProfileName(store: FHLProfileActions, currentId = ""): string {
 
 function shouldRenameLegacyFHLProfile(name: string): boolean {
   const trimmed = name.trim();
-  return trimmed === "" || trimmed === "FHL Responses";
+  return trimmed === "" || trimmed === "FHL Responses" || trimmed === "FHL Images";
 }
 
 export async function copyText(text: string) {
@@ -59,8 +61,8 @@ export async function copyText(text: string) {
 
 export async function ensureFHLResponsesProfile(store: FHLProfileActions): Promise<string> {
   const fhlProfile = store.profiles.find((profile) => (
-    profile.apiMode === "responses"
-    && profile.baseURL.replace(/\/+$/, "") === FHL_BASE_URL
+    (profile.apiMode === "responses" || profile.apiMode === "images")
+    && isFHLBaseURL(profile.baseURL)
     && profile.imageModelID === FHL_IMAGE_MODEL_ID
   ));
 
@@ -72,7 +74,8 @@ export async function ensureFHLResponsesProfile(store: FHLProfileActions): Promi
       baseURL: FHL_BASE_URL,
       textModelID: FHL_TEXT_MODEL_ID,
       imageModelID: FHL_IMAGE_MODEL_ID,
-      concurrencyLimit: 0,
+      concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
+      imagesNewAPICompat: false,
       setActive: true,
     });
     syncCLIConfigQuietly();
@@ -88,7 +91,50 @@ export async function ensureFHLResponsesProfile(store: FHLProfileActions): Promi
     baseURL: FHL_BASE_URL,
     textModelID: FHL_TEXT_MODEL_ID,
     imageModelID: FHL_IMAGE_MODEL_ID,
-    concurrencyLimit: 0,
+    concurrencyLimit: fhlProfile.concurrencyLimit > 0 ? Math.min(2, fhlProfile.concurrencyLimit) : DEFAULT_CONCURRENCY_LIMIT,
+    imagesNewAPICompat: false,
+  });
+  if (fhlProfile.id !== store.activeProfileId) {
+    await store.setActiveProfile(fhlProfile.id);
+  }
+  syncCLIConfigQuietly();
+  return fhlProfile.id;
+}
+
+export async function ensureFHLImagesProfile(store: FHLProfileActions): Promise<string> {
+  const fhlProfile = store.profiles.find((profile) => (
+    (profile.apiMode === "images" || profile.apiMode === "responses")
+    && isFHLBaseURL(profile.baseURL)
+    && profile.imageModelID === FHL_IMAGE_MODEL_ID
+  ));
+
+  if (!fhlProfile) {
+    const id = await store.createProfile({
+      name: officialProfileName(store),
+      apiMode: "images",
+      requestPolicy: "openai",
+      baseURL: FHL_BASE_URL,
+      textModelID: FHL_TEXT_MODEL_ID,
+      imageModelID: FHL_IMAGE_MODEL_ID,
+      concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
+      imagesNewAPICompat: true,
+      setActive: true,
+    });
+    syncCLIConfigQuietly();
+    return id;
+  }
+
+  await store.updateProfile(fhlProfile.id, {
+    name: shouldRenameLegacyFHLProfile(fhlProfile.name)
+      ? officialProfileName(store, fhlProfile.id)
+      : fhlProfile.name,
+    apiMode: "images",
+    requestPolicy: "openai",
+    baseURL: FHL_BASE_URL,
+    textModelID: FHL_TEXT_MODEL_ID,
+    imageModelID: FHL_IMAGE_MODEL_ID,
+    concurrencyLimit: fhlProfile.concurrencyLimit > 0 ? Math.min(2, fhlProfile.concurrencyLimit) : DEFAULT_CONCURRENCY_LIMIT,
+    imagesNewAPICompat: true,
   });
   if (fhlProfile.id !== store.activeProfileId) {
     await store.setActiveProfile(fhlProfile.id);

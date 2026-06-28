@@ -1,16 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import { GetStoredAPIKey } from "../../runtime/host";
-import { keyringUserFor } from "../../../lib/profiles";
+import { ensureAPIMartAsyncProfile, focusAPIMartAPIKeyInput } from "../../../lib/apimartAPI";
+import { ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../../lib/fhlAPI";
+import { RUNNINGHUB_BASE_URL, keyringUserFor } from "../../../lib/profiles";
+import { ensureRunningHubProfiles } from "../../../lib/runninghubAPI";
 import { useStudioStore } from "../../../state/studioStore";
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../../../types/domain";
+import { GetStoredAPIKey } from "../../runtime/host";
+
+export type AndroidUpstreamModeId = APIMode;
+
+export const ANDROID_UPSTREAM_MODE_OPTIONS: Array<{
+  id: AndroidUpstreamModeId;
+  title: string;
+  meta: string;
+}> = [
+  { id: "responses", title: "一键配置 FHL Responses", meta: "SSE 保活 / gpt-5.5 + gpt-image-2 / 不内置 API Key" },
+  { id: "apimart", title: "一键配置 APIMart 异步", meta: "推荐异步 task_id 参数 / 不内置 API Key" },
+  { id: "runninghub", title: "一键配置 RH", meta: "桥接 8117 / banana2 + image_g2 / 安卓端不写 RH Key" },
+];
 
 export const ANDROID_API_MODE_OPTIONS: Array<{
   id: APIMode;
   title: string;
   meta: string;
 }> = [
-  { id: "responses", title: "Responses", meta: "SSE 长任务" },
-  { id: "images", title: "Images", meta: "标准图像接口" },
+  { id: "responses", title: "Responses API", meta: "SSE 保活" },
+  { id: "images", title: "Images API", meta: "标准图像端点" },
+  { id: "apimart", title: "APIMart 异步", meta: "task_id 异步轮询" },
+  { id: "runninghub", title: "RunningHub", meta: "本地桥接，文生图 / 图生图" },
 ];
 
 export const ANDROID_REQUEST_POLICY_OPTIONS: Array<{
@@ -19,7 +36,7 @@ export const ANDROID_REQUEST_POLICY_OPTIONS: Array<{
   meta: string;
 }> = [
   { id: "openai", title: "OpenAI 标准", meta: "只发送公开字段" },
-  { id: "compat", title: "兼容中转", meta: "允许 relay 扩展字段" },
+  { id: "compat", title: "兼容中转扩展", meta: "允许中转扩展字段" },
 ];
 
 export function useAndroidUpstreamConfig(open: boolean) {
@@ -43,30 +60,13 @@ export function useAndroidUpstreamConfig(open: boolean) {
   const [savedKeyLoaded, setSavedKeyLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    const nextSelectedId = selectedId && profiles.some((profile) => profile.id === selectedId)
-      ? selectedId
-      : activeProfileId || profiles[0]?.id || "";
-
-    if (nextSelectedId !== selectedId) {
-      setSelectedId(nextSelectedId);
-      return;
-    }
-
-    const selected = profiles.find((profile) => profile.id === nextSelectedId) ?? null;
-    setDraft(selected ? { ...selected } : null);
+  function loadKeyForProfile(profileId: string) {
+    let cancelled = false;
     setDraftKey("");
     setShowKey(false);
     setSavedKeyLoaded(false);
 
-    if (!selected) {
-      setSavedKeyLoaded(true);
-      return;
-    }
-
-    let cancelled = false;
-    GetStoredAPIKey(keyringUserFor(selected.id))
+    GetStoredAPIKey(keyringUserFor(profileId))
       .then((key) => {
         if (cancelled) return;
         setDraftKey(key ?? "");
@@ -79,6 +79,44 @@ export function useAndroidUpstreamConfig(open: boolean) {
     return () => {
       cancelled = true;
     };
+  }
+
+  function selectProfileForEditing(profileId: string) {
+    const nextProfile = useStudioStore.getState().profiles.find((profile) => profile.id === profileId) ?? null;
+    setSelectedId(profileId);
+    setDraft(nextProfile ? { ...nextProfile } : null);
+    if (nextProfile) {
+      loadKeyForProfile(nextProfile.id);
+    } else {
+      setDraftKey("");
+      setShowKey(false);
+      setSavedKeyLoaded(true);
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const nextSelectedId = selectedId && profiles.some((profile) => profile.id === selectedId)
+      ? selectedId
+      : activeProfileId || profiles[0]?.id || "";
+
+    if (nextSelectedId !== selectedId) {
+      setSelectedId(nextSelectedId);
+      return undefined;
+    }
+
+    const selected = profiles.find((profile) => profile.id === nextSelectedId) ?? null;
+    setDraft(selected ? { ...selected } : null);
+    setDraftKey("");
+    setShowKey(false);
+    setSavedKeyLoaded(false);
+
+    if (!selected) {
+      setSavedKeyLoaded(true);
+      return undefined;
+    }
+
+    return loadKeyForProfile(selected.id);
   }, [activeProfileId, open, profiles, selectedId]);
 
   const activeProfile = useMemo(
@@ -91,7 +129,7 @@ export function useAndroidUpstreamConfig(open: boolean) {
   const canSave = !!draft
     && !!draft.name.trim()
     && !!draft.baseURL.trim()
-    && !!draftKey.trim()
+    && (draft.apiMode === "runninghub" || !!draftKey.trim())
     && savedKeyLoaded
     && !saving;
 
@@ -105,25 +143,45 @@ export function useAndroidUpstreamConfig(open: boolean) {
       requestPolicy: "openai",
       setActive: profiles.length === 0,
     });
-    setSelectedId(id);
+    selectProfileForEditing(id);
+  }
+
+  async function handleUseExistingFHLAPI() {
+    const id = await ensureFHLResponsesProfile(useStudioStore.getState());
+    selectProfileForEditing(id);
+    pushToast("FHL Responses profile ready. Paste your API key to test.", "success", 4200);
+    focusFHLAPIKeyInput();
+  }
+
+  async function handleUseExistingAPIMartAPI() {
+    const id = await ensureAPIMartAsyncProfile(useStudioStore.getState());
+    selectProfileForEditing(id);
+    pushToast("APIMart async profile ready. Paste your API key to test.", "success", 4600);
+    focusAPIMartAPIKeyInput();
+  }
+
+  async function handleUseExistingRunningHubAPI() {
+    const ids = await ensureRunningHubProfiles(useStudioStore.getState(), RUNNINGHUB_BASE_URL);
+    selectProfileForEditing(ids.banana2Id);
+    pushToast("RH bridge profiles ready. Emulator uses 10.0.2.2:8117 by default.", "success", 5200);
   }
 
   async function handleDuplicate() {
     if (!selectedId) return;
     const id = await duplicateProfile(selectedId);
     if (id) {
-      setSelectedId(id);
-      pushToast("已复制上游配置", "success");
+      selectProfileForEditing(id);
+      pushToast("Profile duplicated.", "success");
     }
   }
 
   async function handleDelete() {
     if (!draft) return;
-    if (!window.confirm(`确认删除「${draft.name}」配置? 对应的 API Key 也会从系统凭据存储清除。`)) return;
+    if (!window.confirm(`Delete "${draft.name}" and its stored API key?`)) return;
     await deleteProfile(draft.id);
     const remaining = useStudioStore.getState().profiles;
     setSelectedId(remaining[0]?.id ?? "");
-    pushToast("已删除上游配置", "success");
+    pushToast("Profile deleted.", "success");
   }
 
   async function handleSave() {
@@ -138,9 +196,10 @@ export function useAndroidUpstreamConfig(open: boolean) {
         textModelID: draft.textModelID,
         imageModelID: draft.imageModelID,
         concurrencyLimit: draft.concurrencyLimit,
-        apiKey: draftKey.trim(),
+        imagesNewAPICompat: draft.apiMode === "images" && draft.imagesNewAPICompat === true,
+        apiKey: draft.apiMode === "runninghub" ? "" : draftKey.trim(),
       });
-      if (ok) pushToast("已保存上游配置", "success");
+      if (ok) pushToast("Profile saved.", "success");
       return ok;
     } finally {
       setSaving(false);
@@ -150,7 +209,7 @@ export function useAndroidUpstreamConfig(open: boolean) {
   async function handleSetActive() {
     if (!draft) return;
     await setActiveProfile(draft.id);
-    pushToast("已切换当前上游", "success");
+    pushToast("Active profile switched.", "success");
   }
 
   async function handleSaveAndSetActive(onSaved?: () => void) {
@@ -187,6 +246,9 @@ export function useAndroidUpstreamConfig(open: boolean) {
     handleSaveAndSetActive,
     handleSaveAndTest,
     handleSetActive,
+    handleUseExistingAPIMartAPI,
+    handleUseExistingFHLAPI,
+    handleUseExistingRunningHubAPI,
     isTestingKey,
     patchDraft,
     profiles,

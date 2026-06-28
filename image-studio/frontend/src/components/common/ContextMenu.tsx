@@ -29,6 +29,7 @@ function FluentMenuIcon({ item }: { item: MenuItem }) {
   const iconClass = "h-3.5 w-3.5";
   const label = item.label.toLowerCase();
 
+  if (label.includes("复制图片")) return <Clipboard className={iconClass} />;
   if (item.danger || label.includes("删除") || label.includes("清空")) return <Trash2 className={iconClass} />;
   if (label.includes("详情")) return <Info className={iconClass} />;
   if (label.includes("复制 prompt")) return <Clipboard className={iconClass} />;

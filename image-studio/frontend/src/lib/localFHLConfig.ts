@@ -1,4 +1,5 @@
 import type { APIMode, RequestPolicy } from "../types/domain";
+import { normalizeProfileAPIMode } from "./profiles.ts";
 
 export type LocalFHLConfig = {
   apiKey: string;
@@ -30,7 +31,7 @@ export async function loadLocalFHLConfig(): Promise<LocalFHLConfig | null> {
     });
     if (!response.ok) return null;
     const data = await response.json() as Record<string, unknown>;
-    const apiMode = data.apiMode === "images" ? "images" : "responses";
+    const apiMode = normalizeProfileAPIMode(data.apiMode);
     const requestPolicy = data.requestPolicy === "compat" ? "compat" : "openai";
     return {
       apiKey: asString(data.apiKey),

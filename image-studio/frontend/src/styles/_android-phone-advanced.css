@@ -43,7 +43,7 @@ html[data-platform="android"] .app-modal-card-phone:has(.android-advanced-modal-
 }
 
 html[data-platform="android"] .app-modal-card-phone:has(.android-advanced-modal-panel) .app-modal-body-phone {
-  padding: 0 14px calc(22px + var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)));
+  padding: 0 14px calc(22px + var(--android-safe-bottom-value, 0px));
 }
 
 html[data-platform="android"] .app-modal-card-desktop:has(.android-advanced-modal-panel) {

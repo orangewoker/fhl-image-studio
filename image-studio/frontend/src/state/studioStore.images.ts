@@ -11,7 +11,7 @@ import { shareImageForPlatform, shareImagePathForPlatform, saveImageForPlatform 
 import { base64ToBlob } from "../lib/images";
 import { suggestImageFileName, suggestManualSaveImageFileName } from "../lib/imageFileNames";
 import { removeHistoryItem } from "../lib/storage";
-import type { HistoryItem, SourceImage } from "../types/domain";
+import type { HistoryItem, JobGroupSnapshot, JobSlotSnapshot, SourceImage } from "../types/domain";
 import type { StudioState } from "./studioStore.types";
 import { sourceImagesFromHistoryItem } from "./historySourceImages";
 import {
@@ -23,11 +23,30 @@ import {
 } from "./studioStore.runtime";
 import { patchWorkspaceRuntime } from "./workspaceRuntime";
 import { genId } from "./studioStore.shared";
+import { rememberReversePromptImage } from "./reversePromptImageCache";
 
 type StateAdapter = {
   getState: () => StudioState;
   setState: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void;
 };
+
+function pathLeaf(filePath: string): string {
+  const normalized = String(filePath || "").trim().replace(/[\\/]+$/, "");
+  if (!normalized) return "image.png";
+  const parts = normalized.split(/[\\/]/);
+  return parts[parts.length - 1] || "image.png";
+}
+
+function sourceImagesFromJobPaths(paths: string[] | undefined): SourceImage[] {
+  return (paths ?? [])
+    .map((filePath) => String(filePath || "").trim())
+    .filter(Boolean)
+    .map((filePath) => ({
+      path: filePath,
+      name: pathLeaf(filePath),
+      size: 0,
+    }));
+}
 
 export function createImageActions(store: StateAdapter) {
   async function materializeForShare(item: HistoryItem): Promise<HistoryItem> {
@@ -84,8 +103,8 @@ export function createImageActions(store: StateAdapter) {
             path: res.path,
             name: baseName,
             size: res.size,
-            imageB64: res.imageB64 || undefined,
-            imageBlob: res.imageB64 ? base64ToBlob(res.imageB64) : null,
+            imageB64: res.previewUrl ? undefined : res.imageB64 || undefined,
+            imageBlob: res.previewUrl ? null : res.imageB64 ? base64ToBlob(res.imageB64) : null,
             previewUrl: res.previewUrl,
           }],
           mode: "edit",
@@ -97,13 +116,70 @@ export function createImageActions(store: StateAdapter) {
       }
     },
 
+    async selectReversePromptImage() {
+      try {
+        const res = await OpenImageDialog();
+        if (!res || (!res.path && !res.imageB64 && !res.previewUrl)) return;
+        const baseName = res.path ? (res.path.split(/[\\/]/).pop() ?? res.path) : "reverse-prompt-image.png";
+        const imageB64 = res.imageB64 || "";
+        const reversePromptImage = {
+          path: res.path || "",
+          name: baseName,
+          size: res.size || 0,
+          imageB64: imageB64 || undefined,
+          imageBlob: imageB64 ? base64ToBlob(imageB64) : null,
+          previewUrl: res.previewUrl,
+        };
+        rememberReversePromptImage(reversePromptImage);
+        store.setState({
+          reversePromptImage,
+          errorMessage: null,
+          errorRawPath: null,
+        });
+        store.getState().pushToast("已导入反推图片", "success", 2200);
+      } catch (error: any) {
+        store.setState({ errorMessage: `选择反推图片失败:${error?.message ?? error}`, errorRawPath: null });
+      }
+    },
+
+    async importReversePromptImageFile(file: File) {
+      try {
+        if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+          store.setState({ errorMessage: `不支持的图片类型:${file.type || "(未知)"},请用 PNG/JPG/WebP`, errorRawPath: null });
+          return;
+        }
+        const b64 = await fileToBase64(file);
+        const reversePromptImage = {
+          path: "",
+          name: file.name || "reverse-prompt-image.png",
+          size: file.size || 0,
+          imageB64: b64,
+          imageBlob: base64ToBlob(b64, file.type || "image/png"),
+        };
+        rememberReversePromptImage(reversePromptImage);
+        store.setState({
+          reversePromptImage,
+          errorMessage: null,
+          errorRawPath: null,
+        });
+        store.getState().pushToast("已导入反推图片", "success", 2200);
+      } catch (error: any) {
+        store.setState({ errorMessage: `导入反推图片失败:${error?.message ?? error}`, errorRawPath: null });
+      }
+    },
+
+    clearReversePromptImage() {
+      rememberReversePromptImage(null);
+      store.setState({ reversePromptImage: null });
+    },
+
     removeSource(index: number) {
       const next = store.getState().sources.filter((_, i) => i !== index);
-      store.setState({ sources: next, mode: next.length > 0 ? "edit" : "generate" });
+      store.setState({ sources: next });
     },
 
     clearSources() {
-      store.setState({ sources: [], mode: "generate" });
+      store.setState({ sources: [] });
     },
 
     reorderSources(from: number, to: number) {
@@ -150,6 +226,7 @@ export function createImageActions(store: StateAdapter) {
     applyHistoryParams(item: HistoryItem) {
       const sourceImages: SourceImage[] = item.mode === "edit" ? sourceImagesFromHistoryItem(item) : [];
       const patch: Partial<StudioState> = {
+        promptPrefix: "",
         prompt: item.prompt ?? "",
         mode: item.mode,
         size: item.size,
@@ -163,6 +240,33 @@ export function createImageActions(store: StateAdapter) {
       store.setState(patch);
       const sourceNote = item.mode === "edit" && sourceImages.length > 0 ? `和 ${sourceImages.length} 张输入图` : "";
       store.getState().pushToast(`已应用此图的参数${sourceNote}到控制台`, "success");
+    },
+
+    applyJobSlotParams(group: JobGroupSnapshot, slot: JobSlotSnapshot) {
+      const sourceImages: SourceImage[] = group.mode === "edit" ? sourceImagesFromJobPaths(group.sourceImagePaths) : [];
+      const seedBase = Number.isFinite(Number(group.seed)) ? Number(group.seed) : 0;
+      const patch: Partial<StudioState> = {
+        promptPrefix: "",
+        prompt: group.prompt ?? "",
+        mode: group.mode,
+        size: group.size,
+        quality: group.quality,
+        outputFormat: group.outputFormat,
+        seed: seedBase > 0 ? seedBase + slot.batchIndex : seedBase,
+        negativePrompt: group.negativePrompt ?? "",
+        styleTag: group.styleTag ?? "",
+        sources: sourceImages,
+        resultGridOpen: false,
+      };
+      store.setState(patch);
+      const sourceNote = group.mode === "edit" && sourceImages.length > 0 ? `和 ${sourceImages.length} 张输入图` : "";
+      store.getState().pushToast(`已应用第 ${slot.batchIndex + 1} 张任务参数${sourceNote}，未重新生成`, "success");
+    },
+
+    async regenerateJobSlot(group: JobGroupSnapshot, slot: JobSlotSnapshot) {
+      this.applyJobSlotParams(group, slot);
+      await Promise.resolve();
+      await store.getState().submit();
     },
 
     async regenerateFromHistory(item: HistoryItem) {

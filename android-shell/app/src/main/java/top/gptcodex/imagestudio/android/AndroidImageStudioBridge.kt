@@ -56,10 +56,17 @@ class AndroidImageStudioBridge(
     private var pendingImportHistoryRequestId: String? = null
     private val httpRequests = ConcurrentHashMap<String, HttpURLConnection>()
     @Volatile private var fullscreen = false
+    @Volatile private var safeAreaDiagnostics = JSONObject()
 
     companion object {
         private const val maxDialogReadBytes: Long = 50L * 1024L * 1024L
-        private const val maxPreviewEdge = 384
+        private const val maxDialogPreviewEdge = 1536
+        private const val maxCanvasPreviewEdge = 1280
+        private const val dialogPreviewJpegQuality = 92
+        private const val defaultPreviewJpegQuality = 74
+        private const val apimartOfficialBaseUrl = "https://api.apimart.ai"
+        private const val apimartOfficialHost = "api.apimart.ai"
+        private const val apimartLegacyBaseUrl = "https://api.apib.ai"
     }
 
     @JavascriptInterface
@@ -109,6 +116,8 @@ class AndroidImageStudioBridge(
                     null
                 }
                 "ImportImageFromB64" -> importImageFromB64(args.optString(0), args.optString(1))
+                "RegisterMediaAsset" -> registerMediaAsset(args.optString(0), args.optString(1))
+                "RegisterImportedImageAsset" -> registerImportedImageAsset(args.optString(0))
                 "ReadImageAsBase64" -> readImageAsBase64(args.optString(0))
                 "ReadTextFile" -> readTextFile(args.optString(0))
                 "OpenFile" -> {
@@ -183,10 +192,33 @@ class AndroidImageStudioBridge(
     fun importImageFromB64(imageB64: String, suggestedName: String): Map<String, Any> {
         val bytes = Base64.decode(imageB64, Base64.DEFAULT)
         val file = writeImportedBytes(bytes, suggestedName)
-        return mapOf(
+        val preview = createPreviewRef(file, maxCanvasPreviewEdge)
+        val result = mutableMapOf<String, Any>(
             "path" to file.absolutePath,
             "imageB64" to imageB64,
         )
+        result.putAll(preview)
+        return result
+    }
+
+    @JavascriptInterface
+    fun registerMediaAsset(savedPath: String, thumbPath: String): Map<String, Any> {
+        val saved = savedPath.trim()
+        if (saved.isBlank()) throw IllegalArgumentException("image path is empty")
+        val result = mutableMapOf<String, Any>("savedPath" to saved)
+        val thumb = thumbPath.trim()
+        if (thumb.isNotBlank()) result["thumbPath"] = thumb
+        result.putAll(createPreviewRef(File(thumb.ifBlank { saved }), maxCanvasPreviewEdge))
+        return result
+    }
+
+    @JavascriptInterface
+    fun registerImportedImageAsset(path: String): Map<String, Any> {
+        val saved = path.trim()
+        if (saved.isBlank()) throw IllegalArgumentException("image path is empty")
+        val result = mutableMapOf<String, Any>("savedPath" to saved)
+        result.putAll(createPreviewRef(File(saved), maxCanvasPreviewEdge))
+        return result
     }
 
     @JavascriptInterface
@@ -225,6 +257,46 @@ class AndroidImageStudioBridge(
             .put("screenHeightDp", config.screenHeightDp)
             .put("smallestScreenWidthDp", config.smallestScreenWidthDp)
             .put("orientation", orientation)
+            .toString()
+    }
+
+    fun updateSafeAreaDiagnostics(value: JSONObject) {
+        safeAreaDiagnostics = value
+    }
+
+    @JavascriptInterface
+    fun getDeviceDiagnosticsJson(): String {
+        val dm = context.resources.displayMetrics
+        val config = context.resources.configuration
+        val orientation = when (config.orientation) {
+            Configuration.ORIENTATION_LANDSCAPE -> "landscape"
+            Configuration.ORIENTATION_PORTRAIT -> "portrait"
+            else -> "undefined"
+        }
+        val appVersion = runCatching {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            info.versionName ?: ""
+        }.getOrDefault("")
+        val webViewVersion = runCatching {
+            WebView.getCurrentWebViewPackage()?.versionName ?: ""
+        }.getOrDefault("")
+        return JSONObject()
+            .put("appVersion", appVersion)
+            .put("packageName", context.packageName)
+            .put("androidSdk", Build.VERSION.SDK_INT)
+            .put("androidRelease", Build.VERSION.RELEASE)
+            .put("manufacturer", Build.MANUFACTURER)
+            .put("model", Build.MODEL)
+            .put("webViewVersion", webViewVersion)
+            .put("widthPx", dm.widthPixels)
+            .put("heightPx", dm.heightPixels)
+            .put("density", dm.density.toDouble())
+            .put("densityDpi", dm.densityDpi)
+            .put("screenWidthDp", config.screenWidthDp)
+            .put("screenHeightDp", config.screenHeightDp)
+            .put("smallestScreenWidthDp", config.smallestScreenWidthDp)
+            .put("orientation", orientation)
+            .put("safeArea", safeAreaDiagnostics)
             .toString()
     }
 
@@ -481,6 +553,7 @@ class AndroidImageStudioBridge(
         val bodyBase64 = payload.optString("bodyBase64")
         val contentType = payload.optString("contentType")
         val streamLines = payload.optBoolean("streamLines", false)
+        val responseBase64 = payload.optBoolean("responseBase64", false)
         val proxyMode = payload.optString("proxyMode", "system")
         val proxyUrl = payload.optString("proxyURL", "")
         thread(name = "fhl-studio-http-$requestKey") {
@@ -488,7 +561,7 @@ class AndroidImageStudioBridge(
                 val connection = openHttpConnection(url, proxyMode, proxyUrl).apply {
                     requestMethod = method
                     instanceFollowRedirects = true
-                    connectTimeout = 30_000
+                    connectTimeout = connectTimeoutForUrl(url, 30_000)
                     readTimeout = 180_000
                     doInput = true
                 }
@@ -510,7 +583,14 @@ class AndroidImageStudioBridge(
                 }
                 val status = connection.responseCode
                 val stream = if (status >= 400) connection.errorStream else connection.inputStream
-                val body = if (streamLines) {
+                val responseBytes = if (responseBase64) {
+                    stream?.use { it.readBytes() } ?: ByteArray(0)
+                } else {
+                    null
+                }
+                val body = if (responseBase64) {
+                    ""
+                } else if (streamLines) {
                     val lines = mutableListOf<String>()
                     stream?.bufferedReader()?.useLines { sequence ->
                         sequence.forEach { line ->
@@ -525,6 +605,7 @@ class AndroidImageStudioBridge(
                 val result = mapOf(
                     "status" to status,
                     "body" to body,
+                    "bodyBase64" to (responseBytes?.let { Base64.encodeToString(it, Base64.NO_WRAP) } ?: ""),
                     "contentType" to (connection.contentType ?: ""),
                 )
                 resolve(requestId, result)
@@ -540,36 +621,69 @@ class AndroidImageStudioBridge(
     private fun runProbeUpstream(requestId: String, payload: JSONObject): Nothing {
         val baseUrl = validateProbeBaseUrl(payload.optString("baseURL"))
         val apiKey = payload.optString("apiKey").trim()
+        val apiMode = payload.optString("apiMode", "responses").trim().lowercase(Locale.US)
         val proxyMode = payload.optString("proxyMode", "system")
         val proxyUrl = payload.optString("proxyURL", "")
         if (apiKey.isBlank()) throw IllegalArgumentException("API Key 不能为空")
+        val endpointPath = if (apiMode == "apimart") "/v1/balance" else "/v1/models"
+        val baseUrlCandidates = apimartProbeBaseUrlCandidates(baseUrl, apiMode)
         thread(name = "fhl-studio-probe-${requestId.take(12)}") {
+            var lastError: Exception? = null
             try {
-                val connection = openHttpConnection("$baseUrl/v1/models", proxyMode, proxyUrl).apply {
-                    requestMethod = "GET"
-                    instanceFollowRedirects = true
-                    connectTimeout = 20_000
-                    readTimeout = 20_000
-                    doInput = true
-                    setRequestProperty("Authorization", "Bearer $apiKey")
-                    setRequestProperty("Accept", "application/json")
-                    setRequestProperty("User-Agent", "fhl-studio-android")
+                for ((index, candidateBaseUrl) in baseUrlCandidates.withIndex()) {
+                    try {
+                        val url = "$candidateBaseUrl$endpointPath"
+                        val connection = openHttpConnection(url, proxyMode, proxyUrl).apply {
+                            requestMethod = "GET"
+                            instanceFollowRedirects = true
+                            connectTimeout = connectTimeoutForUrl(url, 20_000)
+                            readTimeout = 20_000
+                            doInput = true
+                            setRequestProperty("Authorization", "Bearer $apiKey")
+                            setRequestProperty("Accept", "application/json")
+                            setRequestProperty("User-Agent", "fhl-studio-android")
+                        }
+                        val status = connection.responseCode
+                        val stream = if (status >= 400) connection.errorStream else connection.inputStream
+                        val body = stream?.bufferedReader()?.use { reader ->
+                            reader.readText().take(1_048_576)
+                        } ?: ""
+                        connection.disconnect()
+                        if (status !in 200..299) {
+                            val summary = summarizeProbeBody(body)
+                            if (apiMode == "apimart" && (status == 401 || status == 403)) {
+                                throw IllegalStateException(if (summary.isBlank()) "APIMart API Key 无效或未授权" else "APIMart API Key 无效或未授权: $summary")
+                            }
+                            val prefix = if (apiMode == "apimart") "APIMart /v1/balance" else "上游 /v1/models"
+                            throw IllegalStateException("$prefix 返回 $status${summary.let { if (it.isBlank()) "" else ": $it" }}")
+                        }
+                        if (apiMode == "apimart") {
+                            val parsed = if (body.isBlank()) JSONObject() else JSONObject(body)
+                            if (parsed.has("success") && !parsed.optBoolean("success", true)) {
+                                val message = parsed.optString("message").trim().ifBlank {
+                                    parsed.optString("error").trim()
+                                }
+                                throw IllegalStateException(if (message.isBlank()) "APIMart 配置不可用" else "APIMart 配置不可用: $message")
+                            }
+                            resolve(requestId, mapOf("ok" to true))
+                            return@thread
+                        }
+                        val parsed = JSONObject(body)
+                        if (!parsed.has("data") || parsed.isNull("data")) {
+                            throw IllegalStateException("上游 /v1/models 响应缺少 data 数组")
+                        }
+                        val data = parsed.optJSONArray("data") ?: throw IllegalStateException("上游 /v1/models 响应缺少 data 数组")
+                        resolve(requestId, mapOf("modelCount" to data.length()))
+                        return@thread
+                    } catch (error: Exception) {
+                        lastError = error
+                        if (index < baseUrlCandidates.lastIndex && isAPIMartNetworkFallbackError(error)) {
+                            continue
+                        }
+                        throw error
+                    }
                 }
-                val status = connection.responseCode
-                val stream = if (status >= 400) connection.errorStream else connection.inputStream
-                val body = stream?.bufferedReader()?.use { reader ->
-                    reader.readText().take(1_048_576)
-                } ?: ""
-                connection.disconnect()
-                if (status !in 200..299) {
-                    throw IllegalStateException("上游 /v1/models 返回 $status${summarizeProbeBody(body).let { if (it.isBlank()) "" else ": $it" }}")
-                }
-                val parsed = JSONObject(body)
-                if (!parsed.has("data") || parsed.isNull("data")) {
-                    throw IllegalStateException("上游 /v1/models 响应缺少 data 数组")
-                }
-                val data = parsed.optJSONArray("data") ?: throw IllegalStateException("上游 /v1/models 响应缺少 data 数组")
-                resolve(requestId, mapOf("modelCount" to data.length()))
+                throw lastError ?: IllegalStateException("APIMart probe failed")
             } catch (error: Exception) {
                 reject(requestId, error.message ?: error.javaClass.simpleName)
             }
@@ -578,6 +692,8 @@ class AndroidImageStudioBridge(
     }
 
     private fun openHttpConnection(url: String, proxyMode: String, proxyUrl: String): HttpURLConnection {
+        System.setProperty("java.net.preferIPv4Stack", "true")
+        System.setProperty("java.net.preferIPv6Addresses", "false")
         val target = URL(url)
         val connection = when (normalizeProxyMode(proxyMode)) {
             "none" -> target.openConnection(Proxy.NO_PROXY)
@@ -585,6 +701,37 @@ class AndroidImageStudioBridge(
             else -> target.openConnection()
         }
         return connection as HttpURLConnection
+    }
+
+    private fun connectTimeoutForUrl(url: String, fallback: Int): Int {
+        return if (isOfficialAPIMartURL(url)) minOf(fallback, 8_000) else fallback
+    }
+
+    private fun isOfficialAPIMartURL(url: String): Boolean {
+        return try {
+            URI(url).host?.equals(apimartOfficialHost, ignoreCase = true) == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun apimartProbeBaseUrlCandidates(baseUrl: String, apiMode: String): List<String> {
+        if (apiMode != "apimart") return listOf(baseUrl)
+        val comparable = baseUrl.trim().trimEnd('/').removeSuffix("/v1")
+        if (!isOfficialAPIMartURL(comparable)) return listOf(comparable)
+        return listOf(apimartOfficialBaseUrl, apimartLegacyBaseUrl)
+    }
+
+    private fun isAPIMartNetworkFallbackError(error: Exception): Boolean {
+        val type = error.javaClass.simpleName.lowercase(Locale.US)
+        val message = (error.message ?: "").lowercase(Locale.US)
+        return type.contains("sockettimeoutexception")
+            || type.contains("connectexception")
+            || type.contains("unknownhostexception")
+            || message.contains("failed to connect")
+            || message.contains("connect timed out")
+            || message.contains("network is unreachable")
+            || message.contains("no route to host")
     }
 
     private fun normalizeProxyMode(raw: String): String {
@@ -624,7 +771,7 @@ class AndroidImageStudioBridge(
     }
 
     private fun validateProbeBaseUrl(raw: String): String {
-        val cleaned = raw.trim().trimEnd('/')
+        val cleaned = raw.trim().trimEnd('/').removeSuffix("/v1")
         if (cleaned.isBlank()) throw IllegalArgumentException("未配置上游 BASE_URL")
         val uri = try {
             URI(cleaned)
@@ -672,12 +819,14 @@ class AndroidImageStudioBridge(
         try {
             val suggestedName = queryDisplayName(uri) ?: "import-${timestamp()}.png"
             val copied = copyUriToImports(uri, suggestedName)
+            val previewUrl = if (copied.previewB64.isNotBlank()) "data:image/jpeg;base64,${copied.previewB64}" else ""
             resolve(
                 requestId,
                 mapOf(
                     "path" to copied.file.absolutePath,
                     "size" to copied.size,
                     "imageB64" to copied.imageB64,
+                    "previewUrl" to previewUrl,
                     "previewB64" to copied.previewB64,
                 ),
             )
@@ -758,7 +907,7 @@ class AndroidImageStudioBridge(
 
     private fun copyUriToImports(uri: Uri, suggestedName: String): CopiedImport {
         val name = sanitizeFileName(suggestedName, "import-${timestamp()}.png")
-        val target = File(importsDir(), "${timestamp()}-$name")
+        val target = uniqueTargetFile(importsDir(), "${timestamp()}-$name")
         var total = 0L
         val preview = java.io.ByteArrayOutputStream()
         context.contentResolver.openInputStream(uri)?.use { input ->
@@ -784,16 +933,24 @@ class AndroidImageStudioBridge(
     }
 
     private fun createPreviewB64(file: File): String {
+        return createPreviewB64(file, maxDialogPreviewEdge, dialogPreviewJpegQuality)
+    }
+
+    private fun createPreviewB64(file: File, maxEdgeLimit: Int): String {
+        return createPreviewB64(file, maxEdgeLimit, defaultPreviewJpegQuality)
+    }
+
+    private fun createPreviewB64(file: File, maxEdgeLimit: Int, jpegQuality: Int): String {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return ""
         val maxEdge = max(bounds.outWidth, bounds.outHeight)
         var sample = 1
-        while (maxEdge / sample > maxPreviewEdge * 2) sample *= 2
+        while (maxEdge / sample > maxEdgeLimit * 2) sample *= 2
         val decode = BitmapFactory.Options().apply { inSampleSize = sample }
         val decoded = BitmapFactory.decodeFile(file.absolutePath, decode) ?: return ""
         val scaled = try {
-            val scale = minOf(1f, maxPreviewEdge.toFloat() / max(decoded.width, decoded.height).toFloat())
+            val scale = minOf(1f, maxEdgeLimit.toFloat() / max(decoded.width, decoded.height).toFloat())
             if (scale >= 0.999f) decoded
             else Bitmap.createScaledBitmap(
                 decoded,
@@ -806,7 +963,7 @@ class AndroidImageStudioBridge(
         }
         return try {
             val out = java.io.ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 74, out)
+            scaled.compress(Bitmap.CompressFormat.JPEG, jpegQuality.coerceIn(1, 100), out)
             Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
         } finally {
             if (scaled != decoded) scaled.recycle()
@@ -814,9 +971,25 @@ class AndroidImageStudioBridge(
         }
     }
 
+    private fun createPreviewRef(file: File, maxEdgeLimit: Int): Map<String, Any> {
+        val previewB64 = createPreviewB64(file, maxEdgeLimit)
+        if (previewB64.isBlank()) return emptyMap()
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val bytes = Base64.decode(previewB64, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val out = mutableMapOf<String, Any>(
+            "previewUrl" to "data:image/jpeg;base64,$previewB64",
+        )
+        if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+            out["previewWidth"] = bounds.outWidth
+            out["previewHeight"] = bounds.outHeight
+        }
+        return out
+    }
+
     private fun writeImportedBytes(bytes: ByteArray, suggestedName: String): File {
         val safeName = sanitizeFileName(suggestedName, "import-${timestamp()}.png")
-        val file = File(importsDir(), "${timestamp()}-$safeName")
+        val file = uniqueTargetFile(importsDir(), "${timestamp()}-$safeName")
         file.writeBytes(bytes)
         return file
     }

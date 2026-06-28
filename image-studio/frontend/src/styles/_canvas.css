@@ -568,6 +568,50 @@ html.dark .stream-preview-badge {
   font-weight: 700;
   white-space: nowrap;
 }
+.batch-grid-failed-actions {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+.batch-grid-apimart-query,
+.batch-grid-apply-params,
+.batch-grid-regenerate-slot {
+  border: 1px solid rgb(220 38 38 / 0.2);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.88);
+  color: #b91c1c;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  box-shadow: 0 8px 20px rgb(220 38 38 / 0.14);
+}
+.batch-grid-apply-params {
+  color: #334155;
+  border-color: rgb(15 23 42 / 0.16);
+  box-shadow: 0 8px 20px rgb(15 23 42 / 0.12);
+}
+.batch-grid-regenerate-slot {
+  color: #7c2d12;
+  border-color: rgb(234 88 12 / 0.18);
+  box-shadow: 0 8px 20px rgb(234 88 12 / 0.12);
+}
+.batch-grid-apimart-query:hover,
+.batch-grid-apply-params:hover,
+.batch-grid-regenerate-slot:hover {
+  background: #fff;
+  border-color: rgb(220 38 38 / 0.38);
+}
+.batch-grid-apply-params:hover {
+  border-color: rgb(15 23 42 / 0.28);
+}
+.batch-grid-regenerate-slot:hover {
+  border-color: rgb(234 88 12 / 0.34);
+}
 .batch-grid-tile img {
   width: 100%;
   height: 100%;
@@ -589,6 +633,33 @@ html.dark .stream-preview-badge {
 }
 .batch-grid-index { left: 8px; }
 .batch-grid-meta { right: 8px; font-family: var(--mono-font); }
+.batch-grid-api-label {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.64);
+  color: #fff;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.4;
+  backdrop-filter: blur(8px);
+}
+.batch-grid-pixels {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.64);
+  color: #fff;
+  padding: 2px 6px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  backdrop-filter: blur(8px);
+}
 .batch-grid-preview-wait {
   position: absolute;
   left: 50%;

@@ -25,6 +25,9 @@ export function AndroidShell({
   const showRail = (isPad || isLandscape) && !fullscreen;
   const showBottomNav = !isPad && !isLandscape && !fullscreen;
   const usePadWorkspace = isPad && androidView === "compose" && isExpandedPad;
+  const mountCompose = androidView === "compose";
+  const mountCanvas = androidView === "canvas" || usePadWorkspace || fullscreen;
+  const mountHistory = androidView === "history";
 
   const handleViewChange = (view: AndroidView) => {
     if (view !== androidView) {
@@ -43,11 +46,13 @@ export function AndroidShell({
         data-android-pad-density={isPad ? (isExpandedPad ? "expanded" : "medium") : undefined}
       >
         {showRail ? <AndroidRail active={androidView} onChange={handleViewChange} /> : null}
-        <ControlPanel />
-        <div className="canvas-shell">
-          <AndroidCanvasWorkspace />
-        </div>
-        <HistoryRail />
+        {mountCompose ? <ControlPanel /> : null}
+        {mountCanvas ? (
+          <div className="canvas-shell">
+            <AndroidCanvasWorkspace />
+          </div>
+        ) : null}
+        {mountHistory ? <HistoryRail /> : null}
       </div>
       {showBottomNav ? <AndroidBottomNav active={androidView} onChange={handleViewChange} /> : null}
     </>
@@ -62,7 +67,7 @@ function AndroidRail({
   onChange: (value: AndroidView) => void;
 }) {
   return (
-    <nav className="android-rail" style={{ paddingLeft: "calc(var(--android-safe-left-value, env(safe-area-inset-left, 0px)) + 12px)" }} aria-label="Android Pad navigation">
+    <nav className="android-rail" style={{ paddingLeft: "calc(var(--android-safe-left-value, 0px) + 12px)" }} aria-label="Android Pad navigation">
       <AndroidNavButton icon={<SlidersHorizontal />} label="参数" active={active === "compose"} onClick={() => onChange("compose")} />
       <AndroidNavButton icon={<ImageIcon />} label="画布" active={active === "canvas"} onClick={() => onChange("canvas")} />
       <AndroidNavButton icon={<History />} label="历史" active={active === "history"} onClick={() => onChange("history")} />
@@ -78,7 +83,7 @@ function AndroidBottomNav({
   onChange: (value: AndroidView) => void;
 }) {
   return (
-    <nav className="android-bottom-nav" style={{ paddingBottom: "calc(var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)) + 12px)", paddingLeft: "calc(var(--android-safe-left-value, env(safe-area-inset-left, 0px)) + 12px)", paddingRight: "calc(var(--android-safe-right-value, env(safe-area-inset-right, 0px)) + 12px)" }} aria-label="Android navigation">
+    <nav className="android-bottom-nav" style={{ paddingBottom: "calc(var(--android-safe-bottom-value, 0px) + 12px)", paddingLeft: "calc(var(--android-safe-left-value, 0px) + 12px)", paddingRight: "calc(var(--android-safe-right-value, 0px) + 12px)" }} aria-label="Android navigation">
       <AndroidNavButton icon={<SlidersHorizontal />} label="参数" active={active === "compose"} onClick={() => onChange("compose")} />
       <AndroidNavButton icon={<ImageIcon />} label="画布" active={active === "canvas"} onClick={() => onChange("canvas")} />
       <AndroidNavButton icon={<History />} label="历史" active={active === "history"} onClick={() => onChange("history")} />

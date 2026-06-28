@@ -6,9 +6,11 @@ import {
 import { useStudioStore } from "../../state/studioStore";
 import type { HistoryItem, Mode } from "../../types/domain";
 import { ContextMenu } from "../common/ContextMenu";
+import { copyImageB64ToClipboard, copyImageURLToClipboard } from "../canvas/canvasImage";
 import { RawResponseModal } from "./RawResponseModal";
 import { usePlatform } from "../../platform/context";
 import { AndroidHistoryActionSheet } from "../../platform/android/history/AndroidHistoryActionSheet";
+import { AndroidHistoryJobGroup } from "../../platform/android/history/AndroidHistoryJobGroup";
 import { AndroidHistoryPromptGroup } from "../../platform/android/history/AndroidHistoryPromptGroup";
 import { AndroidHistoryTile } from "../../platform/android/history/AndroidHistoryTile";
 import {
@@ -25,6 +27,7 @@ import { WindowsHistoryRail, type WindowsHistoryBatchQueueSlot } from "./Windows
 import { qualityLabel, sizeLabel } from "./historyLabels";
 import { toPreviewOnlyHistoryItem } from "../../state/studioStore.runtime";
 import { streamPreviewItemsFromPreviews } from "../../state/studioStore.streamPreview";
+import { apiModeLabel, apiModeShortLabel } from "../../state/workspaceRuntime";
 
 export type ModeFilter = "all" | Mode;
 export type DateFilter = RelativeHistoryDateFilter;
@@ -33,14 +36,15 @@ export function HistoryRail() {
   const {
     history, currentImage, reuseAsSource, deleteHistoryItem, setField,
     compareB, setCompareB, pushToast, fullscreen,
-    applyHistoryParams, regenerateFromHistory,
-    openResultDetail, saveHistoryItemAs, shareHistoryItem, apiKey, baseURL, apiMode,
+    applyHistoryParams, applyJobSlotParams, regenerateJobSlot, regenerateFromHistory,
+    openResultDetail, materializeCurrentImage, saveHistoryItemAs, shareHistoryItem, apiKey, baseURL, apiMode,
     profiles, activeProfileId, setActiveProfile,
     openUpstreamConfig, openHistoryTimeline, testAPIKey, isTestingKey,
     historyRailCollapsed, setHistoryRailCollapsed,
     activeWorkspaceId, mode, prompt, size, quality, outputFormat,
     batchResults, streamPreviews, runningJobs, jobsTotal, jobsCompleted, isRunning, errorMessage,
     jobGroupsByWorkspace,
+    queryAPIMartRecoveryTask,
     historyHasMore, historyLoading, loadMoreHistory,
   } = useStudioStore();
 
@@ -68,6 +72,7 @@ export function HistoryRail() {
   const desktopHistoryCollapsed = !isWindows && historyRailCollapsed;
   const androidPromptEntries = promptEntries.slice(0, 48);
   const androidFlatHistoryEntries = filtered.slice(0, 24);
+  const androidRecentJobGroupLimit = isAndroidPhone ? 4 : 8;
   const androidHistoryEntriesCount = isAndroidPhone ? androidFlatHistoryEntries.length : androidPromptEntries.length;
   const androidHistoryHasMore = isAndroidPhone
     ? filtered.length > androidFlatHistoryEntries.length
@@ -95,6 +100,8 @@ export function HistoryRail() {
     () => jobGroupsByWorkspace[activeWorkspaceId] ?? [],
     [activeWorkspaceId, jobGroupsByWorkspace],
   );
+  const androidRecentJobGroups = recentJobGroups.slice(0, androidRecentJobGroupLimit);
+  const historyById = useMemo(() => new Map(history.map((item) => [item.id, item])), [history]);
   const visibleBatchSlotCount = Math.max(
     jobsTotal,
     batchResults.length + runningJobs.length,
@@ -154,6 +161,22 @@ export function HistoryRail() {
     }
   }
 
+  async function copyHistoryImage(item: HistoryItem) {
+    try {
+      const full = await materializeCurrentImage(item);
+      const ok = full.fullUrl
+        ? await copyImageURLToClipboard(full.fullUrl)
+        : await copyImageB64ToClipboard(full.imageB64 ?? "");
+      if (ok) {
+        pushToast("已复制图片到剪贴板", "success");
+      } else {
+        pushToast("当前环境不支持复制图片，可改用分享或保存", "warn", 4200);
+      }
+    } catch (error: any) {
+      pushToast(`复制失败:${error?.message ?? error}`, "error", 4200);
+    }
+  }
+
   const {
     buildMenu,
     closeMenu,
@@ -166,6 +189,7 @@ export function HistoryRail() {
     compareItemId: compareB?.id ?? null,
     onOpenDetail: openResultDetail,
     onApplyParams: applyHistoryParams,
+    onCopyImage: (item) => { void copyHistoryImage(item); },
     onRegenerate: (item) => void regenerateFromHistory(item),
     onReuseAsSource: (item) => void reuseAsSource(item),
     onSaveOriginal: (item) => void saveHistoryItemAs(item),
@@ -261,9 +285,21 @@ export function HistoryRail() {
             <h2>历史作品</h2>
             <p>按时间回看生成结果，直接复用参数、设为源图或继续变体。</p>
           </div>
-          <div className="android-history-total">
-            <span>{history.length}</span>
-            <small>张</small>
+          <div className="android-history-hero-actions">
+            <div className="android-history-total">
+              <span>{history.length}</span>
+              <small>张</small>
+            </div>
+            <button
+              type="button"
+              className="android-history-timeline-button"
+              onClick={openHistoryTimeline}
+              aria-label="打开完整历史"
+              title="打开完整历史"
+            >
+              <GalleryVerticalEnd className="h-3.5 w-3.5" />
+              <span>完整历史</span>
+            </button>
           </div>
         </section>
 
@@ -339,6 +375,37 @@ export function HistoryRail() {
           >
             <Split className="h-4 w-4" /> 退出对比
           </button>
+        ) : null}
+
+        {recentJobGroups.length > 0 ? (
+          <section className="android-history-jobs-card">
+            <div className="android-history-section-head">
+              <span><Clock3 className="h-4 w-4" /> 最近任务</span>
+              <small>{recentJobGroups.length} 组</small>
+            </div>
+            <div className="android-history-job-list">
+              {androidRecentJobGroups.map((group) => (
+                <AndroidHistoryJobGroup
+                  key={group.groupId}
+                  group={group}
+                  historyById={historyById}
+                  onApplySlotParams={applyJobSlotParams}
+                  onRegenerateSlot={(group, slot) => { void regenerateJobSlot(group, slot); }}
+                  onSelect={selectCurrent}
+                  onQueryAPIMartTask={(taskId) => { void queryAPIMartRecoveryTask(taskId); }}
+                />
+              ))}
+            </div>
+            {recentJobGroups.length > androidRecentJobGroups.length ? (
+              <button
+                type="button"
+                className="android-history-more"
+                onClick={openHistoryTimeline}
+              >
+                查看更多任务
+              </button>
+            ) : null}
+          </section>
         ) : null}
 
         {history.length > 0 && latestHistory ? (
@@ -509,7 +576,7 @@ export function HistoryRail() {
             >
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name} · {profile.apiMode === "responses" ? "Responses" : "Images"}
+                  {profile.name} · {apiModeShortLabel(profile.apiMode)}
                 </option>
               ))}
               <option value="__manage__">⚙ 管理配置...</option>
@@ -542,7 +609,7 @@ export function HistoryRail() {
         {!isAndroidPhone ? (
           <div className="mt-2 flex items-center justify-between gap-2">
             <p className="min-w-0 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-300">
-              {apiMode === "responses" ? "Responses API" : "Images API"}
+              {apiModeLabel(apiMode)}
             </p>
           </div>
         ) : null}

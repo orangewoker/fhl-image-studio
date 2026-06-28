@@ -39,6 +39,9 @@ export function AndroidPromptTemplateModal({
   return (
     <Modal open={open} onClose={onClose} title="模板与历史" width={720}>
       <div className="android-template-modal-panel">
+        <p className="android-template-helper">
+          选择模板或历史 prompt 后会追加到主提示词末尾，适合把主体、场景、镜头、材质和光照分段组合。
+        </p>
         <div className="android-template-tabs" role="tablist" aria-label="提示词来源">
           <button
             type="button"
@@ -77,7 +80,7 @@ export function AndroidPromptTemplateModal({
             ))}
           </div>
         ) : (
-          <div className="android-template-empty">暂无历史 prompt</div>
+          <div className="android-template-empty">还没有提交过 prompt</div>
         )}
       </div>
     </Modal>

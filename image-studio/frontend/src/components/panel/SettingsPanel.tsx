@@ -12,18 +12,24 @@ import { Modal } from "../common/Modal";
 import { rememberTrustedOutputRoot } from "../../lib/storage";
 import { storageKey } from "../../lib/storageNamespace.ts";
 import { platformOutputRootLabel } from "../../platform";
-import { androidSaveHint, androidTarget, openExternalURLForPlatform, openOutputLocationForPlatform } from "../../platform/android/bridge";
+import {
+  androidSaveHint,
+  androidTarget,
+  getAndroidDeviceDiagnosticsText,
+  openExternalURLForPlatform,
+  openOutputLocationForPlatform,
+} from "../../platform/android/bridge";
 import { AndroidSettingsPanel } from "../../platform/android/settings/AndroidSettingsPanel";
 import { usePlatform } from "../../platform/context";
 import { AboutImageStudioModal } from "./AboutImageStudioModal";
 import { FHLAPIChoiceModal } from "./FHLAPIChoiceModal";
 import { SettingsPresetsRow } from "./SettingsPresetsRow";
 import { SettingsRow, SettingsSegButton } from "./settingsPrimitives";
-import { ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
+import { copyText, ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
 
-const REPO_URL = "https://github.com/RoseKhlifa/Image-Studio";
-const ISSUES_URL = "https://github.com/RoseKhlifa/Image-Studio/issues";
-const MIT_URL = "https://opensource.org/licenses/MIT";
+const REPO_URL = "https://github.com/supart/fhl-image-studio";
+const ISSUES_URL = "https://github.com/supart/fhl-image-studio/issues";
+const LICENSE_URL = "https://www.gnu.org/licenses/agpl-3.0.html";
 
 export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const {
@@ -91,6 +97,15 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
     openExternalURLForPlatform(url, OpenExternalURL).catch(() => undefined);
   }
 
+  async function copyDeviceDiagnostics() {
+    try {
+      await copyText(getAndroidDeviceDiagnosticsText());
+      pushToast("已复制设备适配信息", "success", 3200);
+    } catch (e: any) {
+      pushToast(`复制适配信息失败:${e?.message ?? e}`, "error", 5000);
+    }
+  }
+
   function closeSettings() {
     setAboutOpen(false);
     onClose();
@@ -98,7 +113,9 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
 
   const outputLabel = androidTarget.isAndroid ? platformOutputRootLabel() : (outputDir || "...");
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
-  const upstreamReady = !!apiKey.trim() && !!baseURL.trim();
+  const runningHubBridgeConfigured = apiMode === "runninghub" && !!baseURL.trim();
+  const upstreamReady = !!apiKey.trim() || runningHubBridgeConfigured;
+  const canTestUpstream = upstreamReady && !!baseURL.trim();
 
   const androidSettings = isAndroid ? (
     <AndroidSettingsPanel
@@ -112,7 +129,9 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
       historyCount={history.length}
       importHistory={() => void importHistory()}
       isTestingKey={isTestingKey}
+      canTestUpstream={canTestUpstream}
       kernelRuntimeMode={kernelRuntimeMode}
+      onCopyDeviceDiagnostics={() => void copyDeviceDiagnostics()}
       onOpenAbout={() => setAboutOpen(true)}
       onOpenFeedback={() => openExternal(ISSUES_URL)}
       onOpenRepo={() => openExternal(REPO_URL)}
@@ -374,9 +393,9 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
         onOpenFeedback={() => openExternal(REPO_URL + "/issues")}
-        onOpenLicense={() => openExternal(MIT_URL)}
+        onOpenLicense={() => openExternal(LICENSE_URL)}
         onOpenRepo={() => openExternal(REPO_URL)}
-        mitURL={MIT_URL}
+        licenseURL={LICENSE_URL}
       />
       <FHLAPIChoiceModal
         open={fhlChoiceOpen}

@@ -5,53 +5,27 @@ import { vibrateForPlatform } from "./bridge";
 export function AndroidPhoneSourceSection({
   clearSources,
   currentImage,
-  editSourceLabel,
   onSelectSource,
   removeSource,
   sources,
 }: {
   clearSources: () => void;
   currentImage: HistoryItem | null;
-  editSourceLabel: string;
   onSelectSource: () => void;
   removeSource: (index: number) => void;
   sources: SourceImage[];
 }) {
-  const sourceState = sources.length > 0
-    ? `${sources.length} 张`
-    : currentImage?.savedPath
-      ? "当前画板"
-      : "未添加";
-  const sourceMode = sources.length > 0 ? "显式参考" : currentImage?.savedPath ? "隐式源图" : "待选择";
-  const sourceHint = sources.length > 0
-    ? "可继续替换或补充"
-    : currentImage?.savedPath
-      ? "将使用当前画板"
-      : "从相册或历史选择";
-
   return (
     <section className="platform-card android-phone-source-card android-source-summary-card">
       <div className="android-source-summary-head">
         <div className="android-source-summary-copy">
-          <div className="android-phone-kicker">源图片 / 参考图</div>
-          <div className="android-source-summary-title">{editSourceLabel}</div>
-          <div className="android-source-summary-grid">
-            <span>
-              <span>参考图</span>
-              <strong>{sourceState}</strong>
-            </span>
-            <span>
-              <span>使用方式</span>
-              <strong>{sourceMode}</strong>
-            </span>
-            <span className="wide">
-              <span>状态</span>
-              <strong>{sourceHint}</strong>
-            </span>
-          </div>
+          <div className="android-source-summary-title">源图片 / 参考图{sources.length > 0 ? ` · ${sources.length} 张` : ""}</div>
         </div>
         <Wand2 className="android-source-summary-icon" />
       </div>
+      {sources.length === 0 && currentImage?.savedPath ? (
+        <div className="android-source-implicit-note">(画板当前图 · 隐式源图)</div>
+      ) : null}
       {sources.length > 0 ? (
         <div className="android-source-list">
           {sources.map((source, index) => (
@@ -77,7 +51,7 @@ export function AndroidPhoneSourceSection({
           onClick={onSelectSource}
           className="platform-action-btn android-source-primary-action"
         >
-          <ImagePlus className="h-3.5 w-3.5" /> 从相册添加
+          <ImagePlus className="h-3.5 w-3.5" /> 添加图片
         </button>
         {sources.length > 0 ? (
           <button

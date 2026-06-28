@@ -3,12 +3,15 @@ import {
   RemoteKernelError,
   runRemoteImageJob,
   optimizePromptRemote,
+  reversePromptRemote,
+  queryAPIMartTaskRemote,
 } from "./remoteKernel.ts";
 import {
   normalizeBaseURL as normalizeSharedBaseURL,
   normalizeRequestPolicy,
 } from "../../../../../shared/kernel/requestModel.js";
 import { validateAPIKeyForHeader } from "../../lib/apiKey.ts";
+import { getImageDimensionsFromBase64 } from "../../lib/images.ts";
 import {
   canUseWebGLImageTransforms,
   cropVirtualImage,
@@ -53,6 +56,8 @@ import {
 } from "./hostBindings.ts";
 import type {
   GenerateOptionsLike,
+  APIMartTaskQueryOptionsLike,
+  APIMartTaskQueryResultLike,
   HostCapabilities,
   HostKind,
   ImageTransformResultLike,
@@ -63,12 +68,26 @@ import type {
   ProbeUpstreamOptionsLike,
   ProbeUpstreamResultLike,
   PromptOptimizeOptionsLike,
+  PromptReverseOptionsLike,
   SelectFileResponseLike,
 } from "./hostTypes.ts";
 
 const remoteJobControllers = new Map<string, AbortController>();
 const FHL_BASE_URL = "https://www.fhl.mom";
 const FHL_LOCAL_PROXY_PREFIX = "/__image-studio-fhl";
+const APIMART_API_MODE = "apimart";
+
+function normalizeHostAPIMode(apiMode: string): "responses" | "images" | "apimart" | "runninghub" {
+  const normalized = String(apiMode || "").trim().toLowerCase();
+  if (normalized === "runninghub") return "runninghub";
+  if (normalized === "apimart") return "apimart";
+  if (normalized === "images") return "images";
+  return "responses";
+}
+
+function extractAPIMartTaskIdFromText(text: string): string {
+  return String(text || "").match(/\btask_[A-Za-z0-9_-]+\b/)?.[0] ?? "";
+}
 
 function unsupportedMessage(method: string): string {
   const kind = detectHostKind();
@@ -105,11 +124,43 @@ function summarizeProbeBody(raw: string): string {
 async function probeUpstreamFromBrowser(
   baseURL: string,
   apiKey: string,
+  apiMode = "responses",
   signal?: AbortSignal,
 ): Promise<void> {
   const normalizedBaseURL = normalizeProbeBaseURL(baseURL);
   const headerAPIKey = validateAPIKeyForHeader(apiKey);
   if (!normalizedBaseURL) throw new Error("BASE_URL 不能为空");
+  if (apiMode === APIMART_API_MODE) {
+    const response = await fetch(`${normalizedBaseURL}/v1/balance`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${headerAPIKey}`,
+        Accept: "application/json",
+      },
+      signal,
+    });
+    const raw = await response.text();
+    let parsed: any = null;
+    if (raw.trim()) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw new Error("APIMart /v1/balance 返回的 JSON 无效");
+      }
+    }
+    if (!response.ok) {
+      const summary = summarizeProbeBody(raw);
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(summary ? `APIMart API Key 无效或未授权: ${summary}` : "APIMart API Key 无效或未授权");
+      }
+      throw new Error(summary ? `APIMart /v1/balance 返回 ${response.status}: ${summary}` : `APIMart /v1/balance 返回 ${response.status}`);
+    }
+    if (parsed?.success === false) {
+      const message = String(parsed?.message || parsed?.error || "").trim();
+      throw new Error(message ? `APIMart 配置不可用: ${message}` : "APIMart 配置不可用");
+    }
+    return;
+  }
   const response = await fetch(`${normalizedBaseURL}/v1/models`, {
     method: "GET",
     headers: {
@@ -231,6 +282,11 @@ async function startRemoteJob(options: GenerateOptionsLike): Promise<JobStartedL
           mode: options.mode || "generate",
           prompt: options.prompt,
         }),
+        onAPIMartTaskSubmitted: (task) => emitLocalEvent(`apimart-task:${jobId}`, {
+          taskId: task.taskId,
+          status: task.status || "submitted",
+          rawPath: task.rawPath || null,
+        }),
       });
       if (controller.signal.aborted) return;
       const suggestedName = suggestImageFileName({
@@ -245,6 +301,7 @@ async function startRemoteJob(options: GenerateOptionsLike): Promise<JobStartedL
         imageB64: result.imageB64,
         suggestedName,
       });
+      const dimensions = getImageDimensionsFromBase64(result.imageB64);
       emitLocalEvent(`result:${jobId}`, {
         imageB64: result.imageB64,
         revisedPrompt: result.revisedPrompt,
@@ -253,6 +310,10 @@ async function startRemoteJob(options: GenerateOptionsLike): Promise<JobStartedL
         rawPath: result.rawPath,
         mode: result.mode,
         prompt: result.prompt,
+        width: dimensions?.w,
+        height: dimensions?.h,
+        apimartTaskId: result.apimartTaskId,
+        apimartTaskStatus: result.apimartTaskStatus,
       });
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -262,12 +323,19 @@ async function startRemoteJob(options: GenerateOptionsLike): Promise<JobStartedL
       emitLocalEvent(`error:${jobId}`, {
         message: typed.message,
         rawPath: typed.rawPath || null,
+        apimartTaskId: typed.apimartTaskId || extractAPIMartTaskIdFromText(typed.message),
+        apimartTaskStatus: typed.apimartTaskStatus || "",
       });
     } finally {
       remoteJobControllers.delete(jobId);
     }
   })();
   return { jobId };
+}
+
+export function QueryAPIMartTask(options: APIMartTaskQueryOptionsLike): Promise<APIMartTaskQueryResultLike> {
+  const controller = new AbortController();
+  return queryAPIMartTaskRemote(options, controller.signal);
 }
 
 function withoutRuntimeSourceImages(options: GenerateOptionsLike): GenerateOptionsLike {
@@ -288,7 +356,7 @@ function blobFromBase64(imageB64: string, mimeType: string): Blob {
 
 function shouldUseAndroidBackgroundJobs(options: GenerateOptionsLike): boolean {
   void options;
-  return false;
+  return detectHostKind() === "android-shell" && canUseAndroidJobs();
 }
 
 async function submitSingleAndroidJob(options: GenerateOptionsLike): Promise<JobStartedLike> {
@@ -300,15 +368,17 @@ async function submitSingleAndroidJob(options: GenerateOptionsLike): Promise<Job
     quality: options.quality as any,
     outputFormat: options.outputFormat as any,
     batchCount: 1,
+    concurrencyLimit: options.concurrencyLimit,
     seed: options.seed || 0,
     negativePrompt: options.negativePrompt || "",
-    sourceImagePaths: options.imagePaths || [],
+    sourceImagePaths: options.imagePaths?.length ? options.imagePaths : (options.imagePath ? [options.imagePath] : []),
     maskB64: options.maskB64 || "",
     apiKey: options.apiKey,
     baseURL: options.baseURL,
-    apiMode: "responses",
+    apiMode: normalizeHostAPIMode(options.apiMode),
+    requestRunId: options.requestRunId,
     requestPolicy: normalizeRequestPolicy(options.requestPolicy) as any,
-    imagesNewAPICompat: false,
+    imagesNewAPICompat: normalizeHostAPIMode(options.apiMode) === "images" && options.imagesNewAPICompat === true,
     textModelID: options.textModelID,
     imageModelID: options.imageModelID,
   });
@@ -447,6 +517,7 @@ export function OptimizePrompt(options: PromptOptimizeOptionsLike): Promise<stri
   return optimizePromptRemote({
     apiKey: options.apiKey,
     prompt: options.prompt,
+    optimizationGuidance: options.optimizationGuidance,
     mode: options.mode,
     baseURL: options.baseURL,
     textModelID: options.textModelID,
@@ -454,6 +525,27 @@ export function OptimizePrompt(options: PromptOptimizeOptionsLike): Promise<stri
     proxyURL: options.proxyURL,
     imagePaths: options.imagePaths,
     imagePath: options.imagePath,
+  }, controller.signal);
+}
+
+export function ReversePrompt(options: PromptReverseOptionsLike): Promise<string> {
+  if (getForcedKernelRuntimeMode() === "local" && detectHostKind() !== "wails-desktop") {
+    return Promise.reject(new Error("当前宿主不支持强制本地内核"));
+  }
+  if (detectHostKind() === "wails-desktop" && hasServiceMethod("ReversePrompt") && getForcedKernelRuntimeMode() !== "remote") {
+    const { sourceImages: _sourceImages, ...payload } = options;
+    return invokeService<string>(unsupportedMessage, "ReversePrompt", payload);
+  }
+  const controller = new AbortController();
+  return reversePromptRemote({
+    apiKey: options.apiKey,
+    baseURL: options.baseURL,
+    textModelID: options.textModelID,
+    proxyMode: options.proxyMode,
+    proxyURL: options.proxyURL,
+    imagePaths: options.imagePaths,
+    imagePath: options.imagePath,
+    sourceImages: options.sourceImages,
   }, controller.signal);
 }
 
@@ -621,12 +713,18 @@ export function RegisterMediaAsset(savedPath: string, thumbPath: string): Promis
   if (hasServiceMethod("RegisterMediaAsset")) {
     return invokeService<MediaAssetRefLike>(unsupportedMessage, "RegisterMediaAsset", savedPath, thumbPath);
   }
+  if (canInvokeAndroidMethod("RegisterMediaAsset")) {
+    return invokeAndroid<MediaAssetRefLike>(unsupportedMessage, "RegisterMediaAsset", savedPath, thumbPath);
+  }
   return Promise.resolve({ savedPath, thumbPath });
 }
 
 export function RegisterImportedImageAsset(path: string): Promise<MediaAssetRefLike> {
   if (hasServiceMethod("RegisterImportedImageAsset")) {
     return invokeService<MediaAssetRefLike>(unsupportedMessage, "RegisterImportedImageAsset", path);
+  }
+  if (canInvokeAndroidMethod("RegisterImportedImageAsset")) {
+    return invokeAndroid<MediaAssetRefLike>(unsupportedMessage, "RegisterImportedImageAsset", path);
   }
   return Promise.resolve({ savedPath: path });
 }
@@ -795,10 +893,11 @@ export async function probeCurrentUpstream(
   apiKey: string,
   proxyMode = "system",
   proxyURL = "",
+  apiMode = "responses",
   signal?: AbortSignal,
 ): Promise<void> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-  const options: ProbeUpstreamOptionsLike = { baseURL, apiKey, proxyMode, proxyURL };
+  const options: ProbeUpstreamOptionsLike = { baseURL, apiKey, apiMode, proxyMode, proxyURL };
   if (hasServiceMethod("ProbeUpstream")) {
     await invokeService<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);
     return;
@@ -808,7 +907,7 @@ export async function probeCurrentUpstream(
     return;
   }
   if (detectHostKind() === "browser") {
-    await probeUpstreamFromBrowser(baseURL, apiKey, signal);
+    await probeUpstreamFromBrowser(baseURL, apiKey, apiMode, signal);
     return;
   }
   throw new Error(unsupportedMessage("ProbeUpstream"));

@@ -810,6 +810,74 @@ html.dark .history-prompt-modal-thumb {
   color: var(--accent);
 }
 
+html[data-target-platform="android"] .android-history-timeline-card,
+html[data-target-platform="android"] .android-history-timeline-body,
+html[data-target-platform="android"] .android-history-timeline-content,
+html[data-target-platform="android"] .android-history-timeline-list {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
+}
+
+html[data-target-platform="android"] .android-history-timeline-card .app-modal-body {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+.timeline-prompt-stack-card.compact {
+  gap: 10px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 10px;
+}
+
+.timeline-prompt-stack-card.compact .timeline-prompt-stack-head {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.timeline-prompt-stack-card.compact .timeline-prompt-stack-main {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 10px;
+  overflow: hidden;
+}
+
+.timeline-prompt-stack-card.compact .timeline-prompt-card-pile {
+  width: 82px;
+  height: 70px;
+  flex-basis: 82px;
+}
+
+.timeline-prompt-stack-card.compact .timeline-prompt-stack-actions {
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.timeline-prompt-stack-card.compact .timeline-prompt-thumb-grid {
+  max-width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.timeline-prompt-stack-card.compact .timeline-prompt-stack-copy,
+.timeline-prompt-stack-card.compact .timeline-prompt-stack-kicker,
+.timeline-prompt-stack-card.compact .timeline-prompt-stack-meta {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .timeline-prompt-thumb-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));

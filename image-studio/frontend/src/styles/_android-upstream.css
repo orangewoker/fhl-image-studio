@@ -31,7 +31,7 @@ html[data-platform="android"] .app-modal-card-phone:has(.android-upstream-panel)
 }
 
 html[data-platform="android"] .app-modal-card-phone:has(.android-upstream-panel) .app-modal-body-phone {
-  padding: 0 14px calc(22px + var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)));
+  padding: 0 14px calc(22px + var(--android-safe-bottom-value, 0px));
 }
 
 html[data-platform="android"] .android-upstream-panel {
@@ -197,6 +197,40 @@ html[data-platform="android"] .android-upstream-create-grid button {
   padding: 11px 12px;
   color: rgb(24 24 27);
   text-align: left;
+}
+
+html[data-platform="android"] .android-upstream-create-grid .android-upstream-onekey-button {
+  border-color: rgb(220 38 38 / 0.72);
+  background:
+    linear-gradient(135deg, rgb(255 237 237 / 0.96), rgb(255 255 255 / 0.92) 54%, rgb(230 255 250 / 0.9));
+  color: rgb(17 24 39);
+  box-shadow:
+    0 0 0 1px rgb(248 113 113 / 0.22),
+    0 12px 26px rgb(248 113 113 / 0.16);
+  animation: android-upstream-onekey-flash 1.15s ease-in-out infinite;
+}
+
+html[data-platform="android"] .android-upstream-create-grid .android-upstream-onekey-button .android-upstream-create-icon {
+  background: #007a69;
+  box-shadow:
+    0 10px 22px rgb(0 122 105 / 0.22),
+    0 0 0 4px rgb(0 122 105 / 0.1);
+}
+
+@keyframes android-upstream-onekey-flash {
+  0%,
+  100% {
+    filter: brightness(1);
+    transform: translateZ(0);
+  }
+
+  50% {
+    filter: brightness(1.12);
+    box-shadow:
+      0 0 0 1px rgb(248 113 113 / 0.5),
+      0 0 24px rgb(239 68 68 / 0.28),
+      0 14px 30px rgb(0 122 105 / 0.12);
+  }
 }
 
 html[data-platform="android"] .android-upstream-create-icon {
@@ -672,6 +706,17 @@ html.dark[data-platform="android"] .android-upstream-actions button {
   border-color: rgb(123 218 207 / 0.16);
   background: rgb(123 218 207 / 0.1);
   color: rgb(153 246 228);
+}
+
+html.dark[data-platform="android"] .android-upstream-create-grid .android-upstream-onekey-button {
+  border-color: rgb(248 113 113 / 0.72);
+  background:
+    linear-gradient(135deg, rgb(127 29 29 / 0.9), rgb(39 39 42 / 0.92) 54%, rgb(20 83 75 / 0.88));
+  color: rgb(255 255 255);
+}
+
+html.dark[data-platform="android"] .android-upstream-create-grid .android-upstream-onekey-button small {
+  color: rgb(255 255 255 / 0.78);
 }
 
 html.dark[data-platform="android"] .android-upstream-actions button.primary {

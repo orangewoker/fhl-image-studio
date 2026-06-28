@@ -69,6 +69,9 @@ export function subscribeToAndroidJob(
   onEvent: (event: BrowserJobEvent) => void,
   onError?: (error: Error) => void,
 ) {
+  const bucket = listeners.get(jobId) ?? new Set<(event: BrowserJobEvent) => void>();
+  listeners.set(jobId, bucket);
+  bucket.add(onEvent);
   try {
     ensureAndroidJobEventHook();
     void attachAndroidJobEvents().catch((error) => {
@@ -77,9 +80,6 @@ export function subscribeToAndroidJob(
   } catch (error) {
     onError?.(error instanceof Error ? error : new Error(String(error)));
   }
-  const bucket = listeners.get(jobId) ?? new Set<(event: BrowserJobEvent) => void>();
-  listeners.set(jobId, bucket);
-  bucket.add(onEvent);
   return () => {
     const existing = listeners.get(jobId);
     if (!existing) return;

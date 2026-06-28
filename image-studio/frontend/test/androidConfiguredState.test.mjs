@@ -1,0 +1,173 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFileSync } from "node:fs";
+
+const header = readFileSync(new URL("../src/components/layout/AppHeader.tsx", import.meta.url), "utf8");
+const settingsPanel = readFileSync(new URL("../src/components/panel/SettingsPanel.tsx", import.meta.url), "utf8");
+const androidSettings = readFileSync(new URL("../src/platform/android/settings/AndroidSettingsPanel.tsx", import.meta.url), "utf8");
+const phoneCompose = readFileSync(new URL("../src/platform/android/AndroidPhoneComposePanel.tsx", import.meta.url), "utf8");
+const padCompose = readFileSync(new URL("../src/platform/android/AndroidPadComposePanel.tsx", import.meta.url), "utf8");
+const quickProfileSheet = readFileSync(new URL("../src/platform/android/AndroidQuickProfileSheet.tsx", import.meta.url), "utf8");
+const brandAboutSheet = readFileSync(new URL("../src/platform/android/AndroidBrandAboutSheet.tsx", import.meta.url), "utf8");
+const store = readFileSync(new URL("../src/state/studioStore.ts", import.meta.url), "utf8");
+const layoutCss = readFileSync(new URL("../src/styles/_layout.css", import.meta.url), "utf8");
+const upstreamConfig = readFileSync(new URL("../src/platform/android/upstream/useAndroidUpstreamConfig.ts", import.meta.url), "utf8");
+const upstreamHeader = readFileSync(new URL("../src/platform/android/upstream/AndroidUpstreamHeader.tsx", import.meta.url), "utf8");
+const upstreamRail = readFileSync(new URL("../src/platform/android/upstream/AndroidUpstreamProfileRail.tsx", import.meta.url), "utf8");
+const upstreamModal = readFileSync(new URL("../src/platform/android/upstream/AndroidUpstreamConfigModal.tsx", import.meta.url), "utf8");
+const upstreamCss = readFileSync(new URL("../src/styles/_android-upstream.css", import.meta.url), "utf8");
+const fhlAPI = readFileSync(new URL("../src/lib/fhlAPI.ts", import.meta.url), "utf8");
+const profiles = readFileSync(new URL("../src/lib/profiles.ts", import.meta.url), "utf8");
+
+test("Android header configured state accepts API key or RunningHub bridge", () => {
+  assert.match(header, /activeProfileUsesBridgeKey = activeProfile\?\.apiMode === "runninghub"/);
+  assert.match(header, /isRunningHubBaseURL\(activeProfile\.baseURL\)/);
+  assert.match(header, /const hasConfiguredAPIKey = apiKey\.trim\(\)\.length > 0 \|\| activeProfileUsesBridgeKey;/);
+  assert.match(header, /activeProfile\?\.apiMode === "runninghub"[\s\S]*\? "RH"/);
+});
+
+test("Android compose setup gate accepts API key or RunningHub bridge", () => {
+  for (const source of [phoneCompose, padCompose]) {
+    assert.match(source, /const hasAPIKey = apiKey\.trim\(\)\.length > 0;/);
+    assert.match(source, /const hasBaseURL = baseURL\.trim\(\)\.length > 0;/);
+    assert.match(source, /const runningHubBridgeConfigured = apiMode === "runninghub" && hasBaseURL;/);
+    assert.match(source, /const hasUsableUpstream = hasAPIKey \|\| runningHubBridgeConfigured;/);
+    assert.match(source, /const needsUpstreamSetup = !hasUsableUpstream;/);
+    assert.match(source, /const needsBaseURLSetup = hasUsableUpstream && !hasBaseURL;/);
+    assert.match(source, /disabled=\{!hasUsableUpstream \|\| !hasBaseURL \|\| !effectivePromptReady\}/);
+    assert.doesNotMatch(source, /const needsUpstreamSetup = !apiKey\.trim\(\) \|\| !baseURL\.trim\(\);/);
+  }
+});
+
+test("Android settings shows configured by API key or RunningHub bridge", () => {
+  assert.match(settingsPanel, /const runningHubBridgeConfigured = apiMode === "runninghub" && !!baseURL\.trim\(\);/);
+  assert.match(settingsPanel, /const upstreamReady = !!apiKey\.trim\(\) \|\| runningHubBridgeConfigured;/);
+  assert.match(settingsPanel, /const canTestUpstream = upstreamReady && !!baseURL\.trim\(\);/);
+  assert.match(settingsPanel, /canTestUpstream=\{canTestUpstream\}/);
+  assert.match(androidSettings, /canTestUpstream: boolean;/);
+  assert.match(androidSettings, /disabled=\{!canTestUpstream \|\| isTestingKey\}/);
+});
+
+test("Android header can switch active API without opening full settings", () => {
+  assert.match(header, /AndroidQuickProfileSheet/);
+  assert.match(header, /android-header-brand-button/);
+  assert.match(header, /data-audit-id="android-quick-profile"/);
+  assert.match(header, /activeProfileModeLabel/);
+  assert.match(header, /onClick=\{openAndroidProfilePicker\}/);
+  assert.match(header, /const hasMultipleProfiles = profiles\.length > 1;/);
+  assert.match(header, /if \(hasMultipleProfiles\) \{\s*setAndroidProfileOpen\(true\);/);
+  assert.match(header, /className=\{`android-header-api-chip \$\{hasMultipleProfiles \? "has-menu" : ""\}`\}/);
+  assert.match(header, /hasMultipleProfiles \? <ChevronDown className="h-3 w-3" \/> : null/);
+  assert.doesNotMatch(header, /onPointerUp=\{openAndroidProfilePicker\}/);
+  assert.match(quickProfileSheet, /setActiveProfile\(profile\.id\)/);
+  assert.match(quickProfileSheet, /openUpstreamConfig\("app"\)/);
+  assert.match(layoutCss, /\.android-header-top-actions > \.android-header-config-toggle/);
+  assert.match(layoutCss, /\.android-header-api-chip/);
+  assert.match(layoutCss, /\.android-header-api-chip\.has-menu/);
+});
+
+test("Android quick API picker keeps readable contrast in dark mode", () => {
+  assert.match(layoutCss, /html\.dark\[data-target-platform="android"\] \.android-quick-profile-card/);
+  assert.match(layoutCss, /html\.dark\[data-target-platform="android"\] \.android-quick-profile-summary/);
+  assert.match(layoutCss, /html\.dark\[data-target-platform="android"\] \.android-quick-profile-item/);
+  assert.match(layoutCss, /html\.dark\[data-target-platform="android"\] \.android-quick-profile-copy strong/);
+  assert.match(layoutCss, /html\.dark\[data-target-platform="android"\] \.android-quick-profile-copy small/);
+  assert.match(layoutCss, /color: rgb\(248 250 252\)/);
+  assert.match(layoutCss, /color: rgb\(226 232 240\)/);
+  assert.match(layoutCss, /color: rgb\(204 251 241\)/);
+});
+
+test("Android header brand opens about sheet with fork and original GitHub links", () => {
+  assert.match(header, /AndroidBrandAboutSheet/);
+  assert.match(header, /const \[androidBrandAboutOpen, setAndroidBrandAboutOpen\] = useState\(false\);/);
+  assert.match(header, /const openAndroidBrandAbout = \(event: MouseEvent<HTMLButtonElement>\) => \{/);
+  assert.match(header, /title="关于 FHL Image Studio"/);
+  assert.match(header, /aria-label="关于 FHL Image Studio"/);
+  assert.match(header, /onClick=\{openAndroidBrandAbout\}/);
+  assert.doesNotMatch(header, /className="no-drag min-w-0 flex-1 android-header-copy android-header-brand-button"[\s\S]{0,240}onClick=\{openAndroidProfilePicker\}/);
+  assert.match(header, /onOpenRepo=\{\(\) => openAndroidExternal\(ANDROID_FHL_REPO_URL\)\}/);
+  assert.match(header, /onOpenOriginalRepo=\{\(\) => openAndroidExternal\(ANDROID_ORIGINAL_REPO_URL\)\}/);
+  assert.match(brandAboutSheet, /ANDROID_FHL_REPO_URL = "https:\/\/github\.com\/supart\/fhl-image-studio"/);
+  assert.match(brandAboutSheet, /ANDROID_ORIGINAL_REPO_URL = "https:\/\/github\.com\/RoseKhlifa\/Image-Studio"/);
+  assert.match(brandAboutSheet, /const ANDROID_BRAND_VERSION = "V2\.0\.2";/);
+  assert.match(brandAboutSheet, /方汤圆版 GitHub/);
+  assert.match(brandAboutSheet, /原作者 GitHub/);
+  assert.match(brandAboutSheet, /基于 RoseKhlifa\/Image-Studio 的独立修改发行版/);
+});
+
+test("generation submit uses active profile as API source of truth", () => {
+  assert.match(store, /const activeProfile = s\.profiles\.find\(\(p\) => p\.id === s\.activeProfileId\);/);
+  assert.match(store, /const submitAPIMode = activeProfile\?\.apiMode \?\? s\.apiMode;/);
+  assert.match(store, /const submitBaseURL = activeProfile\?\.baseURL \?\? s\.baseURL;/);
+  assert.match(store, /const submitRequestPolicy = activeProfile\?\.requestPolicy \?\? s\.requestPolicy;/);
+  assert.match(store, /const runningHubBridgeSubmit = submitAPIMode === "runninghub" \|\| isRunningHubBaseURL\(submitBaseURL\);/);
+  assert.match(store, /if \(!runningHubBridgeSubmit && !s\.apiKey\.trim\(\)\)/);
+  assert.match(store, /if \(!runningHubBridgeSubmit\) \{\s*try \{/);
+  assert.match(store, /const effectiveAPIMode = effectiveAPIModeForSubmit\(s\.mode, submitAPIMode\);/);
+  assert.match(store, /baseURL: cleanedBaseURL/);
+  assert.match(store, /apiMode: effectiveAPIMode/);
+  assert.match(store, /const selectedSize = normalizeSizeSelection\(s\.size,/);
+  assert.match(store, /const resolvedSize = normalizeFHLImagesBillingSize\(selectedSize,/);
+});
+
+test("Android FHL preset restores old Responses API config and adds APIMart/RH presets", () => {
+  const presetBlock = upstreamConfig.match(/ANDROID_UPSTREAM_MODE_OPTIONS[\s\S]*?\];/)?.[0] ?? "";
+  assert.match(presetBlock, /id: "responses"[\s\S]*FHL/);
+  assert.match(presetBlock, /Responses/);
+  assert.match(presetBlock, /SSE/);
+  assert.match(presetBlock, /FHL/);
+  assert.match(presetBlock, /title: "一键配置 APIMart 异步"/);
+  assert.match(presetBlock, /id: "apimart"/);
+  assert.match(presetBlock, /title: "一键配置 RH"/);
+  assert.match(presetBlock, /banana2 \+ image_g2/);
+  const apiModeBlock = upstreamConfig.match(/ANDROID_API_MODE_OPTIONS[\s\S]*?\];/)?.[0] ?? "";
+  assert.match(apiModeBlock, /id: "responses"/);
+  assert.match(apiModeBlock, /id: "images"/);
+  assert.match(apiModeBlock, /id: "apimart"/);
+  assert.match(apiModeBlock, /id: "runninghub"/);
+
+  assert.match(upstreamConfig, /import \{ ensureFHLResponsesProfile, focusFHLAPIKeyInput \} from "\.\.\/\.\.\/\.\.\/lib\/fhlAPI";/);
+  assert.match(upstreamConfig, /async function handleNew\(apiMode: APIMode = "responses"\)/);
+  assert.match(upstreamConfig, /requestPolicy: "openai"/);
+  assert.match(upstreamConfig, /const id = await ensureFHLResponsesProfile\(useStudioStore\.getState\(\)\);/);
+  assert.match(upstreamConfig, /handleUseExistingRunningHubAPI/);
+  assert.match(upstreamHeader, /onConfigureRunningHub/);
+  assert.doesNotMatch(upstreamModal, /onCreateImages/);
+  assert.doesNotMatch(upstreamHeader, /onCreateImages/);
+
+  assert.doesNotMatch(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*return ensureFHLImagesProfile\(store\);/);
+  assert.match(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*apiMode: "responses"/);
+  assert.match(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*imagesNewAPICompat: false/);
+  assert.match(fhlAPI, /export async function ensureFHLImagesProfile/);
+  assert.match(fhlAPI, /baseURL: FHL_BASE_URL/);
+  assert.match(fhlAPI, /imageModelID: FHL_IMAGE_MODEL_ID/);
+
+  assert.match(profiles, /export const DEFAULT_CONCURRENCY_LIMIT = 1;/);
+  assert.match(profiles, /export function makeFHLResponsesProfile[\s\S]*apiMode: "responses"/);
+  assert.match(profiles, /export function makeFHLResponsesProfile[\s\S]*imagesNewAPICompat: false/);
+  assert.match(store, /\(profile\.apiMode === "images" \|\| profile\.apiMode === "responses"\)/);
+  assert.match(store, /const nextFHLAPIMode: APIMode = localFHLConfig\?\.apiMode \?\? "responses";/);
+  assert.match(store, /apiMode: nextFHLAPIMode/);
+  assert.match(store, /imagesNewAPICompat: nextFHLAPIMode === "images"/);
+});
+
+test("Android upstream starts with empty defaults and highlights one-click presets", () => {
+  assert.match(store, /const shouldKeepAndroidProfilesEmpty = readRuntimePlatformState\(\)\.isAndroid && !localFHLConfig;/);
+  assert.match(store, /profiles\.length === 1 && profiles\[0\]\?\.id === FHL_PROFILE_ID/);
+  assert.match(store, /const storedDefaultKey = await GetStoredAPIKey\(keyringUserFor\(profiles\[0\]\.id\)\)\.catch\(\(\) => ""\);/);
+  assert.match(store, /profiles\.length === 0 && !shouldKeepAndroidProfilesEmpty/);
+  assert.doesNotMatch(store, /if \(profiles\.length === 0\) \{\s*const profile = makeFHLResponsesProfile\(\);/);
+  assert.match(upstreamHeader, /className="android-upstream-onekey-button"/);
+  assert.match(upstreamCss, /\.android-upstream-create-grid \.android-upstream-onekey-button/);
+  assert.match(upstreamCss, /animation: android-upstream-onekey-flash 1\.15s ease-in-out infinite;/);
+  assert.match(upstreamCss, /@keyframes android-upstream-onekey-flash/);
+});
+
+test("Android upstream keeps Responses labels and compat policy wording", () => {
+  assert.match(upstreamHeader, /profile\.apiMode === "responses" \? "Responses API" : "Images API"/);
+  assert.match(upstreamRail, /profile\.apiMode === "responses" \? "Responses" : "Images"/);
+  assert.doesNotMatch(upstreamHeader, /FHL \/ Responses API/);
+  assert.doesNotMatch(upstreamRail, /FHL \/ Responses/);
+  assert.match(upstreamConfig, /id: "compat", title: "兼容中转扩展"/);
+  assert.doesNotMatch(upstreamConfig, /id: "compat", title: "兼容中转",/);
+});

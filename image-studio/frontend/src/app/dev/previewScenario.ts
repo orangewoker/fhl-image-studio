@@ -12,6 +12,7 @@ export function applyMacWorkspacePreviewToStore(workspaceId = "preview-workspace
   useStudioStore.setState({
     apiKey: "sk-preview",
     mode: "edit",
+    promptPrefix: preview.workspace.promptPrefix,
     prompt: preview.currentImage.prompt,
     negativePrompt: preview.currentImage.negativePrompt ?? "",
     size: preview.currentImage.size,

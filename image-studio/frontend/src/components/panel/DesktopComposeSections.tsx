@@ -1,5 +1,6 @@
 import { ImagePlus, Trash2, X } from "lucide-react";
 import type {
+  APIMode,
   Mode,
   QualityValue,
   RequestPolicy,
@@ -38,7 +39,7 @@ export function DesktopComposeSections({
 }: {
   activeAspect: AspectPreset;
   activeResolution: ResolutionPreset;
-  apiMode: "responses" | "images";
+  apiMode: APIMode;
   batchCount: number;
   clearSources: () => void;
   currentImageSavedPath?: string | null;

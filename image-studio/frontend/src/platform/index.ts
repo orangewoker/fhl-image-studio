@@ -59,6 +59,12 @@ type AndroidBridgeMetrics = {
   orientation?: string;
 };
 
+declare global {
+  interface Window {
+    __imageStudioAndroidSafeArea?: Record<string, number>;
+  }
+}
+
 function readAndroidBridgeMetrics(): AndroidBridgeMetrics | null {
   if (typeof window === "undefined") return null;
   const cached = (window as Window & { [ANDROID_METRICS_CACHE_KEY]?: AndroidBridgeMetrics })[ANDROID_METRICS_CACHE_KEY];
@@ -235,6 +241,55 @@ export function applyPlatformAttributes(root: HTMLElement = document.documentEle
   else delete root.dataset.androidWindowHeight;
   if (state.androidOrientation) root.dataset.androidOrientation = state.androidOrientation;
   else delete root.dataset.androidOrientation;
+  applyAndroidViewportVariables(root);
+}
+
+function readAndroidSafeAreaOverrideFromURL(): Record<string, number> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const read = (...keys: string[]) => {
+      for (const key of keys) {
+        const raw = params.get(key);
+        if (raw == null || raw.trim() === "") continue;
+        const value = Number.parseFloat(raw);
+        if (Number.isFinite(value)) return Math.max(0, value);
+      }
+      return undefined;
+    };
+    const top = read("androidSafeTop", "safeTop");
+    const right = read("androidSafeRight", "safeRight");
+    const bottom = read("androidSafeBottom", "safeBottom");
+    const left = read("androidSafeLeft", "safeLeft");
+    if ([top, right, bottom, left].every((value) => value == null)) return null;
+    return {
+      top: top ?? 0,
+      right: right ?? 0,
+      bottom: bottom ?? 0,
+      left: left ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function applyAndroidViewportVariables(root: HTMLElement = document.documentElement) {
+  if (rawTargetPlatform !== "android" || typeof window === "undefined" || !root?.style) return;
+  const viewport = window.visualViewport;
+  const height = Math.max(320, Math.round(viewport?.height ?? window.innerHeight ?? 0));
+  root.style.setProperty("--android-viewport-height", `${height}px`);
+  const override = readAndroidSafeAreaOverrideFromURL();
+  if (!override) return;
+  root.style.setProperty("--android-safe-top", `${override.top}px`);
+  root.style.setProperty("--android-safe-right", `${override.right}px`);
+  root.style.setProperty("--android-safe-bottom", `${override.bottom}px`);
+  root.style.setProperty("--android-safe-left", `${override.left}px`);
+  root.style.setProperty("--android-safe-top-value", `${override.top}px`);
+  root.style.setProperty("--android-safe-right-value", `${override.right}px`);
+  root.style.setProperty("--android-safe-bottom-value", `${override.bottom}px`);
+  root.style.setProperty("--android-safe-left-value", `${override.left}px`);
+  root.style.setProperty("--android-header-safe-top-value", `${Math.min(52, Math.max(24, override.top))}px`);
+  window.__imageStudioAndroidSafeArea = override;
 }
 
 export function useRuntimePlatform() {

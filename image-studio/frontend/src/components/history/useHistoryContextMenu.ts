@@ -7,6 +7,7 @@ type HistoryContextMenuArgs = {
   compareItemId?: string | null;
   currentImageId?: string | null;
   onApplyParams: (item: HistoryItem) => void;
+  onCopyImage: (item: HistoryItem) => void;
   onDelete: (item: HistoryItem) => void;
   onOpenDetail: (item: HistoryItem) => void;
   onRegenerate: (item: HistoryItem) => void;
@@ -27,6 +28,7 @@ export function useHistoryContextMenu({
   compareItemId,
   currentImageId,
   onApplyParams,
+  onCopyImage,
   onDelete,
   onOpenDetail,
   onRegenerate,
@@ -52,6 +54,7 @@ export function useHistoryContextMenu({
         () => pushToast("已复制路径", "success"),
         () => pushToast("复制失败", "error"),
       ),
+      onCopyImage: () => onCopyImage(item),
       onSaveOriginal: () => onSaveOriginal(item),
       onShare: () => onShare(item),
       onOpenRaw: () => setRawPath(item.rawPath ?? null),

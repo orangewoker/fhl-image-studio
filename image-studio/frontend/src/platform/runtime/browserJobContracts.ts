@@ -1,6 +1,7 @@
 import type {
   JobGroupSnapshot,
   JobSlotSnapshot,
+  APIMode,
   Mode,
   OutputFormatValue,
   QualityValue,
@@ -26,14 +27,19 @@ export interface BrowserJobSubmitPayload {
   quality: QualityValue;
   outputFormat: OutputFormatValue;
   batchCount: number;
+  concurrencyLimit?: number;
   seed: number;
   negativePrompt: string;
   styleTag?: string;
   sourceImagePaths?: string[];
   maskB64?: string;
+  continuousGenerateTest?: boolean;
+  continuousBatchIndex?: number;
+  requestRunId?: string;
   apiKey: string;
   baseURL: string;
-  apiMode: "responses" | "images";
+  apiMode: APIMode;
+  apiLabel?: string;
   requestPolicy: RequestPolicy;
   imagesNewAPICompat?: boolean;
   textModelID: string;

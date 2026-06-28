@@ -1,12 +1,14 @@
-import type { QualityValue } from "../../../types/domain";
+import type { APIMode, QualityValue, RequestPolicy } from "../../../types/domain";
 import { QUALITY_TIERS } from "../../../components/panel/panelOptions";
+import { vibrateForPlatform } from "../bridge";
 import {
   RESOLUTION_PRESETS,
+  aspectPresetsForAPIMode,
   sizeCapabilityHint,
   type AspectPreset,
   type ResolutionPreset,
 } from "../../../components/panel/sizeCapabilities";
-import { ANDROID_BATCH_COUNT_OPTIONS } from "./parameterOptions";
+import { ANDROID_BATCH_COUNT_OPTIONS, ANDROID_CONTINUOUS_CONCURRENCY_OPTIONS } from "./parameterOptions";
 import {
   AndroidAspectGrid,
   AndroidDiscreteSlider,
@@ -15,6 +17,7 @@ import {
   AndroidParameterSummary,
   AndroidSegmentedChoices,
   AndroidStyleChips,
+  AndroidToggleSetting,
   buildAndroidParameterSummaryItems,
 } from "./AndroidParameterPrimitives";
 
@@ -28,11 +31,15 @@ export function AndroidParameterEditor({
   availableResolutions,
   apiMode,
   batchCount,
+  concurrencyLimit,
+  continuousGenerateTest,
   handleAspectSelect,
   handleResolutionSelect,
   imageModelID,
   quality,
   requestPolicy,
+  onConcurrencyLimitChange,
+  onSave,
   setField,
   styleTag,
 }: {
@@ -43,22 +50,30 @@ export function AndroidParameterEditor({
   activeQualityLabel: string;
   activeStyleLabel: string;
   availableResolutions: ResolutionPreset[];
-  apiMode: "responses" | "images";
+  apiMode: APIMode;
   batchCount: number;
+  concurrencyLimit: number;
+  continuousGenerateTest: boolean;
   handleAspectSelect: (aspect: AspectPreset) => void;
   handleResolutionSelect: (resolution: ResolutionPreset) => void;
   imageModelID: string;
   quality: string;
-  requestPolicy: "openai" | "compat";
-  setField: (key: "quality" | "styleTag" | "batchCount", value: any) => void;
+  requestPolicy: RequestPolicy;
+  onConcurrencyLimitChange: (value: number) => void;
+  onSave: () => void;
+  setField: (key: "quality" | "styleTag" | "batchCount" | "continuousGenerateTest", value: any) => void;
   styleTag: string;
 }) {
   const resolutionHint = sizeCapabilityHint({ apiMode, requestPolicy, imageModelID });
+  const aspectOptions = aspectPresetsForAPIMode(apiMode);
+  const normalizedConcurrencyLimit = Math.min(2, Math.max(1, Math.floor(Number(concurrencyLimit) || 1)));
   const summaryItems = buildAndroidParameterSummaryItems({
     activeAspectLabel,
     activeResolutionLabel,
     activeQualityLabel,
     batchCount,
+    concurrencyLimit,
+    continuousGenerateTest,
   });
 
   return (
@@ -84,11 +99,11 @@ export function AndroidParameterEditor({
       </AndroidParameterBlock>
 
       <AndroidParameterBlock title="画幅比例">
-        <AndroidAspectGrid value={activeAspect} onChange={handleAspectSelect} />
+        <AndroidAspectGrid options={aspectOptions} value={activeAspect} onChange={handleAspectSelect} />
       </AndroidParameterBlock>
 
       <AndroidDiscreteSlider
-        label="分辨率"
+        label="尺寸"
         value={activeResolution}
         options={RESOLUTION_PRESETS.filter((item) => availableResolutions.includes(item.value))}
         onChange={handleResolutionSelect}
@@ -104,13 +119,48 @@ export function AndroidParameterEditor({
         />
       </AndroidParameterBlock>
 
-      <AndroidDiscreteSlider
-        label="出图张数"
-        value={batchCount}
-        options={ANDROID_BATCH_COUNT_OPTIONS}
-        onChange={(next) => setField("batchCount", next)}
-        valueSuffix="张"
-      />
+      {!continuousGenerateTest ? (
+        <AndroidDiscreteSlider
+          label="出图张数"
+          value={batchCount}
+          options={ANDROID_BATCH_COUNT_OPTIONS}
+          onChange={(next) => setField("batchCount", next)}
+          valueSuffix="张"
+        />
+      ) : null}
+
+      <AndroidParameterBlock title="连续生成">
+        <AndroidToggleSetting
+          checked={continuousGenerateTest}
+          label="连续出图模式"
+          description="开启后，每次点击生成只追加 1 张；生成中可继续点击追加。"
+          onChange={(next) => setField("continuousGenerateTest", next)}
+        />
+      </AndroidParameterBlock>
+
+      {continuousGenerateTest ? (
+        <AndroidDiscreteSlider
+          label="连续并发"
+          value={normalizedConcurrencyLimit}
+          options={ANDROID_CONTINUOUS_CONCURRENCY_OPTIONS}
+          onChange={onConcurrencyLimitChange}
+          valueSuffix="并发"
+          note="控制连续出图同时运行的任务数；不限会交给上游和系统调度。"
+        />
+      ) : null}
+
+      <div className="android-parameter-save-bar">
+        <button
+          type="button"
+          className="android-parameter-save-button"
+          onClick={() => {
+            vibrateForPlatform(8);
+            onSave();
+          }}
+        >
+          保存设置
+        </button>
+      </div>
     </AndroidParameterEditorShell>
   );
 }

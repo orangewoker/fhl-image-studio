@@ -25,13 +25,14 @@ export function TimelineHistoryItem({
   onToggleCompare: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }) {
-  const { isMac, usesFluentUI } = usePlatform();
+  const { isAndroidPhone, isMac, usesFluentUI } = usePlatform();
   const previewURL = useBlobURL(item.previewBlob ?? item.imageBlob ?? null, item.imageB64 ?? null);
   const imageSrc = historyPreviewSrc(item, previewURL);
   const timeLabel = new Date(item.createdAt).toLocaleTimeString();
+  const compact = isAndroidPhone;
 
   return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3">
+    <div className={compact ? "grid min-w-0 grid-cols-[22px_minmax(0,1fr)] gap-2" : "grid grid-cols-[120px_minmax(0,1fr)] gap-3"}>
       <div className="flex flex-col items-center gap-2 pt-1">
         <div className="h-2.5 w-2.5 rounded-full bg-[var(--accent)] shadow-[0_0_8px_rgb(0_122_255_/_0.55)]" />
         <div className="h-full w-px bg-black/[0.08] dark:bg-white/[0.08]" />
@@ -41,15 +42,15 @@ export function TimelineHistoryItem({
           e.preventDefault();
           onOpenMenu(e.clientX, e.clientY);
         }}
-        className={`platform-card border border-black/[0.05] bg-white/70 p-3 shadow-[var(--shadow-card)] dark:border-white/[0.06] dark:bg-white/[0.03] ${usesFluentUI ? "rounded-[12px]" : "rounded-[18px]"} ${
+        className={`platform-card min-w-0 overflow-hidden border border-black/[0.05] bg-white/70 ${compact ? "p-2.5" : "p-3"} shadow-[var(--shadow-card)] dark:border-white/[0.06] dark:bg-white/[0.03] ${usesFluentUI ? "rounded-[12px]" : "rounded-[18px]"} ${
           isCurrent ? "ring-1 ring-[color:var(--accent)]/40" : ""
         }`}
       >
-        <div className="grid grid-cols-[152px_minmax(0,1fr)] gap-3">
+        <div className={compact ? "grid min-w-0 grid-cols-1 gap-2.5" : "grid grid-cols-[152px_minmax(0,1fr)] gap-3"}>
           <button
             type="button"
             onClick={onSelect}
-            className={`relative aspect-[4/3] overflow-hidden border border-black/[0.06] dark:border-white/[0.06] ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
+            className={`relative ${compact ? "max-h-[168px] w-full aspect-[16/10]" : "aspect-[4/3]"} overflow-hidden border border-black/[0.06] dark:border-white/[0.06] ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
           >
             <img
               src={imageSrc}
@@ -85,7 +86,7 @@ export function TimelineHistoryItem({
                 <Ellipsis className="h-3.5 w-3.5" />
                 更多
               </button>
-              <span className="text-[10px] text-zinc-400/90 dark:text-zinc-500">双击设为源图</span>
+              {compact ? null : <span className="text-[10px] text-zinc-400/90 dark:text-zinc-500">双击设为源图</span>}
             </div>
             <div className={`${isMac ? "mt-3 flex flex-wrap items-center gap-2" : "mt-3 flex flex-wrap gap-2"}`}>
               <button onClick={onSelect} className={`platform-pill inline-flex min-h-[34px] min-w-[78px] items-center justify-center px-3 py-1.5 text-[11px] font-medium text-zinc-600 hover:text-[var(--accent)] ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}>查看</button>

@@ -20,6 +20,8 @@ html[data-target-platform="android"] .android-history-filter-card,
 html[data-target-platform="android-pad"] .android-history-filter-card,
 html[data-target-platform="android"] .android-history-feature-card,
 html[data-target-platform="android-pad"] .android-history-feature-card,
+html[data-target-platform="android"] .android-history-jobs-card,
+html[data-target-platform="android-pad"] .android-history-jobs-card,
 html[data-target-platform="android"] .android-history-results-card,
 html[data-target-platform="android-pad"] .android-history-results-card,
 html[data-target-platform="android"] .android-history-quick-actions,
@@ -100,6 +102,40 @@ html[data-target-platform="android-pad"] .android-history-total small {
   margin-top: 4px;
   font-size: 11px;
   font-weight: 700;
+}
+
+html[data-target-platform="android"] .android-history-hero-actions,
+html[data-target-platform="android-pad"] .android-history-hero-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+html[data-target-platform="android"] .android-history-timeline-button,
+html[data-target-platform="android-pad"] .android-history-timeline-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgb(0 121 107 / 0.18);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.72);
+  color: var(--accent);
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+  box-shadow: 0 8px 18px rgb(15 23 42 / 0.06);
+  touch-action: manipulation;
+}
+
+html[data-target-platform="android"] .android-history-timeline-button svg,
+html[data-target-platform="android-pad"] .android-history-timeline-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 html[data-target-platform="android"] .android-history-stats,
@@ -237,12 +273,18 @@ html[data-target-platform="android-pad"] .android-history-compare-exit {
 
 html[data-target-platform="android"] .android-history-feature-card,
 html[data-target-platform="android-pad"] .android-history-feature-card,
+html[data-target-platform="android"] .android-history-jobs-card,
+html[data-target-platform="android-pad"] .android-history-jobs-card,
 html[data-target-platform="android"] .android-history-results-card,
 html[data-target-platform="android-pad"] .android-history-results-card {
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 13px;
+}
+
+html[data-target-platform="android"] .android-history-results-card {
+  order: -10;
 }
 
 html[data-target-platform="android"] .android-history-section-head,
@@ -268,6 +310,335 @@ html[data-target-platform="android-pad"] .android-history-section-head small {
   color: rgb(113 113 122);
   font-size: 11px;
   font-weight: 700;
+}
+
+html[data-target-platform="android"] .android-history-job-list,
+html[data-target-platform="android-pad"] .android-history-job-list {
+  display: grid;
+  gap: 10px;
+}
+
+html[data-target-platform="android"] .android-history-jobs-card {
+  overflow: hidden;
+}
+
+html[data-target-platform="android"] .android-history-jobs-card .android-history-job-list {
+  min-height: 0;
+  max-height: min(360px, 42vh);
+  overflow-y: auto;
+  padding-right: 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+html[data-target-platform="android"] .android-history-jobs-card .android-history-job-list::-webkit-scrollbar {
+  display: none;
+}
+
+html[data-target-platform="android"] .android-history-job-group,
+html[data-target-platform="android-pad"] .android-history-job-group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 9px;
+  border: 1px solid rgb(15 23 42 / 0.06);
+  border-radius: 24px;
+  background: rgb(248 250 249 / 0.78);
+  padding: 11px;
+}
+
+html[data-target-platform="android"] .android-history-job-head,
+html[data-target-platform="android-pad"] .android-history-job-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+html[data-target-platform="android"] .android-history-job-title,
+html[data-target-platform="android-pad"] .android-history-job-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+html[data-target-platform="android"] .android-history-job-title span,
+html[data-target-platform="android-pad"] .android-history-job-title span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+html[data-target-platform="android"] .android-history-job-title strong,
+html[data-target-platform="android-pad"] .android-history-job-title strong {
+  color: rgb(39 39 42);
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+html[data-target-platform="android"] .android-history-job-meta,
+html[data-target-platform="android-pad"] .android-history-job-meta {
+  justify-content: flex-end;
+}
+
+html[data-target-platform="android"] .android-history-job-prompt,
+html[data-target-platform="android-pad"] .android-history-job-prompt {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: rgb(82 82 91);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+html[data-target-platform="android"] .android-history-job-slots,
+html[data-target-platform="android-pad"] .android-history-job-slots {
+  display: grid;
+  gap: 8px;
+}
+
+html[data-target-platform="android"] .android-history-job-slot,
+html[data-target-platform="android-pad"] .android-history-job-slot {
+  display: grid;
+  min-width: 0;
+  min-height: 70px;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid rgb(15 23 42 / 0.06);
+  border-radius: 20px;
+  background: rgb(255 255 255 / 0.84);
+  padding: 8px;
+  color: rgb(39 39 42);
+  text-align: left;
+}
+
+html[data-target-platform="android"] button.android-history-job-slot,
+html[data-target-platform="android-pad"] button.android-history-job-slot {
+  width: 100%;
+  border-color: rgb(0 121 107 / 0.12);
+  touch-action: manipulation;
+}
+
+html[data-target-platform="android"] .android-history-job-slot.success,
+html[data-target-platform="android-pad"] .android-history-job-slot.success {
+  grid-template-columns: 74px minmax(0, 1fr);
+}
+
+html[data-target-platform="android"] .android-history-job-slot.state,
+html[data-target-platform="android-pad"] .android-history-job-slot.state {
+  grid-template-columns: 34px 36px minmax(0, 1fr) auto;
+}
+
+html[data-target-platform="android"] .android-history-job-slot.failed,
+html[data-target-platform="android-pad"] .android-history-job-slot.failed,
+html[data-target-platform="android"] .android-history-job-slot.interrupted,
+html[data-target-platform="android-pad"] .android-history-job-slot.interrupted {
+  border-color: rgb(239 68 68 / 0.18);
+  background: rgb(254 242 242 / 0.82);
+}
+
+html[data-target-platform="android"] .android-history-job-slot.running,
+html[data-target-platform="android-pad"] .android-history-job-slot.running,
+html[data-target-platform="android"] .android-history-job-slot.queued,
+html[data-target-platform="android-pad"] .android-history-job-slot.queued {
+  border-color: rgb(0 121 107 / 0.16);
+  background: rgb(0 121 107 / 0.06);
+}
+
+html[data-target-platform="android"] .android-history-job-thumb,
+html[data-target-platform="android-pad"] .android-history-job-thumb {
+  position: relative;
+  display: block;
+  width: 74px;
+  height: 74px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: rgb(15 23 42 / 0.05);
+}
+
+html[data-target-platform="android"] .android-history-job-thumb img,
+html[data-target-platform="android-pad"] .android-history-job-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+html[data-target-platform="android"] .android-history-job-index,
+html[data-target-platform="android-pad"] .android-history-job-index {
+  display: inline-flex;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.68);
+  color: white;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+html[data-target-platform="android"] .android-history-job-thumb .android-history-job-index,
+html[data-target-platform="android-pad"] .android-history-job-thumb .android-history-job-index {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+}
+
+html[data-target-platform="android"] .android-history-job-pixels,
+html[data-target-platform="android-pad"] .android-history-job-pixels {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.72);
+  color: white;
+  padding: 2px 6px;
+  font-family: var(--mono-font);
+  font-size: 9px;
+  font-weight: 850;
+}
+
+html[data-target-platform="android"] .android-history-job-state-icon,
+html[data-target-platform="android-pad"] .android-history-job-state-icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 15px;
+  background: rgb(255 255 255 / 0.78);
+  color: var(--accent);
+}
+
+html[data-target-platform="android"] .android-history-job-state-icon svg,
+html[data-target-platform="android-pad"] .android-history-job-state-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+html[data-target-platform="android"] .android-history-job-slot.failed .android-history-job-state-icon,
+html[data-target-platform="android-pad"] .android-history-job-slot.failed .android-history-job-state-icon,
+html[data-target-platform="android"] .android-history-job-slot.interrupted .android-history-job-state-icon,
+html[data-target-platform="android-pad"] .android-history-job-slot.interrupted .android-history-job-state-icon {
+  color: rgb(220 38 38);
+}
+
+html[data-target-platform="android"] .android-history-job-slot-copy,
+html[data-target-platform="android-pad"] .android-history-job-slot-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+html[data-target-platform="android"] .android-history-job-slot-title,
+html[data-target-platform="android-pad"] .android-history-job-slot-title {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+html[data-target-platform="android"] .android-history-job-slot-title strong,
+html[data-target-platform="android-pad"] .android-history-job-slot-title strong {
+  font-size: 12px;
+  font-weight: 850;
+}
+
+html[data-target-platform="android"] .android-history-job-slot-title em,
+html[data-target-platform="android-pad"] .android-history-job-slot-title em,
+html[data-target-platform="android"] .android-history-job-slot-title b,
+html[data-target-platform="android-pad"] .android-history-job-slot-title b {
+  border-radius: 999px;
+  background: rgb(0 121 107 / 0.09);
+  color: var(--accent);
+  padding: 2px 7px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+html[data-target-platform="android"] .android-history-job-slot-title b,
+html[data-target-platform="android-pad"] .android-history-job-slot-title b {
+  background: rgb(15 23 42 / 0.06);
+  color: rgb(82 82 91);
+}
+
+html[data-target-platform="android"] .android-history-job-slot-copy small,
+html[data-target-platform="android-pad"] .android-history-job-slot-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgb(82 82 91);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.42;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+html[data-target-platform="android"] .android-history-job-badges,
+html[data-target-platform="android-pad"] .android-history-job-badges {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+html[data-target-platform="android"] .android-history-job-actions,
+html[data-target-platform="android-pad"] .android-history-job-actions {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+html[data-target-platform="android"] .android-history-job-apply,
+html[data-target-platform="android-pad"] .android-history-job-apply,
+html[data-target-platform="android"] .android-history-job-regenerate,
+html[data-target-platform="android-pad"] .android-history-job-regenerate,
+html[data-target-platform="android"] .android-history-job-query,
+html[data-target-platform="android-pad"] .android-history-job-query {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgb(0 121 107 / 0.16);
+  border-radius: 999px;
+  background: rgb(0 121 107 / 0.1);
+  color: var(--accent);
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+html[data-target-platform="android"] .android-history-job-apply,
+html[data-target-platform="android-pad"] .android-history-job-apply {
+  background: rgb(255 255 255 / 0.9);
+}
+
+html[data-target-platform="android"] .android-history-job-regenerate,
+html[data-target-platform="android-pad"] .android-history-job-regenerate {
+  border-color: rgb(15 23 42 / 0.12);
+  background: rgb(255 255 255 / 0.9);
+  color: rgb(51 65 85);
+}
+
+html[data-target-platform="android"] .android-history-job-apply svg,
+html[data-target-platform="android-pad"] .android-history-job-apply svg,
+html[data-target-platform="android"] .android-history-job-regenerate svg,
+html[data-target-platform="android-pad"] .android-history-job-regenerate svg,
+html[data-target-platform="android"] .android-history-job-query svg,
+html[data-target-platform="android-pad"] .android-history-job-query svg {
+  width: 13px;
+  height: 13px;
 }
 
 html[data-target-platform="android"] .android-history-feature,
@@ -572,6 +943,25 @@ html[data-target-platform="android-pad"] .android-history-compare-badge {
   font-weight: 800;
 }
 
+html[data-target-platform="android"] .android-history-pixel-badge,
+html[data-target-platform="android-pad"] .android-history-pixel-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.74);
+  color: white;
+  padding: 3px 8px;
+  font-family: var(--mono-font);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.2;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
+  box-shadow: 0 8px 16px rgb(15 23 42 / 0.18);
+  backdrop-filter: blur(10px);
+}
+
 html[data-target-platform="android"] .android-history-tile-body,
 html[data-target-platform="android-pad"] .android-history-tile-body {
   display: flex;
@@ -718,7 +1108,7 @@ html[data-target-platform="android-pad"] .android-history-action-layer {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 0 10px calc(10px + var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)));
+  padding: 0 10px calc(10px + var(--android-safe-bottom-value, 0px));
 }
 
 html[data-target-platform="android"] .android-history-action-backdrop,
@@ -928,6 +1318,8 @@ html[data-target-platform="android"] .android-history-prompt-group:active,
 html[data-target-platform="android-pad"] .android-history-prompt-group:active,
 html[data-target-platform="android"] .android-history-more:active,
 html[data-target-platform="android-pad"] .android-history-more:active,
+html[data-target-platform="android"] .android-history-timeline-button:active,
+html[data-target-platform="android-pad"] .android-history-timeline-button:active,
 html[data-target-platform="android"] .android-history-quick-actions button:active,
 html[data-target-platform="android-pad"] .android-history-quick-actions button:active,
 html[data-target-platform="android"] .android-history-sheet-actions button:active,
@@ -956,6 +1348,8 @@ html.dark[data-target-platform="android"] .android-history-filter-card,
 html.dark[data-target-platform="android-pad"] .android-history-filter-card,
 html.dark[data-target-platform="android"] .android-history-feature-card,
 html.dark[data-target-platform="android-pad"] .android-history-feature-card,
+html.dark[data-target-platform="android"] .android-history-jobs-card,
+html.dark[data-target-platform="android-pad"] .android-history-jobs-card,
 html.dark[data-target-platform="android"] .android-history-results-card,
 html.dark[data-target-platform="android-pad"] .android-history-results-card,
 html.dark[data-target-platform="android"] .android-history-quick-actions,
@@ -966,6 +1360,10 @@ html.dark[data-target-platform="android"] .android-history-tile,
 html.dark[data-target-platform="android-pad"] .android-history-tile,
 html.dark[data-target-platform="android"] .android-history-prompt-group,
 html.dark[data-target-platform="android-pad"] .android-history-prompt-group,
+html.dark[data-target-platform="android"] .android-history-job-group,
+html.dark[data-target-platform="android-pad"] .android-history-job-group,
+html.dark[data-target-platform="android"] .android-history-job-slot,
+html.dark[data-target-platform="android-pad"] .android-history-job-slot,
 html.dark[data-target-platform="android"] .android-history-feature-copy,
 html.dark[data-target-platform="android-pad"] .android-history-feature-copy,
 html.dark[data-target-platform="android"] .android-history-action-sheet,
@@ -989,6 +1387,10 @@ html.dark[data-target-platform="android"] .android-history-feature-copy strong,
 html.dark[data-target-platform="android-pad"] .android-history-feature-copy strong,
 html.dark[data-target-platform="android"] .android-history-group-copy strong,
 html.dark[data-target-platform="android-pad"] .android-history-group-copy strong,
+html.dark[data-target-platform="android"] .android-history-job-title strong,
+html.dark[data-target-platform="android-pad"] .android-history-job-title strong,
+html.dark[data-target-platform="android"] .android-history-job-slot-title strong,
+html.dark[data-target-platform="android-pad"] .android-history-job-slot-title strong,
 html.dark[data-target-platform="android"] .android-history-tile-body p,
 html.dark[data-target-platform="android-pad"] .android-history-tile-body p,
 html.dark[data-target-platform="android"] .android-history-empty strong,
@@ -1010,6 +1412,10 @@ html.dark[data-target-platform="android"] .android-history-feature-copy span,
 html.dark[data-target-platform="android-pad"] .android-history-feature-copy span,
 html.dark[data-target-platform="android"] .android-history-group-copy,
 html.dark[data-target-platform="android-pad"] .android-history-group-copy,
+html.dark[data-target-platform="android"] .android-history-job-prompt,
+html.dark[data-target-platform="android-pad"] .android-history-job-prompt,
+html.dark[data-target-platform="android"] .android-history-job-slot-copy small,
+html.dark[data-target-platform="android-pad"] .android-history-job-slot-copy small,
 html.dark[data-target-platform="android"] .android-history-empty,
 html.dark[data-target-platform="android-pad"] .android-history-empty,
 html.dark[data-target-platform="android"] .android-history-sheet-copy small,
@@ -1019,6 +1425,8 @@ html.dark[data-target-platform="android-pad"] .android-history-sheet-copy small 
 
 html.dark[data-target-platform="android"] .android-history-search,
 html.dark[data-target-platform="android-pad"] .android-history-search,
+html.dark[data-target-platform="android"] .android-history-timeline-button,
+html.dark[data-target-platform="android-pad"] .android-history-timeline-button,
 html.dark[data-target-platform="android"] .android-history-quick-actions button,
 html.dark[data-target-platform="android-pad"] .android-history-quick-actions button,
 html.dark[data-target-platform="android"] .android-history-sheet-close,
@@ -1028,7 +1436,9 @@ html.dark[data-target-platform="android-pad"] .android-history-sheet-actions but
 html.dark[data-target-platform="android"] .android-history-sheet-action-icon,
 html.dark[data-target-platform="android-pad"] .android-history-sheet-action-icon,
 html.dark[data-target-platform="android"] .android-history-group-expand,
-html.dark[data-target-platform="android-pad"] .android-history-group-expand {
+html.dark[data-target-platform="android-pad"] .android-history-group-expand,
+html.dark[data-target-platform="android"] .android-history-job-state-icon,
+html.dark[data-target-platform="android-pad"] .android-history-job-state-icon {
   border-color: rgb(255 255 255 / 0.08);
   background: rgb(255 255 255 / 0.05);
 }
@@ -1082,7 +1492,7 @@ html.dark[data-target-platform="android-pad"] .android-history-sheet-danger .and
 html[data-target-platform="android-pad"] .android-history-page-pad {
   box-sizing: border-box;
   height: 100%;
-  padding: 16px 18px calc(18px + var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)));
+  padding: 16px 18px calc(18px + var(--android-safe-bottom-value, 0px));
 }
 
 html[data-target-platform="android-pad"] .android-history-page-pad[data-android-history-layout="pad"] {
@@ -1143,6 +1553,16 @@ html[data-target-platform="android-pad"] .android-history-page-pad[data-android-
   font-size: 21px;
 }
 
+html[data-target-platform="android-pad"] .android-history-page-pad[data-android-history-layout="pad"] .android-history-hero-actions {
+  gap: 6px;
+}
+
+html[data-target-platform="android-pad"] .android-history-page-pad[data-android-history-layout="pad"] .android-history-timeline-button {
+  min-height: 32px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
 html[data-target-platform="android-pad"] .android-history-page-pad[data-android-history-layout="pad"] .android-history-stats {
   grid-column: 1;
   grid-row: 2;
@@ -1187,6 +1607,27 @@ html[data-target-platform="android-pad"] .android-history-page-pad[data-android-
   min-height: 0;
   overflow: hidden;
   padding: 11px;
+}
+
+html[data-target-platform="android-pad"] .android-history-page-pad[data-android-history-layout="pad"] .android-history-jobs-card {
+  grid-column: 1;
+  grid-row: 4;
+  min-height: 0;
+  max-height: 260px;
+  overflow: hidden;
+  padding: 11px;
+}
+
+html[data-target-platform="android-pad"] .android-history-page-pad[data-android-history-layout="pad"] .android-history-job-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+html[data-target-platform="android-pad"] .android-history-page-pad[data-android-history-layout="pad"] .android-history-job-list::-webkit-scrollbar {
+  display: none;
 }
 
 html[data-target-platform="android-pad"] .android-history-page-pad[data-android-history-layout="pad"] .android-history-feature {
@@ -1285,7 +1726,7 @@ html[data-target-platform="android-pad"] .android-history-page-pad[data-android-
 }
 
 html[data-target-platform="android-pad"][data-android-window-width="medium"] .android-history-page-pad {
-  padding: 12px 12px calc(20px + var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)));
+  padding: 12px 12px calc(20px + var(--android-safe-bottom-value, 0px));
 }
 
 html[data-target-platform="android-pad"][data-android-window-width="medium"] .android-history-page-pad .android-history-grid {

@@ -1,4 +1,4 @@
-const API_KEY_ASSIGNMENT_RE = /(?:^|\n)\s*(?:OPENAI_API_KEY|IMAGE_STUDIO_API_KEY|GPTCODEX_API_KEY)\s*=\s*([^\r\n]+)/i;
+const API_KEY_ASSIGNMENT_RE = /(?:^|\n)\s*(?:OPENAI_API_KEY|IMAGE_STUDIO_API_KEY|GPTCODEX_API_KEY|APIMART_API_KEY)\s*=\s*([^\r\n]+)/i;
 const API_KEY_TOKEN_RE = /\bsk-[A-Za-z0-9._-]{8,}\b/;
 const WRAPPING_QUOTES_RE = /^["'`“”‘’]+|["'`“”‘’]+$/g;
 const HEADER_SAFE_TOKEN_RE = /^[\x21-\x7e]+$/;
@@ -23,4 +23,3 @@ export function validateAPIKeyForHeader(value: string): string {
   }
   return key;
 }
-

@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { AspectRatioPicker } from "../../../components/panel/AspectRatioPicker";
-import type { AspectPreset } from "../../../components/panel/sizeCapabilities";
+import { ASPECT_PRESETS, type AspectPreset, type AspectPresetOption } from "../../../components/panel/sizeCapabilities";
 import { STYLE_CHIPS } from "../../../components/panel/panelOptions";
 import { vibrateForPlatform } from "../bridge";
 
@@ -16,18 +16,38 @@ export function buildAndroidParameterSummaryItems({
   activeResolutionLabel,
   activeQualityLabel,
   batchCount,
+  concurrencyLimit,
+  continuousGenerateTest,
 }: {
   activeAspectLabel: string;
   activeResolutionLabel: string;
   activeQualityLabel: string;
   batchCount: number;
+  concurrencyLimit?: number;
+  continuousGenerateTest?: boolean;
 }): AndroidParameterSummaryItem[] {
-  return [
-    { key: "aspect", label: "画幅比例", value: activeAspectLabel },
-    { key: "resolution", label: "分辨率", value: activeResolutionLabel },
+  const items = [
+    { key: "aspect", label: "比例", value: activeAspectLabel },
+    { key: "resolution", label: "尺寸", value: activeResolutionLabel },
     { key: "quality", label: "画面质量", value: activeQualityLabel },
-    { key: "batch", label: "出图张数", value: `${batchCount} 张` },
   ];
+  if (continuousGenerateTest === true) {
+    items.push({ key: "continuous", label: "连续生成", value: "开启" });
+  } else {
+    items.push({ key: "batch", label: "出图张数", value: `${batchCount} 张` });
+    if (continuousGenerateTest !== undefined) {
+      items.push({ key: "continuous", label: "连续生成", value: "关闭" });
+    }
+  }
+  if (concurrencyLimit !== undefined) {
+    const limit = Math.min(2, Math.max(1, Math.floor(Number(concurrencyLimit) || 1)));
+    items.push({
+      key: "concurrency",
+      label: continuousGenerateTest === true ? "连续并发" : "并发上限",
+      value: `${limit} 并发`,
+    });
+  }
+  return items;
 }
 
 export function AndroidParameterEditorShell({
@@ -200,9 +220,11 @@ export function AndroidStyleChips({
 }
 
 export function AndroidAspectGrid({
+  options = ASPECT_PRESETS,
   value,
   onChange,
 }: {
+  options?: AspectPresetOption[];
   value: AspectPreset;
   onChange: (value: AspectPreset) => void;
 }) {
@@ -211,6 +233,7 @@ export function AndroidAspectGrid({
       ariaLabel="画幅比例"
       className="android-parameter-aspect-picker"
       compact
+      options={options}
       value={value}
       onChange={(next) => {
         if (next === value) return;
@@ -218,6 +241,37 @@ export function AndroidAspectGrid({
         onChange(next);
       }}
     />
+  );
+}
+
+export function AndroidToggleSetting({
+  checked,
+  description,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  description: string;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`android-parameter-toggle ${checked ? "active" : ""}`}
+      role="switch"
+      aria-checked={checked}
+      onClick={() => {
+        vibrateForPlatform(5);
+        onChange(!checked);
+      }}
+    >
+      <span>
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+      <i aria-hidden="true" />
+    </button>
   );
 }
 

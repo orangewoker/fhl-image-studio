@@ -1,8 +1,6 @@
 import type { APIMode, OutputFormatValue, QualityValue, RequestPolicy, SizeValue } from "../types/domain";
 import {
-  FHL_BASE_URL,
-  FHL_IMAGE_MODEL_ID,
-  FHL_TEXT_MODEL_ID,
+  defaultProfileValuesForAPIMode,
 } from "./profiles.ts";
 import { STORAGE_NAMESPACE } from "./storageNamespace.ts";
 
@@ -31,6 +29,8 @@ function isLocalPreviewHost(): boolean {
 
 export async function syncCLIConfig(input: CLIConfigSyncInput = {}): Promise<boolean> {
   if (!isLocalPreviewHost() || typeof fetch === "undefined") return false;
+  const apiMode = input.apiMode || "responses";
+  const defaults = defaultProfileValuesForAPIMode(apiMode);
   const response = await fetch(CLI_CONFIG_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -38,12 +38,12 @@ export async function syncCLIConfig(input: CLIConfigSyncInput = {}): Promise<boo
       storageNamespace: STORAGE_NAMESPACE,
       apiKey: input.apiKey,
       clearAPIKey: input.clearAPIKey === true,
-      baseURL: input.baseURL || FHL_BASE_URL,
-      apiMode: input.apiMode || "responses",
-      requestPolicy: input.requestPolicy || "openai",
+      baseURL: input.baseURL || defaults.baseURL,
+      apiMode,
+      requestPolicy: input.requestPolicy || defaults.requestPolicy,
       imagesNewAPICompat: input.imagesNewAPICompat === true,
-      textModelID: input.textModelID || FHL_TEXT_MODEL_ID,
-      imageModelID: input.imageModelID || FHL_IMAGE_MODEL_ID,
+      textModelID: input.textModelID || defaults.textModelID,
+      imageModelID: input.imageModelID || defaults.imageModelID,
       outputFormat: input.outputFormat || "png",
       quality: input.quality || "medium",
       size: input.size || "1024x1024",

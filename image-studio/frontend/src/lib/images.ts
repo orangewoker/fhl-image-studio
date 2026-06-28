@@ -229,12 +229,7 @@ export function useImageElement(source?: Blob | string | null): HTMLImageElement
 export async function getImageDimensionsFromBlob(blob: Blob): Promise<{ w: number; h: number } | null> {
   try {
     const buf = await blob.arrayBuffer();
-    const view = new DataView(buf);
-    if (buf.byteLength >= 24) {
-      const w = view.getUint32(16, false);
-      const h = view.getUint32(20, false);
-      if (w > 0 && h > 0 && w < 20000 && h < 20000) return { w, h };
-    }
+    return getImageDimensionsFromBytes(new Uint8Array(buf));
   } catch {
     // ignore
   }
@@ -243,14 +238,83 @@ export async function getImageDimensionsFromBlob(blob: Blob): Promise<{ w: numbe
 
 export function getImageDimensionsFromBase64(b64: string): { w: number; h: number } | null {
   try {
-    const bin = atob(b64.slice(0, 64));
-    const view = new DataView(new ArrayBuffer(bin.length));
-    for (let i = 0; i < bin.length; i++) view.setUint8(i, bin.charCodeAt(i));
-    const w = view.getUint32(16, false);
-    const h = view.getUint32(20, false);
-    if (w > 0 && h > 0 && w < 20000 && h < 20000) return { w, h };
+    const cleaned = b64.includes(",") ? b64.slice(b64.indexOf(",") + 1) : b64;
+    const bin = atob(cleaned);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return getImageDimensionsFromBytes(bytes);
   } catch {
     // ignore
+  }
+  return null;
+}
+
+function saneImageDimensions(w: number, h: number): { w: number; h: number } | null {
+  return w > 0 && h > 0 && w < 20000 && h < 20000 ? { w, h } : null;
+}
+
+function getImageDimensionsFromBytes(bytes: Uint8Array): { w: number; h: number } | null {
+  if (bytes.length < 10) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (
+    bytes.length >= 24
+    && bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+  ) {
+    return saneImageDimensions(view.getUint32(16, false), view.getUint32(20, false));
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = bytes[offset + 1];
+      const length = view.getUint16(offset + 2, false);
+      if (!Number.isFinite(length) || length < 2) return null;
+      const isStartOfFrame =
+        (marker >= 0xc0 && marker <= 0xc3)
+        || (marker >= 0xc5 && marker <= 0xc7)
+        || (marker >= 0xc9 && marker <= 0xcb)
+        || (marker >= 0xcd && marker <= 0xcf);
+      if (isStartOfFrame && offset + 8 < bytes.length) {
+        return saneImageDimensions(view.getUint16(offset + 7, false), view.getUint16(offset + 5, false));
+      }
+      offset += 2 + length;
+    }
+  }
+  if (
+    bytes.length >= 30
+    && bytes[0] === 0x52
+    && bytes[1] === 0x49
+    && bytes[2] === 0x46
+    && bytes[3] === 0x46
+    && bytes[8] === 0x57
+    && bytes[9] === 0x45
+    && bytes[10] === 0x42
+    && bytes[11] === 0x50
+  ) {
+    const chunk = String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15]);
+    if (chunk === "VP8X" && bytes.length >= 30) {
+      const w = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
+      const h = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
+      return saneImageDimensions(w, h);
+    }
+    if (chunk === "VP8 " && bytes.length >= 30) {
+      return saneImageDimensions(view.getUint16(26, true) & 0x3fff, view.getUint16(28, true) & 0x3fff);
+    }
+    if (chunk === "VP8L" && bytes.length >= 25) {
+      const b0 = bytes[21];
+      const b1 = bytes[22];
+      const b2 = bytes[23];
+      const b3 = bytes[24];
+      const w = 1 + (((b1 & 0x3f) << 8) | b0);
+      const h = 1 + (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6));
+      return saneImageDimensions(w, h);
+    }
   }
   return null;
 }

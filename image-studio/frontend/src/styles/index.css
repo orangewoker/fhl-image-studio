@@ -540,6 +540,14 @@ html[data-ui-family="android"] .liquid-primary-button:hover {
   background: var(--accent-2);
 }
 
+html[data-ui-family="android"] .liquid-primary-button:disabled {
+  background: rgb(212 222 218);
+  color: rgb(82 94 90 / 0.72);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
 html[data-ui-family="android"] .focus-ring:focus-visible,
 html[data-ui-family="android"] .input:focus,
 html[data-ui-family="android"] .textarea:focus,
@@ -990,10 +998,10 @@ html.dark [data-fhl-api-key-input="true"][data-fhl-api-key-highlight="true"] {
 @import "./_android-upstream.css";
 @import "./_android-parameters.css";
 @import "./_android-history.css";
-@import "./_android-canvas.css";
 @import "./_apple-overflow.css";
 @import "./_panel.css";
 @import "./_canvas.css";
+@import "./_android-canvas.css";
 @import "./_history.css";
 @import "./_overlays.css";
 @import "./fluent/_windows-theme.css";

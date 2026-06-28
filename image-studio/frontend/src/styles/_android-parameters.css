@@ -26,6 +26,13 @@ html[data-platform="android"] .app-modal-backdrop-phone:has(.android-template-mo
   backdrop-filter: blur(12px);
 }
 
+html[data-platform="android"] .app-modal-backdrop-phone:has(.android-reverse-modal-panel) {
+  background:
+    radial-gradient(circle at 50% 8%, rgb(0 106 96 / 0.18), transparent 32%),
+    rgb(15 23 42 / 0.28);
+  backdrop-filter: blur(12px);
+}
+
 html[data-platform="android"] .app-modal-card-phone:has(.android-parameter-modal-panel) {
   min-height: 86vh;
   max-height: 94vh;
@@ -38,6 +45,15 @@ html[data-platform="android"] .app-modal-card-phone:has(.android-parameter-modal
 html[data-platform="android"] .app-modal-card-phone:has(.android-template-modal-panel) {
   min-height: 72vh;
   max-height: 88vh;
+  border: 0;
+  border-radius: 32px 32px 0 0;
+  background: linear-gradient(180deg, rgb(249 252 249 / 0.99), rgb(238 245 240 / 0.99));
+  box-shadow: 0 -20px 60px rgb(15 23 42 / 0.24);
+}
+
+html[data-platform="android"] .app-modal-card-phone:has(.android-reverse-modal-panel) {
+  min-height: 62vh;
+  max-height: 86vh;
   border: 0;
   border-radius: 32px 32px 0 0;
   background: linear-gradient(180deg, rgb(249 252 249 / 0.99), rgb(238 245 240 / 0.99));
@@ -66,12 +82,28 @@ html[data-platform="android"] .app-modal-card-phone:has(.android-template-modal-
   background: rgb(15 23 42 / 0.16);
 }
 
+html[data-platform="android"] .app-modal-card-phone:has(.android-reverse-modal-panel)::before {
+  content: "";
+  width: 46px;
+  height: 5px;
+  flex: 0 0 auto;
+  align-self: center;
+  margin-top: 9px;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.16);
+}
+
 html[data-platform="android"] .app-modal-card-phone:has(.android-parameter-modal-panel) .app-modal-header-phone {
   border-bottom: 0;
   padding: 9px 20px 7px;
 }
 
 html[data-platform="android"] .app-modal-card-phone:has(.android-template-modal-panel) .app-modal-header-phone {
+  border-bottom: 0;
+  padding: 9px 20px 7px;
+}
+
+html[data-platform="android"] .app-modal-card-phone:has(.android-reverse-modal-panel) .app-modal-header-phone {
   border-bottom: 0;
   padding: 9px 20px 7px;
 }
@@ -88,12 +120,23 @@ html[data-platform="android"] .app-modal-card-phone:has(.android-template-modal-
   letter-spacing: 0;
 }
 
+html[data-platform="android"] .app-modal-card-phone:has(.android-reverse-modal-panel) .app-modal-header-phone h3 {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
 html[data-platform="android"] .app-modal-card-phone:has(.android-parameter-modal-panel) .app-modal-body-phone {
-  padding: 0 14px calc(22px + var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)));
+  padding: 0 14px calc(22px + var(--android-safe-bottom-value, 0px));
+  scroll-padding-bottom: calc(108px + var(--android-safe-bottom-value, 0px));
 }
 
 html[data-platform="android"] .app-modal-card-phone:has(.android-template-modal-panel) .app-modal-body-phone {
-  padding: 0 14px calc(22px + var(--android-safe-bottom-value, env(safe-area-inset-bottom, 0px)));
+  padding: 0 14px calc(22px + var(--android-safe-bottom-value, 0px));
+}
+
+html[data-platform="android"] .app-modal-card-phone:has(.android-reverse-modal-panel) .app-modal-body-phone {
+  padding: 0 14px calc(22px + var(--android-safe-bottom-value, 0px));
 }
 
 html[data-platform="android"] .app-modal-card-desktop:has(.android-parameter-modal-panel) {
@@ -108,6 +151,12 @@ html[data-platform="android"] .app-modal-card-desktop:has(.android-template-moda
   background: linear-gradient(180deg, rgb(249 252 249 / 0.98), rgb(238 245 240 / 0.98));
 }
 
+html[data-platform="android"] .app-modal-card-desktop:has(.android-reverse-modal-panel) {
+  border: 0;
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgb(249 252 249 / 0.98), rgb(238 245 240 / 0.98));
+}
+
 html[data-platform="android"] .android-parameter-modal-panel {
   display: flex;
   flex-direction: column;
@@ -115,6 +164,24 @@ html[data-platform="android"] .android-parameter-modal-panel {
 }
 
 html[data-platform="android"] .android-template-modal-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+html[data-platform="android"] .android-template-helper {
+  margin: 0;
+  border: 1px solid rgb(0 122 105 / 0.12);
+  border-radius: 18px;
+  background: rgb(0 122 105 / 0.06);
+  color: rgb(82 82 91);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+html[data-platform="android"] .android-reverse-modal-panel {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -355,13 +422,41 @@ html[data-platform="android"] .android-parameter-stack {
 
 html[data-platform="android"] .android-parameter-modal-stack {
   border-top: 1px solid rgb(15 23 42 / 0.06);
-  padding: 14px;
+  padding: 14px 14px calc(108px + var(--android-safe-bottom-value, 0px));
 }
 
 html[data-platform="android"] .android-parameter-block {
   display: flex;
   flex-direction: column;
   gap: 9px;
+}
+
+html[data-platform="android"] .android-parameter-save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 2px -14px calc(-14px - var(--android-safe-bottom-value, 0px));
+  padding: 12px 14px calc(12px + var(--android-safe-bottom-value, 0px));
+  border-top: 1px solid rgb(15 23 42 / 0.08);
+  border-radius: 0 0 26px 26px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.72), rgb(255 255 255 / 0.96));
+  backdrop-filter: blur(16px);
+}
+
+html[data-platform="android"] .android-parameter-save-button {
+  display: inline-flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  background: var(--accent);
+  color: white;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0;
+  box-shadow: 0 14px 32px rgb(0 106 96 / 0.24);
+  touch-action: manipulation;
 }
 
 html[data-platform="android"] .android-parameter-block-head {
@@ -506,6 +601,86 @@ html[data-platform="android"] .android-parameter-segmented {
   display: grid;
   grid-template-columns: repeat(var(--android-parameter-columns, 2), minmax(0, 1fr));
   gap: 8px;
+}
+
+html[data-platform="android"] .android-parameter-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 68px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgb(15 23 42 / 0.06);
+  border-radius: 20px;
+  background: rgb(248 250 249 / 0.92);
+  padding: 12px 13px;
+  text-align: left;
+  touch-action: manipulation;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+html[data-platform="android"] .android-parameter-toggle > span {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+}
+
+html[data-platform="android"] .android-parameter-toggle strong {
+  color: rgb(24 24 27);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+html[data-platform="android"] .android-parameter-toggle small {
+  color: rgb(82 82 91);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+html[data-platform="android"] .android-parameter-toggle i {
+  position: relative;
+  display: inline-flex;
+  width: 48px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgb(148 163 184 / 0.26);
+  box-shadow: inset 0 0 0 1px rgb(15 23 42 / 0.07);
+  transition: background-color 140ms ease;
+}
+
+html[data-platform="android"] .android-parameter-toggle i::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: white;
+  box-shadow: 0 4px 12px rgb(15 23 42 / 0.18);
+  transition: transform 140ms ease;
+}
+
+html[data-platform="android"] .android-parameter-toggle.active {
+  border-color: rgb(0 106 96 / 0.22);
+  background: rgb(0 106 96 / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(0 106 96 / 0.1);
+}
+
+html[data-platform="android"] .android-parameter-toggle.active i {
+  background: var(--accent);
+}
+
+html[data-platform="android"] .android-parameter-toggle.active i::after {
+  transform: translateX(20px);
 }
 
 html[data-platform="android"] .android-parameter-segmented button {
@@ -862,6 +1037,17 @@ html[data-platform="android"] .android-source-summary-icon {
   color: rgb(113 113 122);
 }
 
+html[data-platform="android"] .android-source-implicit-note {
+  border: 1px solid rgb(15 23 42 / 0.06);
+  border-radius: 16px;
+  background: rgb(248 250 249 / 0.9);
+  padding: 9px 11px;
+  color: rgb(82 82 91);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.35;
+}
+
 html[data-platform="android"] .android-source-summary-grid {
   display: grid;
   width: 100%;
@@ -1039,6 +1225,16 @@ html.dark[data-platform="android"] .app-modal-card-desktop:has(.android-template
   background: linear-gradient(180deg, rgb(24 26 28 / 0.98), rgb(15 20 20 / 0.98));
 }
 
+html.dark[data-platform="android"] .app-modal-card-phone:has(.android-reverse-modal-panel),
+html.dark[data-platform="android"] .app-modal-card-desktop:has(.android-reverse-modal-panel) {
+  background: linear-gradient(180deg, rgb(24 26 28 / 0.98), rgb(15 20 20 / 0.98));
+  color: rgb(244 244 245);
+}
+
+html.dark[data-platform="android"] .app-modal-card-phone:has(.android-reverse-modal-panel)::before {
+  background: rgb(255 255 255 / 0.22);
+}
+
 html.dark[data-platform="android"] .android-parameter-modal-summary,
 html.dark[data-platform="android"] .android-parameter-modal-stack {
   border-color: rgb(255 255 255 / 0.08);
@@ -1049,6 +1245,12 @@ html.dark[data-platform="android"] .android-template-tabs,
 html.dark[data-platform="android"] .android-template-list {
   border-color: rgb(255 255 255 / 0.08);
   background: rgb(255 255 255 / 0.04);
+}
+
+html.dark[data-platform="android"] .android-template-helper {
+  border-color: rgb(45 212 191 / 0.18);
+  background: rgb(45 212 191 / 0.08);
+  color: rgb(212 212 216);
 }
 
 html.dark[data-platform="android"] .android-template-tabs button {
@@ -1080,9 +1282,57 @@ html.dark[data-platform="android"] .android-template-empty {
   background: rgb(255 255 255 / 0.04);
 }
 
+html.dark[data-platform="android"] .android-reverse-image-card {
+  border-color: rgb(255 255 255 / 0.08);
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: none;
+}
+
+html.dark[data-platform="android"] .android-reverse-preview-frame {
+  background: rgb(3 7 18 / 0.28);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+html.dark[data-platform="android"] .android-reverse-upload-drop {
+  border-color: rgb(94 234 212 / 0.28);
+  background: rgb(20 83 75 / 0.18);
+  color: rgb(153 246 228);
+}
+
+html.dark[data-platform="android"] .android-reverse-upload-drop span {
+  color: rgb(212 212 216 / 0.74);
+}
+
+html.dark[data-platform="android"] .android-reverse-secondary-action {
+  background: rgb(255 255 255 / 0.05);
+  color: rgb(228 228 231);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+html.dark[data-platform="android"] .android-reverse-danger-action {
+  background: rgb(127 29 29 / 0.12);
+  color: rgb(248 113 113);
+  box-shadow: inset 0 0 0 1px rgb(248 113 113 / 0.18);
+}
+
+html.dark[data-platform="android"] .android-reverse-primary-action:disabled {
+  background: rgb(39 39 42 / 0.86);
+  color: rgb(161 161 170);
+  box-shadow: none;
+}
+
+html.dark[data-platform="android"] .android-reverse-helper {
+  color: rgb(212 212 216 / 0.72);
+}
+
 html.dark[data-platform="android"] .android-parameter-stack,
 html.dark[data-platform="android"] .android-parameter-modal-stack {
   border-top-color: rgb(255 255 255 / 0.06);
+}
+
+html.dark[data-platform="android"] .android-parameter-save-bar {
+  border-top-color: rgb(255 255 255 / 0.08);
+  background: linear-gradient(180deg, rgb(18 24 24 / 0.72), rgb(18 24 24 / 0.96));
 }
 
 html.dark[data-platform="android"] .android-parameter-summary-title,
@@ -1110,6 +1360,7 @@ html.dark[data-platform="android"] .android-source-summary-card {
 }
 
 html.dark[data-platform="android"] .android-source-summary-title,
+html.dark[data-platform="android"] .android-source-implicit-note,
 html.dark[data-platform="android"] .android-source-summary-grid > span > strong,
 html.dark[data-platform="android"] .android-source-list-item > span {
   color: rgb(244 244 245);
@@ -1121,6 +1372,7 @@ html.dark[data-platform="android"] .android-source-summary-grid > span > span {
 }
 
 html.dark[data-platform="android"] .android-source-summary-grid > span,
+html.dark[data-platform="android"] .android-source-implicit-note,
 html.dark[data-platform="android"] .android-source-list-item {
   border-color: rgb(255 255 255 / 0.08);
   background: rgb(255 255 255 / 0.04);
@@ -1128,7 +1380,8 @@ html.dark[data-platform="android"] .android-source-list-item {
 
 html.dark[data-platform="android"] .android-parameter-style-chip,
 html.dark[data-platform="android"] .android-parameter-aspect-card,
-html.dark[data-platform="android"] .android-parameter-segmented button {
+html.dark[data-platform="android"] .android-parameter-segmented button,
+html.dark[data-platform="android"] .android-parameter-toggle {
   border-color: rgb(255 255 255 / 0.08);
   background: rgb(255 255 255 / 0.04);
   color: rgb(244 244 245);
@@ -1136,13 +1389,19 @@ html.dark[data-platform="android"] .android-parameter-segmented button {
 
 html.dark[data-platform="android"] .android-parameter-style-chip small,
 html.dark[data-platform="android"] .android-parameter-segmented small,
+html.dark[data-platform="android"] .android-parameter-toggle small,
 html.dark[data-platform="android"] .android-parameter-note {
   color: rgb(212 212 216 / 0.72);
 }
 
+html.dark[data-platform="android"] .android-parameter-toggle strong {
+  color: rgb(244 244 245);
+}
+
 html.dark[data-platform="android"] .android-parameter-style-chip.active,
 html.dark[data-platform="android"] .android-parameter-aspect-card.active,
-html.dark[data-platform="android"] .android-parameter-segmented button.active {
+html.dark[data-platform="android"] .android-parameter-segmented button.active,
+html.dark[data-platform="android"] .android-parameter-toggle.active {
   border-color: rgb(123 218 207 / 0.24);
   background: rgb(20 83 75 / 0.24);
   color: rgb(153 246 228);

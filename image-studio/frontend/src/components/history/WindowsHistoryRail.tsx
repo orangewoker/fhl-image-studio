@@ -14,6 +14,7 @@ import { HistoryTile } from "./HistoryTile";
 import { WindowsHistoryPromptGroup } from "./WindowsHistoryPromptGroup";
 import { qualityLabel, sizeLabel } from "./historyLabels";
 import type { MenuItem } from "../common/ContextMenu";
+import { apiModeLabel, apiModeShortLabel } from "../../state/workspaceRuntime";
 
 export type WindowsHistoryBatchQueueSlot =
   | { type: "result"; index: number; item: HistoryItem }
@@ -160,7 +161,7 @@ export function WindowsHistoryRail({
             >
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name} · {profile.apiMode === "responses" ? "Responses" : "Images"}
+                  {profile.name} · {apiModeShortLabel(profile.apiMode)}
                 </option>
               ))}
               <option value="__manage__">管理配置...</option>
@@ -183,7 +184,7 @@ export function WindowsHistoryRail({
             </button>
           </div>
           <span className="windows-history-api-mode">
-            {apiMode === "responses" ? "Responses API" : "Images API"}
+            {apiModeLabel(apiMode)}
           </span>
         </section>
 

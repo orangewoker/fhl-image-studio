@@ -178,7 +178,9 @@ export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
     return {
       ...w,
       name,
+      promptPrefix: s.promptPrefix,
       prompt: s.prompt,
+      optimizationGuidance: s.optimizationGuidance,
       negativePrompt: s.negativePrompt,
       mode: s.mode,
       size: s.size,
@@ -186,6 +188,7 @@ export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
       outputFormat: s.outputFormat,
       seed: s.seed,
       batchCount: s.batchCount,
+      continuousGenerateTest: s.continuousGenerateTest,
       styleTag: s.styleTag,
       sources: s.sources,
       currentImageId: currentImageIdForWorkspaceSnapshot(s.currentImage, s.streamPreview, s.streamPreviews, w.currentImageId),
@@ -200,6 +203,8 @@ export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
       lastLogLine: s.lastLogLine,
       errorMessage: s.errorMessage,
       errorRawPath: s.errorRawPath,
+      apimartRecoveryTask: s.apimartRecoveryTask,
+      apimartRecoveryTasks: s.apimartRecoveryTasks,
       lastPayload: s.lastPayload,
     };
   });

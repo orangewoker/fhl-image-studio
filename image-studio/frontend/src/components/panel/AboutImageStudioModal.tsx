@@ -8,14 +8,14 @@ import { getHostCapabilities } from "../../platform/runtime/host";
 import { SettingsFact } from "./settingsPrimitives";
 
 export function AboutImageStudioModal({
-  mitURL,
+  licenseURL,
   open,
   onClose,
   onOpenFeedback,
   onOpenLicense,
   onOpenRepo,
 }: {
-  mitURL: string;
+  licenseURL: string;
   open: boolean;
   onClose: () => void;
   onOpenFeedback: () => void;
@@ -40,7 +40,7 @@ export function AboutImageStudioModal({
         </div>
         <div className={`${androidTarget.isAndroid ? "text-[17px]" : "text-lg"} font-bold`}>FHL Studio</div>
         <div className="text-[10px] text-zinc-500 mt-0.5">
-          v{appVersion} · <span onClick={onOpenLicense} className="cursor-pointer text-[var(--accent)] hover:opacity-80">{mitURL.includes("opensource.org") ? "MIT License" : "License"}</span>
+          v{appVersion} · <span onClick={onOpenLicense} className="cursor-pointer text-[var(--accent)] hover:opacity-80">{licenseURL.includes("agpl") ? "AGPLv3" : "License"}</span>
         </div>
       </div>
       {androidTarget.isAndroid ? (

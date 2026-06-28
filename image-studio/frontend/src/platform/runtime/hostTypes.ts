@@ -22,6 +22,10 @@ export type GenerateOptionsLike = {
   concurrencyLimit?: number;
   partialImages?: number;
   requestedJobId?: string;
+  requestRunId?: string;
+  batchVariationKey?: string;
+  batchIndex?: number;
+  batchCount?: number;
   sourceImages?: Array<{
     path?: string;
     name?: string;
@@ -34,6 +38,7 @@ export type GenerateOptionsLike = {
 export type PromptOptimizeOptionsLike = {
   apiKey: string;
   prompt: string;
+  optimizationGuidance?: string;
   mode: string;
   baseURL: string;
   textModelID: string;
@@ -43,15 +48,56 @@ export type PromptOptimizeOptionsLike = {
   imagePath: string;
 };
 
+export type PromptReverseOptionsLike = {
+  apiKey: string;
+  baseURL: string;
+  textModelID: string;
+  proxyMode?: string;
+  proxyURL?: string;
+  imagePaths: string[];
+  imagePath: string;
+  sourceImages?: Array<{
+    path?: string;
+    name?: string;
+    mimeType?: string | null;
+    imageB64?: string | null;
+    imageBlob?: Blob | null;
+  }>;
+};
+
+export type APIMartTaskQueryOptionsLike = {
+  apiKey: string;
+  baseURL: string;
+  taskId: string;
+  prompt?: string;
+  mode?: string;
+  size?: string;
+  quality?: string;
+  outputFormat?: string;
+  imageModelID?: string;
+  proxyMode?: string;
+  proxyURL?: string;
+};
+
+export type APIMartTaskQueryResultLike = {
+  taskId: string;
+  status: string;
+  imageB64?: string;
+  rawPath?: string | null;
+  errorMessage?: string;
+};
+
 export type ProbeUpstreamOptionsLike = {
   apiKey: string;
   baseURL: string;
+  apiMode?: string;
   proxyMode?: string;
   proxyURL?: string;
 };
 
 export type ProbeUpstreamResultLike = {
-  modelCount: number;
+  modelCount?: number;
+  ok?: boolean;
 };
 
 export type JobStartedLike = { jobId: string };

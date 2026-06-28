@@ -4,6 +4,7 @@ import {
   type AspectPreset,
   type ResolutionPreset,
 } from "../../../components/panel/sizeCapabilities";
+import type { APIMode, RequestPolicy } from "../../../types/domain";
 import { Modal } from "../../../components/common/Modal";
 import { vibrateForPlatform } from "../bridge";
 import {
@@ -22,11 +23,14 @@ export function AndroidPadParameterSection({
   availableResolutions,
   apiMode,
   batchCount,
+  concurrencyLimit,
+  continuousGenerateTest,
   handleAspectSelect,
   handleResolutionSelect,
   imageModelID,
   isMediumPad,
   needsUpstreamSetup,
+  onConcurrencyLimitChange,
   onOpenUpstream,
   quality,
   requestPolicy,
@@ -40,17 +44,20 @@ export function AndroidPadParameterSection({
   activeQualityLabel: string;
   activeStyleLabel: string;
   availableResolutions: ResolutionPreset[];
-  apiMode: "responses" | "images";
+  apiMode: APIMode;
   batchCount: number;
+  concurrencyLimit: number;
+  continuousGenerateTest: boolean;
   handleAspectSelect: (aspect: AspectPreset) => void;
   handleResolutionSelect: (resolution: ResolutionPreset) => void;
   imageModelID: string;
   isMediumPad: boolean;
   needsUpstreamSetup: boolean;
+  onConcurrencyLimitChange: (value: number) => void;
   onOpenUpstream: () => void;
   quality: string;
-  requestPolicy: "openai" | "compat";
-  setField: (key: "quality" | "batchCount" | "styleTag", value: any) => void;
+  requestPolicy: RequestPolicy;
+  setField: (key: "quality" | "batchCount" | "styleTag" | "continuousGenerateTest", value: any) => void;
   styleTag: string;
 }) {
   const [parametersOpen, setParametersOpen] = useState(false);
@@ -64,6 +71,8 @@ export function AndroidPadParameterSection({
     activeResolutionLabel,
     activeQualityLabel,
     batchCount,
+    concurrencyLimit,
+    continuousGenerateTest,
   });
 
   return (
@@ -111,11 +120,15 @@ export function AndroidPadParameterSection({
           availableResolutions={availableResolutions}
           apiMode={apiMode}
           batchCount={batchCount}
+          concurrencyLimit={concurrencyLimit}
+          continuousGenerateTest={continuousGenerateTest}
           handleAspectSelect={handleAspectSelect}
           handleResolutionSelect={handleResolutionSelect}
           imageModelID={imageModelID}
+          onConcurrencyLimitChange={onConcurrencyLimitChange}
           quality={quality}
           requestPolicy={requestPolicy}
+          onSave={() => setParametersOpen(false)}
           setField={setField}
           styleTag={styleTag}
         />

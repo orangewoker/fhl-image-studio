@@ -3,10 +3,15 @@ import test from "node:test";
 
 import {
   DEFAULT_PARTIAL_IMAGES,
+  buildBatchVariationInstruction,
+  buildPromptOptimizePayload,
   buildResponsesPayload,
+  buildPromptReversePayload,
   describeProblem,
   isRetryableRaw,
   normalizePartialImages,
+  promptWithBatchVariation,
+  repairSizeForOpenAI,
 } from "../../../shared/kernel/requestModel.js";
 
 test("Responses payload defaults partial_images to streaming preview count", () => {
@@ -28,6 +33,13 @@ test("normalizePartialImages clamps OpenAI range", () => {
   assert.equal(normalizePartialImages(-1), DEFAULT_PARTIAL_IMAGES);
   assert.equal(normalizePartialImages(2.8), 2);
   assert.equal(normalizePartialImages(9), 3);
+});
+
+test("repairSizeForOpenAI aligns GPT Image 2 pixel sizes", () => {
+  assert.deepEqual(repairSizeForOpenAI({ size: "1793x1025" }), { size: "1792x1024" });
+  assert.deepEqual(repairSizeForOpenAI({ size: "4096x4096" }), { size: "2880x2880" });
+  assert.equal(repairSizeForOpenAI({ size: "2160x3840" }), null);
+  assert.equal(repairSizeForOpenAI({ size: "auto" }), null);
 });
 
 test("Responses payload can allow safe prompt adaptation", () => {
@@ -53,6 +65,75 @@ test("Responses payload can allow safe prompt adaptation", () => {
   }, []);
   assert.ok(strictPayload.instructions.includes("VERBATIM"));
   assert.ok(adaptivePayload.instructions.includes("policy-compliant visual prompt"));
+});
+
+test("batch variation is added to Responses and plain prompt payloads", () => {
+  const variationInput = {
+    prompt: "cat",
+    size: "1024x1024",
+    quality: "low",
+    outputFormat: "png",
+    imageModelID: "gpt-image-2",
+    textModelID: "gpt-5.5",
+    requestPolicy: "openai",
+    noPromptRevision: true,
+    requestRunId: "run-abc",
+    batchVariationKey: "run-abc-1",
+    batchIndex: 0,
+    batchCount: 3,
+  };
+  const instruction = buildBatchVariationInstruction(variationInput);
+  assert.match(instruction, /independent generation task/);
+  assert.match(instruction, /distinct non-duplicate final image/);
+  assert.match(instruction, /run-abc-1/);
+
+  const responsesPayload = buildResponsesPayload(variationInput, []);
+  assert.equal(responsesPayload.input[0].content[0].text, "cat");
+  assert.match(responsesPayload.input[0].content[1].text, /Request isolation/);
+  assert.match(responsesPayload.input[0].content[1].text, /run-abc-1/);
+
+  const prompt = promptWithBatchVariation(variationInput);
+  assert.match(prompt, /^cat\n\nRequest isolation:/);
+  assert.match(prompt, /Do not render the run id/);
+});
+
+test("Reverse prompt payload uses input_text and input_image with Chinese-only instructions", () => {
+  const payload = buildPromptReversePayload({
+    textModelID: "gpt-5.5",
+  }, ["data:image/png;base64,AAAA"]);
+  assert.equal(payload.model, "gpt-5.5");
+  assert.equal(payload.reasoning.effort, "low");
+  assert.equal(payload.store, false);
+  assert.equal(payload.input[0].content[0].type, "input_text");
+  assert.equal(payload.input[0].content[1].type, "input_image");
+  assert.match(payload.instructions, /Simplified Chinese/);
+  assert.match(payload.input[0].content[0].text, /Simplified Chinese text-to-image prompt/);
+});
+
+test("Prompt optimize payload can apply required modification guidance", () => {
+  const basePayload = buildPromptOptimizePayload({
+    prompt: "a girl sitting under a tree",
+    textModelID: "gpt-5.5",
+    mode: "generate",
+  }, []);
+  assert.doesNotMatch(basePayload.instructions, /required modification direction before polishing/);
+  assert.doesNotMatch(basePayload.input[0].content[0].text, /Required modification direction/);
+
+  const guidedPayload = buildPromptOptimizePayload({
+    prompt: "a girl sitting under a tree",
+    optimizationGuidance: "去掉帽子，天空加一只老鹰",
+    textModelID: "gpt-5.5",
+    mode: "edit",
+  }, ["data:image/png;base64,AAAA"]);
+  assert.equal(guidedPayload.model, "gpt-5.5");
+  assert.equal(guidedPayload.reasoning.effort, "low");
+  assert.equal(guidedPayload.store, false);
+  assert.match(guidedPayload.instructions, /required modification direction before polishing/);
+  assert.match(guidedPayload.instructions, /required modification direction wins/);
+  assert.match(guidedPayload.instructions, /attached images as reference context/);
+  assert.match(guidedPayload.input[0].content[0].text, /Original prompt:\na girl sitting under a tree/);
+  assert.match(guidedPayload.input[0].content[0].text, /Required modification direction:\n去掉帽子，天空加一只老鹰/);
+  assert.equal(guidedPayload.input[0].content[1].type, "input_image");
 });
 
 test("describeProblem surfaces text-only upstream responses", () => {

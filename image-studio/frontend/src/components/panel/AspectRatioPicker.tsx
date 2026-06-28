@@ -1,6 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
-import { ASPECT_PRESETS, type AspectPreset } from "./sizeCapabilities";
+import { ASPECT_PRESETS, type AspectPreset, type AspectPresetOption } from "./sizeCapabilities";
 
 type AspectRatioPickerProps = {
   value: AspectPreset;
@@ -8,6 +8,7 @@ type AspectRatioPickerProps = {
   ariaLabel?: string;
   className?: string;
   compact?: boolean;
+  options?: AspectPresetOption[];
 };
 
 const PREVIEW_MAX_W = 58;
@@ -19,11 +20,12 @@ export function AspectRatioPicker({
   ariaLabel = "Aspect ratio",
   className = "",
   compact = false,
+  options = ASPECT_PRESETS,
 }: AspectRatioPickerProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const listId = useId();
-  const selected = ASPECT_PRESETS.find((item) => item.value === value) ?? ASPECT_PRESETS[0];
+  const selected = options.find((item) => item.value === value) ?? options[0] ?? ASPECT_PRESETS[0];
 
   useEffect(() => {
     if (!open) return;
@@ -64,7 +66,7 @@ export function AspectRatioPicker({
       </button>
       {open ? (
         <div id={listId} role="listbox" className="aspect-picker-menu">
-          {ASPECT_PRESETS.map((aspect) => {
+          {options.map((aspect) => {
             const active = aspect.value === value;
             return (
               <button
@@ -100,7 +102,7 @@ export function AspectRatioPicker({
 function AspectPreview({
   aspect,
 }: {
-  aspect: (typeof ASPECT_PRESETS)[number];
+  aspect: AspectPresetOption;
 }) {
   const { width, height } = previewSize(aspect);
   return (
@@ -116,7 +118,7 @@ function AspectPreview({
   );
 }
 
-function previewSize(aspect: (typeof ASPECT_PRESETS)[number]) {
+function previewSize(aspect: AspectPresetOption) {
   if (aspect.auto) return { width: 24, height: 24 };
   const scale = Math.min(PREVIEW_MAX_W / aspect.w, PREVIEW_MAX_H / aspect.h);
   return {

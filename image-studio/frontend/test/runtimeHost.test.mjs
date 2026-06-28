@@ -251,6 +251,72 @@ test("runtimeHost remote mode emits job lifecycle events", async () => {
   });
 });
 
+test("runtimeHost emits APIMart task submission before final result", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/v1/images/generations")) {
+        assert.equal(init?.method, "POST");
+        return new Response(JSON.stringify({
+          task_id: "task_host",
+          data: {
+            image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    runtimeHost.setKernelRuntimeMode("remote");
+
+    const seen = { tasks: [], result: [], error: [] };
+    const started = await runtimeHost.Generate({
+      apiKey: "sk-test",
+      mode: "generate",
+      prompt: "cat",
+      size: "864x1536",
+      quality: "medium",
+      outputFormat: "png",
+      imagePaths: [],
+      imagePath: "",
+      maskB64: "",
+      seed: 0,
+      negativePrompt: "",
+      baseURL: "https://api.apimart.ai",
+      textModelID: "",
+      imageModelID: "gpt-image-2",
+      apiMode: "apimart",
+      noPromptRevision: false,
+      concurrencyLimit: 0,
+    });
+
+    const offTask = runtimeHost.EventsOn(`apimart-task:${started.jobId}`, (payload) => {
+      seen.tasks.push(payload);
+    });
+    const offResult = runtimeHost.EventsOn(`result:${started.jobId}`, (payload) => {
+      seen.result.push(payload);
+    });
+    const offError = runtimeHost.EventsOn(`error:${started.jobId}`, (payload) => {
+      seen.error.push(payload);
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    offTask();
+    offResult();
+    offError();
+
+    assert.equal(seen.error.length, 0);
+    assert.equal(seen.tasks.length, 1);
+    assert.equal(seen.tasks[0].taskId, "task_host");
+    assert.equal(seen.tasks[0].status, "submitted");
+    assert.ok(seen.result.length >= 1);
+    assert.equal(seen.result[0].apimartTaskId, "task_host");
+  });
+});
+
 test("runtimeHost remote mode forwards partial image previews", async () => {
   await withPatchedGlobals(async () => {
     globalThis.fetch = async (url) => {
@@ -581,7 +647,7 @@ test("runtimeHost probes upstream through Wails backend", async () => {
     const runtimeHost = await loadRuntimeHost();
     await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-test");
     assert.deepEqual(globalThis.__probeCalls, [
-      { baseURL: "https://relay.example.com", apiKey: "sk-test", proxyMode: "system", proxyURL: "" },
+      { baseURL: "https://relay.example.com", apiKey: "sk-test", apiMode: "responses", proxyMode: "system", proxyURL: "" },
     ]);
   });
 });
@@ -611,9 +677,40 @@ test("runtimeHost probes upstream through Android backend", async () => {
     assert.deepEqual(globalThis.__probeCalls, [
       {
         method: "ProbeUpstream",
-        args: [{ baseURL: "https://relay.example.com", apiKey: "sk-android", proxyMode: "system", proxyURL: "" }],
+        args: [{ baseURL: "https://relay.example.com", apiKey: "sk-android", apiMode: "responses", proxyMode: "system", proxyURL: "" }],
       },
     ]);
+  });
+});
+
+test("runtimeHost reverse prompt uses remote kernel when desktop service is unavailable", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/v1/responses")) {
+        const body = JSON.parse(init.body);
+        assert.equal(body.input[0].content[0].type, "input_text");
+        assert.equal(body.input[0].content[1].type, "input_image");
+        return new Response('{"output_text":"反推后的主提示词"}', {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    runtimeHost.setKernelRuntimeMode("remote");
+    const text = await runtimeHost.ReversePrompt({
+      apiKey: "key",
+      baseURL: "https://upstream.example",
+      textModelID: "gpt-5.5",
+      imagePaths: [],
+      imagePath: "",
+      sourceImages: [
+        { imageB64: "iVBORw0KGgpzb3VyY2U=", name: "source.png", mimeType: "image/png" },
+      ],
+    });
+    assert.equal(text, "反推后的主提示词");
   });
 });
 

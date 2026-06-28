@@ -6,6 +6,7 @@ import {
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../types/domain";
 import type { StudioState } from "./studioStore.types";
 import {
+  defaultProfileValuesForAPIMode,
   duplicateProfile as cloneProfile,
   genProfileId,
   keyringUserFor,
@@ -38,14 +39,15 @@ export function createProfileActions(store: StateAdapter) {
     }) {
       const list = store.getState().profiles;
       const id = genProfileId();
+      const defaults = defaultProfileValuesForAPIMode(input.apiMode);
       const profile: UpstreamProfile = {
         id,
         name: input.name?.trim() || nextDefaultProfileName(list),
         apiMode: input.apiMode,
-        requestPolicy: input.requestPolicy ?? "openai",
-        baseURL: cleanBaseURL(input.baseURL ?? ""),
-        textModelID: (input.textModelID ?? "").trim(),
-        imageModelID: (input.imageModelID ?? "").trim(),
+        requestPolicy: input.requestPolicy ?? defaults.requestPolicy,
+        baseURL: cleanBaseURL(input.baseURL ?? defaults.baseURL),
+        textModelID: (input.textModelID ?? defaults.textModelID).trim(),
+        imageModelID: (input.imageModelID ?? defaults.imageModelID).trim(),
         concurrencyLimit: normalizeConcurrencyLimit(input.concurrencyLimit ?? 0),
         imagesNewAPICompat: input.apiMode === "images" && input.imagesNewAPICompat === true,
         createdAt: Date.now(),
@@ -71,14 +73,23 @@ export function createProfileActions(store: StateAdapter) {
       const index = list.findIndex((profile) => profile.id === id);
       if (index < 0) return false;
       const current = list[index];
+      const nextAPIMode = patch.apiMode ?? current.apiMode;
+      const defaults = defaultProfileValuesForAPIMode(nextAPIMode);
+      const shouldApplyModeDefaults = patch.apiMode !== undefined && patch.apiMode !== current.apiMode;
       const next: UpstreamProfile = {
         ...current,
         name: patch.name !== undefined ? patch.name.trim() : current.name,
-        apiMode: patch.apiMode ?? current.apiMode,
+        apiMode: nextAPIMode,
         requestPolicy: patch.requestPolicy ?? current.requestPolicy,
-        baseURL: patch.baseURL !== undefined ? cleanBaseURL(patch.baseURL) : current.baseURL,
-        textModelID: patch.textModelID !== undefined ? patch.textModelID.trim() : current.textModelID,
-        imageModelID: patch.imageModelID !== undefined ? patch.imageModelID.trim() : current.imageModelID,
+        baseURL: patch.baseURL !== undefined
+          ? cleanBaseURL(patch.baseURL)
+          : shouldApplyModeDefaults ? current.baseURL || defaults.baseURL : current.baseURL,
+        textModelID: patch.textModelID !== undefined
+          ? patch.textModelID.trim()
+          : shouldApplyModeDefaults ? current.textModelID || defaults.textModelID : current.textModelID,
+        imageModelID: patch.imageModelID !== undefined
+          ? patch.imageModelID.trim()
+          : shouldApplyModeDefaults ? current.imageModelID || defaults.imageModelID : current.imageModelID,
         concurrencyLimit: patch.concurrencyLimit !== undefined
           ? normalizeConcurrencyLimit(patch.concurrencyLimit) : current.concurrencyLimit,
         imagesNewAPICompat: (patch.apiMode ?? current.apiMode) === "images"
@@ -177,7 +188,7 @@ export function createProfileActions(store: StateAdapter) {
         baseURL: profile.baseURL,
         textModelID: profile.textModelID,
         imageModelID: profile.imageModelID,
-        imagesNewAPICompat: profile.imagesNewAPICompat ?? false,
+        imagesNewAPICompat: profile.apiMode === "images" && profile.imagesNewAPICompat === true,
         apiKey,
       });
     },

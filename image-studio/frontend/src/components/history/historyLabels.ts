@@ -51,3 +51,10 @@ export function sizeLabel(raw: string): string {
       return raw;
   }
 }
+
+export function pixelSizeLabel(item: { width?: number; height?: number } | null | undefined): string | null {
+  const width = Math.round(Number(item?.width));
+  const height = Math.round(Number(item?.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  return `${width}x${height}`;
+}

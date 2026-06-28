@@ -2,6 +2,7 @@ import { readRuntimePlatformState } from "..";
 import { invokeAndroidNative } from "./nativeInvoke";
 
 export type AndroidBridge = {
+  getDeviceDiagnosticsJson?: () => string;
   invoke?: (requestId: string, method: string, payloadJson: string) => void;
   saveImage?: (imageB64: string, suggestedName: string) => string | Promise<string>;
   saveImagePathAs?: (path: string, suggestedName: string) => string | Promise<string>;
@@ -73,6 +74,56 @@ export const androidTarget = {
 
 export function hasAndroidBridge(): boolean {
   return !!bridge();
+}
+
+function readNativeDeviceDiagnostics(): Record<string, unknown> {
+  const raw = bridge()?.getDeviceDiagnosticsJson?.();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return { nativeDiagnosticsError: "failed to parse native diagnostics" };
+  }
+}
+
+function readCssPixelNumber(name: string): number | null {
+  if (typeof window === "undefined") return null;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function getAndroidDeviceDiagnosticsText(): string {
+  const platform = readRuntimePlatformState();
+  const nativeDiagnostics = readNativeDeviceDiagnostics();
+  const visualViewport = typeof window !== "undefined" ? window.visualViewport : null;
+  const safeArea = (window as Window & {
+    __imageStudioAndroidSafeArea?: Record<string, number>;
+  }).__imageStudioAndroidSafeArea ?? {};
+  const data = {
+    app: "FHL Image Studio Android",
+    url: typeof window !== "undefined" ? window.location.href : "",
+    platform,
+    native: nativeDiagnostics,
+    viewport: {
+      innerWidth: typeof window !== "undefined" ? window.innerWidth : null,
+      innerHeight: typeof window !== "undefined" ? window.innerHeight : null,
+      visualWidth: visualViewport?.width ?? null,
+      visualHeight: visualViewport?.height ?? null,
+      devicePixelRatio: typeof window !== "undefined" ? window.devicePixelRatio : null,
+    },
+    css: {
+      safeTop: readCssPixelNumber("--android-safe-top-value"),
+      headerSafeTop: readCssPixelNumber("--android-header-safe-top-value"),
+      headerHeight: readCssPixelNumber("--android-header-height"),
+      bottomNavHeight: readCssPixelNumber("--android-bottom-nav-height"),
+      viewportHeight: readCssPixelNumber("--android-viewport-height"),
+      contentHeight: readCssPixelNumber("--android-content-height"),
+    },
+    safeArea,
+    currentView: document.querySelector(".studio")?.getAttribute("data-android-view") ?? "",
+  };
+  return JSON.stringify(data, null, 2);
 }
 
 export async function saveImageForPlatform(

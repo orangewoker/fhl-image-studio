@@ -86,8 +86,10 @@ export function mergeWorkspaceJobGroup(
 }
 
 export function runtimeStateFromJobGroups(groups: JobGroupSnapshot[]) {
-  const runningGroup = latestRunningGroup(groups);
-  if (!runningGroup) {
+  const runningGroups = groups
+    .filter((group) => runningJobIdsFromGroup(group).length > 0)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  if (runningGroups.length === 0) {
     const latest = latestGroup(groups);
     const latestTerminal = latest ? latestTerminalSlot(latest) : null;
     return {
@@ -106,12 +108,13 @@ export function runtimeStateFromJobGroups(groups: JobGroupSnapshot[]) {
     };
   }
 
-  const runningJobs = runningJobIdsFromGroup(runningGroup);
+  const runningJobs = runningGroups.flatMap((group) => runningJobIdsFromGroup(group));
+  const runningGroup = runningGroups[0];
   const progress = runtimeProgressFromGroup(runningGroup);
   return {
     runningJobs,
-    jobsTotal: runningGroup.batchCount,
-    jobsCompleted: jobsCompletedFromGroup(runningGroup),
+    jobsTotal: runningGroups.reduce((sum, group) => sum + group.batchCount, 0),
+    jobsCompleted: runningGroups.reduce((sum, group) => sum + jobsCompletedFromGroup(group), 0),
     progress,
     lastLogLine: progress?.stage || "",
     errorMessage: null,

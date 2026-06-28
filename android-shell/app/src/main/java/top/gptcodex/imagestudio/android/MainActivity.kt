@@ -28,6 +28,7 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewFeature
 import androidx.webkit.WebViewClientCompat
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
@@ -41,7 +42,7 @@ class MainActivity : AppCompatActivity() {
         if (::bridge.isInitialized) bridge.onOpenImageDialogResult(uri)
     }
     private val openImagePickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (::bridge.isInitialized) bridge.onOpenImageDialogResult(result.data?.data)
+        if (::bridge.isInitialized) bridge.onOpenImageDialogResult(pickedImageUri(result.data))
     }
     private val requestLegacyGalleryPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         launchGalleryImagePicker()
@@ -84,15 +85,47 @@ class MainActivity : AppCompatActivity() {
     private fun updateAndroidSafeAreaInsets(insets: WindowInsetsCompat) {
         val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
         val displayCutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-        androidSafeLeft = toCssPx(maxOf(systemBars.left, displayCutout.left))
-        androidSafeTop = toCssPx(maxOf(systemBars.top, displayCutout.top))
-        androidSafeRight = toCssPx(maxOf(systemBars.right, displayCutout.right))
-        androidSafeBottom = toCssPx(maxOf(systemBars.bottom, displayCutout.bottom))
+        val density = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        val rawLeft = maxOf(systemBars.left, displayCutout.left)
+        val rawTop = maxOf(systemBars.top, displayCutout.top)
+        val rawRight = maxOf(systemBars.right, displayCutout.right)
+        val rawBottom = maxOf(systemBars.bottom, displayCutout.bottom)
+        androidSafeLeft = toCssPx(rawLeft)
+        androidSafeTop = toCssPx(rawTop)
+        androidSafeRight = toCssPx(rawRight)
+        androidSafeBottom = toCssPx(rawBottom)
+        val diagnostics = JSONObject().apply {
+            put("safeLeftPx", rawLeft)
+            put("safeTopPx", rawTop)
+            put("safeRightPx", rawRight)
+            put("safeBottomPx", rawBottom)
+            put("safeLeftCss", androidSafeLeft)
+            put("safeTopCss", androidSafeTop)
+            put("safeRightCss", androidSafeRight)
+            put("safeBottomCss", androidSafeBottom)
+            put("density", density.toDouble())
+            put("widthPx", resources.displayMetrics.widthPixels)
+            put("heightPx", resources.displayMetrics.heightPixels)
+            put("systemBars", JSONObject().apply {
+                put("left", systemBars.left)
+                put("top", systemBars.top)
+                put("right", systemBars.right)
+                put("bottom", systemBars.bottom)
+            })
+            put("displayCutout", JSONObject().apply {
+                put("left", displayCutout.left)
+                put("top", displayCutout.top)
+                put("right", displayCutout.right)
+                put("bottom", displayCutout.bottom)
+            })
+        }
+        if (::bridge.isInitialized) bridge.updateSafeAreaDiagnostics(diagnostics)
         applyAndroidSafeAreaToPage()
     }
 
     private fun applyAndroidSafeAreaToPage() {
         if (!::webView.isInitialized) return
+        val headerSafeTop = androidSafeTop.coerceIn(24, 52)
         val script = """
             (() => {
               const root = document.documentElement;
@@ -105,7 +138,13 @@ class MainActivity : AppCompatActivity() {
               root.style.setProperty('--android-safe-top-value', '${androidSafeTop}px');
               root.style.setProperty('--android-safe-right-value', '${androidSafeRight}px');
               root.style.setProperty('--android-safe-bottom-value', '${androidSafeBottom}px');
-              root.style.setProperty('--android-header-safe-top-value', '${maxOf(androidSafeTop, 24)}px');
+              root.style.setProperty('--android-header-safe-top-value', '${headerSafeTop}px');
+              window.__imageStudioAndroidSafeArea = {
+                left: ${androidSafeLeft},
+                top: ${androidSafeTop},
+                right: ${androidSafeRight},
+                bottom: ${androidSafeBottom}
+              };
               window.dispatchEvent(new Event('resize'));
               window.dispatchEvent(new Event('orientationchange'));
               if (window.visualViewport) {
@@ -130,6 +169,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
         launchGalleryImagePicker()
+    }
+
+    private fun pickedImageUri(intent: Intent?): Uri? {
+        if (intent == null) return null
+        intent.data?.let { return it }
+        val clipData = intent.clipData ?: return null
+        for (index in 0 until clipData.itemCount) {
+            clipData.getItemAt(index)?.uri?.let { return it }
+        }
+        return null
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -257,10 +306,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
         webView.addJavascriptInterface(bridge, "AndroidImageStudio")
+        AndroidJobManager.resumePendingWork(applicationContext)
         val launchNonce = System.currentTimeMillis()
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html?target=${BuildConfig.TARGET_PLATFORM}&rev=$launchNonce")
         ViewCompat.requestApplyInsets(webView)
         requestNotificationPermissionIfNeeded()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AndroidJobManager.resumePendingWork(applicationContext)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

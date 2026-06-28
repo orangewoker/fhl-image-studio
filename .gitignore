@@ -3,6 +3,7 @@ release-assets/
 # OS / editor
 .DS_Store
 Thumbs.db
+.idea/
 *.log
 *.tmp
 
@@ -17,6 +18,11 @@ cli.env.local
 fhl-api.local.json
 browser-jobs.v1.json
 .local/
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
 
 # Frontend / Android build outputs
 node_modules/
@@ -25,6 +31,9 @@ build/
 .gradle/
 .gradle-wrapper/
 .tmp/
+.tmp-*/
+android-test-builds/
+compat-screenshots/
 local.properties
 
 # Release binaries are attached to GitHub Releases, not committed.
