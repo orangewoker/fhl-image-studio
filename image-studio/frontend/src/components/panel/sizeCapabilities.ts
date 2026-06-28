@@ -73,7 +73,7 @@ const RUNNINGHUB_TEXT_TO_IMAGE_ASPECT_PRESETS: AspectPresetOption[] = APIMART_AS
 ).includes(item.value));
 
 export const RESOLUTION_PRESETS: Array<{ value: ResolutionPreset; label: string }> = [
-  { value: "auto", label: "鑷姩" },
+  { value: "auto", label: "自动" },
   { value: "1k", label: "1K" },
   { value: "2k", label: "2K" },
   { value: "4k", label: "4K" },
@@ -568,5 +568,5 @@ export function sizeCapabilityHint(input: {
   if (supportsExplicitLargeSizes(input)) {
     return "";
   }
-  return "褰撳墠閾捐矾鍙繚璇佸熀纭€灏哄绋冲畾鍙敤銆?";
+  return "当前链路只保证基础尺寸稳定可用。";
 }

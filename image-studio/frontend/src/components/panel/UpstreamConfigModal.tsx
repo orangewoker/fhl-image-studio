@@ -288,16 +288,16 @@ export function UpstreamConfigModal({
                 note: "适合只想尽快接上常规生图接口。",
               },
               {
-                id: "apimart" as APIMode,
-                title: "APIMart 异步",
-                sub: "提交 task_id 后轮询结果,长任务更稳。",
-                note: "适合按示例模块接入 api.apimart.ai。",
-              },
-              {
                 id: "runninghub" as APIMode,
                 title: "RunningHub 桥接",
                 sub: "本地 8117 桥接，支持文生图和图生图。",
                 note: "适合复用 RunningHub PHP 模块与双模型配置。",
+              },
+              {
+                id: "apimart" as APIMode,
+                title: "APIMart 异步",
+                sub: "提交 task_id 后轮询结果,长任务更稳。",
+                note: "适合按示例模块接入 api.apimart.ai。",
               },
             ]).map((item) => (
               <button
@@ -387,23 +387,6 @@ export function UpstreamConfigModal({
               </button>
             </div>
           </div>
-          <div className={`mb-3 border border-sky-300/70 bg-sky-50 px-3 py-2 text-sky-950 shadow-sm dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-[13px] font-semibold tracking-[0]">APIMart 异步配置</div>
-                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Async API · gpt-image-2 · api.apimart.ai</div>
-                <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">不包含 API Key，请粘贴自己的 APIMart API Key。</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAPIMartChoiceOpen(true)}
-                className={`inline-flex h-9 shrink-0 items-center gap-1.5 border border-sky-500/60 bg-sky-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-sky-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
-              >
-                <Sparkles className="h-4 w-4" />
-                一键配置 APIMart
-              </button>
-            </div>
-          </div>
           <div className={`mb-3 border border-violet-300/70 bg-violet-50 px-3 py-2 text-violet-950 shadow-sm dark:border-violet-400/30 dark:bg-violet-400/10 dark:text-violet-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
@@ -421,6 +404,24 @@ export function UpstreamConfigModal({
               </button>
             </div>
           </div>
+          <div className={`mb-3 border border-sky-300/70 bg-sky-50 px-3 py-2 text-sky-950 shadow-sm dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[13px] font-semibold tracking-[0]">APIMart 异步配置</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Async API · gpt-image-2 · api.apimart.ai</div>
+                <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">不包含 API Key，请粘贴自己的 APIMart API Key。</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAPIMartChoiceOpen(true)}
+                className={`inline-flex h-9 shrink-0 items-center gap-1.5 border border-sky-500/60 bg-sky-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-sky-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              >
+                <Sparkles className="h-4 w-4" />
+                一键配置 APIMart
+              </button>
+            </div>
+          </div>
+
           {!draft ? (
             <div className="grid h-full place-items-center py-10 text-sm text-zinc-500">
               在左侧选一个配置,或新建一个。

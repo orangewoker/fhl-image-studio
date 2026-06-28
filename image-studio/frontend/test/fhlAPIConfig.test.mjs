@@ -23,17 +23,27 @@ test("FHL one-click config creates companion Responses and Images profiles", () 
   assert.match(fhlAPI, /export async function ensureFHLProfiles/);
   assert.match(fhlAPI, /export async function configureFHLProfilesWithSharedAPIKey/);
   assert.match(fhlAPI, /export async function verifyFHLImageCapability/);
-  assert.match(fhlAPI, /requestResponsesOnce/);
-  assert.match(fhlAPI, /requestImagesOnce/);
+  assert.match(fhlAPI, /probeCurrentUpstream/);
+  assert.doesNotMatch(fhlAPI, /requestResponsesOnce/);
+  assert.doesNotMatch(fhlAPI, /requestImagesOnce/);
   assert.match(fhlAPI, /FHL_VERIFY_TIMEOUT_MS = 45_000/);
   assert.match(fhlAPI, /apiMode: "responses"/);
   assert.match(fhlAPI, /apiMode: "images"/);
+  assert.match(fhlAPI, /连接验证成功（\/v1\/models）/);
   assert.match(fhlAPI, /imagesNewAPICompat: true/);
   assert.match(fhlAPI, /setActive: false/);
   assert.match(choiceModal, /FHL-\.\.\. Responses/);
-  assert.match(choiceModal, /两套配置与真实验权/);
+  assert.match(choiceModal, /两套配置与连接验证/);
   assert.match(quickModal, /configureFHLProfilesWithSharedAPIKey/);
   assert.match(quickModal, /verifyFHLImageCapability/);
+  assert.match(quickModal, /正在连接验证 Responses/);
+  assert.match(quickModal, /正在连接验证 Images/);
+  assert.ok(
+    quickModal.indexOf("正在连接验证 Responses") < quickModal.indexOf("正在连接验证 Images"),
+    "FHL quick config should validate Responses before Images",
+  );
+  assert.doesNotMatch(quickModal, /Promise\.all/);
+  assert.match(quickModal, /只探测 \/v1\/models，不生成测试图/);
   assert.match(quickModal, /Responses API/);
   assert.match(quickModal, /Images API/);
   assert.match(quickModal, /打开上游配置/);

@@ -41,7 +41,7 @@ export async function buildImagesRequestBody(
 
   if (mode === "edit") {
     if (sourceDataURLs.length === 0) {
-      throw new RemoteKernelError("鍥剧敓鍥炬ā寮忛渶瑕佽嚦灏戜竴寮犳簮鍥?璇峰厛娣诲姞鍙傝€冨浘)");
+      throw new RemoteKernelError("图生图模式需要至少一张源图，请先添加参考图");
     }
     const form = new FormData();
     for (let i = 0; i < sourceDataURLs.length; i++) {

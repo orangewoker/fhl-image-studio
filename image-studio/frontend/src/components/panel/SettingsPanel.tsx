@@ -198,6 +198,23 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
               </button>
             </div>
           </div>
+          <div className={`border border-violet-300/70 bg-violet-50 px-3 py-2 text-violet-950 shadow-sm dark:border-violet-400/30 dark:bg-violet-400/10 dark:text-violet-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-semibold tracking-[0]">RH 桥接配置</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">本地桥接 · 默认 `http://127.0.0.1:8117` · banana2 / image_g2</div>
+                <div className="mt-0.5 text-[11px] leading-5 font-semibold">一次写入桥接 Key，并自动创建两套桌面版 profile。</div>
+              </div>
+              <button
+                type="button"
+                onClick={configureRunningHubFromSettings}
+                className={`ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 border border-violet-500/60 bg-violet-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-violet-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              >
+                <Sparkles className="h-4 w-4" />
+                一键配置 RH
+              </button>
+            </div>
+          </div>
           <div className={`border border-sky-300/70 bg-sky-50 px-3 py-2 text-sky-950 shadow-sm dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
@@ -389,23 +406,6 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
             </button>
           </div>
 
-          <div className={`border border-violet-300/70 bg-violet-50 px-3 py-2 text-violet-950 shadow-sm dark:border-violet-400/30 dark:bg-violet-400/10 dark:text-violet-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-semibold tracking-[0]">RH 桥接配置</div>
-                <div className="mt-0.5 text-[11px] leading-5 opacity-85">本地桥接 · 默认 `http://127.0.0.1:8117` · banana2 / image_g2</div>
-                <div className="mt-0.5 text-[11px] leading-5 font-semibold">一次写入桥接 Key，并自动创建两套桌面版 profile。</div>
-              </div>
-              <button
-                type="button"
-                onClick={configureRunningHubFromSettings}
-                className={`ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 border border-violet-500/60 bg-violet-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-violet-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
-              >
-                <Sparkles className="h-4 w-4" />
-                一键配置 RH
-              </button>
-            </div>
-          </div>
 
           <button
             onClick={() => setAboutOpen(true)}

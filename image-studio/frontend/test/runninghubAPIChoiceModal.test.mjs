@@ -7,6 +7,17 @@ const choiceModalSource = await readFile(new URL("../src/components/panel/Runnin
 const settingsPanelSource = await readFile(new URL("../src/components/panel/SettingsPanel.tsx", import.meta.url), "utf8");
 const upstreamModalSource = await readFile(new URL("../src/components/panel/UpstreamConfigModal.tsx", import.meta.url), "utf8");
 
+function nthIndexOf(source, needle, count) {
+  let from = 0;
+  let index = -1;
+  for (let i = 0; i < count; i += 1) {
+    index = source.indexOf(needle, from);
+    if (index < 0) return -1;
+    from = index + needle.length;
+  }
+  return index;
+}
+
 test("RunningHub one-click choice opens and copies the full API page link", () => {
   assert.match(
     runningHubAPISource,
@@ -34,4 +45,23 @@ test("RunningHub one-click buttons open the choice modal before quick config", (
   assert.match(upstreamModalSource, /function handleConfigureRunningHub\(\) \{\s*setRunningHubChoiceOpen\(true\);/);
   assert.match(upstreamModalSource, /function handleUseExistingRunningHubAPI\(\) \{[\s\S]*setRunningHubQuickConfigOpen\(true\);/);
   assert.match(upstreamModalSource, /<RunningHubAPIChoiceModal[\s\S]*onUseExistingAPI=\{handleUseExistingRunningHubAPI\}/);
+});
+
+test("RunningHub quick config stays above APIMart in desktop config surfaces", () => {
+  const settingsRh = settingsPanelSource.indexOf("border border-violet-300/70");
+  const settingsApimart = settingsPanelSource.indexOf("border border-sky-300/70");
+  assert.ok(settingsRh >= 0, "Settings panel should render RH quick config");
+  assert.ok(settingsApimart >= 0, "Settings panel should render APIMart quick config");
+  assert.ok(settingsRh < settingsApimart, "Settings panel should keep RH above APIMart");
+
+  const firstUpstreamApimart = upstreamModalSource.indexOf("border border-sky-300/70");
+  const secondUpstreamRh = nthIndexOf(upstreamModalSource, "border border-violet-300/70", 2);
+  assert.ok(secondUpstreamRh >= 0, "Upstream modal should render RH quick config in the editor panel");
+  assert.ok(firstUpstreamApimart >= 0, "Upstream modal should render APIMart quick config");
+  assert.ok(secondUpstreamRh < firstUpstreamApimart, "Upstream modal should keep RH above APIMart");
+
+  assert.ok(
+    upstreamModalSource.indexOf('id: "runninghub" as APIMode') < upstreamModalSource.indexOf('id: "apimart" as APIMode'),
+    "New API type cards should offer RH before APIMart",
+  );
 });

@@ -65,7 +65,7 @@ test("failure modal keeps a path open for runninghub result recovery", () => {
 });
 
 test("runninghub result recovery preserves the open batch grid preview", () => {
-  const recoveryBlock = storeSource.match(/recoverRunningHubResult: async \(taskId\) => \{[\s\S]+?\n  \},\n\n  applyHistoryParams:/)?.[0] ?? "";
+  const recoveryBlock = storeSource.match(/recoverRunningHubResult: async \(taskId\) => \{[\s\S]+?\r?\n  \},\r?\n\r?\n  applyHistoryParams:/)?.[0] ?? "";
   assert.match(recoveryBlock, /const keepGridOpen = \(workspace\?\.resultGridOpen \?\? false\) \|\| \(\(workspace\?\.batchTaskIds\?\.length \?\? 0\) > 1\);/);
   assert.match(recoveryBlock, /const previousCurrentImageId = current\.activeWorkspaceId === task\.workspaceId/);
   assert.match(recoveryBlock, /currentImageId: keepGridOpen \? previousCurrentImageId : historyItem\.id/);

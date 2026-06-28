@@ -767,7 +767,7 @@ export function CanvasStage() {
     onToggleCompare: (item) => setCompareB(compareB?.id === item.id ? null : item),
     onDelete: (item) => {
       if (item.previewOnly) return;
-      if (window.confirm(`纭畾鍒犻櫎姝ゅ巻鍙查」锛焅n\n${item.prompt?.slice(0, 60) || "(鏃?prompt)"}`)) {
+      if (window.confirm(`确定删除此历史项？\n\n${item.prompt?.slice(0, 60) || "(无 prompt)"}`)) {
         void deleteHistoryItem(item.id);
       }
     },
@@ -776,9 +776,7 @@ export function CanvasStage() {
 
   // When the displayed image identity changes, clear the user's manual view
   // and per-image canvas state. This guarantees the new image starts at fit.
-  // canvasViewResetTick 瑙﹀彂鍚屾牱鐨勯噸缃?鈥斺€?鐢ㄤ簬 鏃嬭浆 / 缈昏浆 / 瑁佸壀 杩欎簺銆屽氨鍦扮紪杈戙€?
-  // 鎿嶄綔:currentImage.id 娌″彉(灏辨槸鍘熸潵閭ｅ紶),浣嗗簳鍥惧昂瀵?/ 鍧愭爣宸插彉,娈嬬暀鐨?pan/zoom
-  // 涓庤挋鐗堝潗鏍囩郴閮藉け鏁堜簡銆?
+  // canvasViewResetTick covers in-place edits such as rotate, flip, and crop.
   useEffect(() => {
     setUserView(null);
     setMaskDataURL(null);
@@ -846,7 +844,7 @@ export function CanvasStage() {
         setDrawingTick((n) => n + 1);
       } else if (annotationKind === "text") {
         // Text annotations are created via a prompt on mouse down (no drag).
-        const text = window.prompt("鏂囧瓧鏍囨敞鍐呭:");
+        const text = window.prompt("文字标注内容:");
         if (text && text.trim()) {
           addAnnotation({
             id: crypto.randomUUID(),
@@ -1183,9 +1181,7 @@ export function CanvasStage() {
             ))}
             {drawingRef.current.current && (
               <Line
-                // 鈽?蹇呴』 .slice() 鍑烘柊鏁扮粍寮曠敤 鈥斺€?onMouseMove 鍘熷湴 push 涓嶄細鏀瑰彉
-                // points 鏁扮粍寮曠敤,react-konva 璧?prop 娴呮瘮杈冧細璺宠繃鏇存柊,瀵艰嚧
-                // 鎷栨嫿鏈熼棿鍙敾璧风偣 / 缁堢偣,鏉炬墜鎵嶄竴娆℃€цˉ鍏ㄦ墍鏈変腑闂寸偣銆?
+                // Fresh array reference forces react-konva to repaint while drawing.
                 points={drawingRef.current.current.points.slice()}
                 stroke={drawingRef.current.current.erase ? "rgba(226,85,85,0.55)" : "rgba(77,124,255,0.55)"}
                 strokeWidth={drawingRef.current.current.size}
@@ -1233,7 +1229,7 @@ export function CanvasStage() {
             )}
             {freehandRef.current && freehandRef.current.length >= 4 && (
               <Line
-                // 鍚屼笂:.slice() 寮哄埗姣忓抚鏂板紩鐢?缁曡繃 react-konva 鐨勬祬姣旇緝璺虫洿鏂般€?
+                // Fresh array reference forces react-konva to repaint while drawing.
                 points={freehandRef.current.slice()}
                 stroke={annotationColor}
                 strokeWidth={3 / view.scale}

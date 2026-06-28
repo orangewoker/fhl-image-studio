@@ -110,14 +110,14 @@ export function FHLQuickConfigModal({
         throw new Error("FHL 配置创建成功，但读取配置结果失败");
       }
 
-      setStageText("正在验证 Responses...");
+      setStageText("正在连接验证 Responses...");
       const responses = await verifyFHLImageCapability(responsesProfile, cleanedAPIKey, {
         proxyMode: currentStore.proxyMode,
         proxyURL: currentStore.proxyURL,
         signal: controller.signal,
       });
 
-      setStageText("正在验证 Images...");
+      setStageText("正在连接验证 Images...");
       const images = await verifyFHLImageCapability(imagesProfile, cleanedAPIKey, {
         proxyMode: currentStore.proxyMode,
         proxyURL: currentStore.proxyURL,
@@ -136,9 +136,9 @@ export function FHLQuickConfigModal({
       setSummary(nextSummary);
       setStageText("");
       if (responses.ok && images.ok) {
-        pushToast("FHL Responses / Images 两套配置已完成真实验权。", "success", 4200);
+        pushToast("FHL Responses / Images 两套配置已完成连接验证。", "success", 4200);
       } else {
-        pushToast("FHL 双配置已写入，请查看两套验权结果。", "warn", 5200);
+        pushToast("FHL 双配置已写入，请查看两套连接验证结果。", "warn", 5200);
       }
     } catch (error: any) {
       if (controller.signal.aborted) return;
@@ -184,7 +184,7 @@ export function FHLQuickConfigModal({
         <div className={`border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
           <div className="text-[13px] font-semibold tracking-[0]">粘贴 1 个 FHL API Key</div>
           <div className="mt-1 text-[12px] leading-5">
-            我们会自动把同一个 Key 写入 `Responses` 和 `Images` 两套 FHL 配置，并依次做真实生图权限验证。
+            我们会自动把同一个 Key 写入 `Responses` 和 `Images` 两套 FHL 配置，并依次做连接验证，不生成测试图。
           </div>
         </div>
 
@@ -235,7 +235,7 @@ export function FHLQuickConfigModal({
               <LoaderCircle className="h-4 w-4 animate-spin" />
               <span>{stageText || "正在处理..."}</span>
             </div>
-            <div className="mt-1 text-[11px] leading-5 opacity-90">两套验证会顺序执行，不写入历史，也不会保留测试结果图。</div>
+            <div className="mt-1 text-[11px] leading-5 opacity-90">两套连接验证会顺序执行，只探测 /v1/models，不生成测试图。</div>
           </div>
         ) : null}
 

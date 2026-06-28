@@ -73,8 +73,8 @@ export function UpstreamProfileEditor({
           {([
             { id: "responses" as APIMode, title: "Responses API", sub: "SSE 保活，长任务更稳" },
             { id: "images" as APIMode, title: "Images API", sub: "标准 generations / edits" },
-            { id: "apimart" as APIMode, title: "APIMart", sub: "异步提交 + 轮询任务" },
             { id: "runninghub" as APIMode, title: "RunningHub", sub: "桥接 8117，支持文生图/图生图" },
+            { id: "apimart" as APIMode, title: "APIMart", sub: "异步提交 + 轮询任务" },
           ]).map((option) => {
             const active = draft.apiMode === option.id;
             return (

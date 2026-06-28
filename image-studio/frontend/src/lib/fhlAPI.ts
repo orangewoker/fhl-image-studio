@@ -1,8 +1,5 @@
 import type { StudioState } from "../state/studioStore.types";
-import { GetStoredAPIKey } from "../platform/runtime/host";
-import { requestImagesOnce } from "../platform/runtime/remote-kernel/images";
-import { requestResponsesOnce } from "../platform/runtime/remote-kernel/responses";
-import { RemoteKernelError, type RemoteJobRequest } from "../platform/runtime/remote-kernel/types";
+import { GetStoredAPIKey, probeCurrentUpstream } from "../platform/runtime/host";
 import type { UpstreamProfile } from "../types/domain";
 import { syncCLIConfigQuietly } from "./cliConfigSync";
 import {
@@ -44,10 +41,6 @@ type FHLVerifyOptions = {
   signal?: AbortSignal;
 };
 
-const FHL_VERIFY_PROMPT = "Minimal test image of a plain white ceramic mug on a neutral background.";
-const FHL_VERIFY_SIZE = "1024x1024";
-const FHL_VERIFY_QUALITY = "low";
-const FHL_VERIFY_OUTPUT_FORMAT = "png";
 const FHL_VERIFY_TIMEOUT_MS = 45_000;
 
 function normalizeBaseURL(value: string): string {
@@ -217,39 +210,6 @@ export async function configureFHLProfilesWithSharedAPIKey(
   return pair;
 }
 
-function buildFHLVerificationRequest(
-  profile: UpstreamProfile,
-  apiKey: string,
-  options: FHLVerifyOptions,
-): RemoteJobRequest {
-  return {
-    payload: {
-      apiKey,
-      mode: "generate",
-      prompt: FHL_VERIFY_PROMPT,
-      size: FHL_VERIFY_SIZE,
-      quality: FHL_VERIFY_QUALITY,
-      outputFormat: FHL_VERIFY_OUTPUT_FORMAT,
-      imagePaths: [],
-      imagePath: "",
-      maskB64: "",
-      seed: 0,
-      negativePrompt: "",
-      baseURL: profile.baseURL || FHL_BASE_URL,
-      textModelID: profile.textModelID || FHL_TEXT_MODEL_ID,
-      imageModelID: profile.imageModelID || FHL_IMAGE_MODEL_ID,
-      proxyMode: options.proxyMode || "system",
-      proxyURL: options.proxyURL || "",
-      apiMode: profile.apiMode,
-      requestPolicy: profile.requestPolicy || "openai",
-      imagesNewAPICompat: profile.apiMode === "images" ? (profile.imagesNewAPICompat ?? true) : false,
-      noPromptRevision: true,
-      concurrencyLimit: 1,
-      partialImages: 0,
-    },
-  };
-}
-
 function createVerificationSignal(
   options: FHLVerifyOptions,
 ): {
@@ -289,15 +249,19 @@ export async function verifyFHLImageCapability(
   options: FHLVerifyOptions = {},
 ): Promise<FHLQuickVerifyResult> {
   const verify = createVerificationSignal(options);
-  const request = buildFHLVerificationRequest(profile, apiKey, options);
   try {
-    const result = profile.apiMode === "images"
-      ? await requestImagesOnce(request, 1, { signal: verify.signal })
-      : await requestResponsesOnce(request, 1, { signal: verify.signal });
+    await probeCurrentUpstream(
+      profile.baseURL || FHL_BASE_URL,
+      apiKey,
+      options.proxyMode || "system",
+      options.proxyURL || "",
+      profile.apiMode === "images" ? "images" : "responses",
+      verify.signal,
+    );
     return {
       ok: true,
-      detail: "成功",
-      rawPath: result.rawPath,
+      detail: "连接验证成功（/v1/models）",
+      rawPath: null,
       profileId: profile.id,
       profileName: profile.name,
       apiMode: profile.apiMode === "images" ? "images" : "responses",
@@ -306,7 +270,7 @@ export async function verifyFHLImageCapability(
     return {
       ok: false,
       detail: formatVerificationError(error, verify.didTimeout()),
-      rawPath: error instanceof RemoteKernelError ? error.rawPath : null,
+      rawPath: null,
       profileId: profile.id,
       profileName: profile.name,
       apiMode: profile.apiMode === "images" ? "images" : "responses",

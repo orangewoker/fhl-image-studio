@@ -55,6 +55,7 @@ function cliConfigFromProfileState(
     partialImages: 1,
   };
 }
+
 export function createProfileActions(store: StateAdapter) {
   return {
     async createProfile(input: {
@@ -94,7 +95,7 @@ export function createProfileActions(store: StateAdapter) {
       if (inputAPIKey) {
         try { await SetStoredAPIKey(keyringUserFor(id), inputAPIKey); }
         catch (e: any) {
-          if (typeof console !== "undefined") console.error("鍐?keyring 澶辫触", e);
+          if (typeof console !== "undefined") console.error("写入 keyring 失败", e);
         }
       }
       const next = [...list, profile];
@@ -140,7 +141,7 @@ export function createProfileActions(store: StateAdapter) {
       if (patch.apiKey !== undefined) {
         try { await SetStoredAPIKey(keyringUserFor(id), normalizeAPIKeyInput(patch.apiKey)); }
         catch (e: any) {
-          if (typeof console !== "undefined") console.error("鍐?keyring 澶辫触", e);
+          if (typeof console !== "undefined") console.error("写入 keyring 失败", e);
         }
       }
       if (id === store.getState().activeProfileId) {
@@ -167,7 +168,7 @@ export function createProfileActions(store: StateAdapter) {
       persistProfiles(nextList);
       try { await DeleteStoredAPIKey(keyringUserFor(id)); }
       catch (e: any) {
-        if (typeof console !== "undefined") console.warn("鍒?keyring 椤瑰け璐?缁х画)", e);
+        if (typeof console !== "undefined") console.warn("删除 keyring 项失败，继续", e);
       }
       store.setState({ profiles: nextList });
       if (store.getState().activeProfileId === id) {
@@ -237,5 +238,3 @@ export function createProfileActions(store: StateAdapter) {
     },
   };
 }
-
-

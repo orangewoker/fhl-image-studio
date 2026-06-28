@@ -35,21 +35,21 @@ function FluentMenuIcon({ item }: { item: MenuItem }) {
   const iconClass = "h-3.5 w-3.5";
   const label = item.label.toLowerCase();
 
-  if (item.danger || matchesAny(label, ["鍒犻櫎", "删除", "娓呯┖", "清空"])) return <Trash2 className={iconClass} />;
-  if (matchesAny(label, ["璇︽儏", "详情"])) return <Info className={iconClass} />;
-  if (matchesAny(label, ["澶嶅埗 prompt", "澶嶅埗鍥惧儚", "绮樿创鍥惧儚", "复制 prompt", "复制图像", "粘贴图像"])) {
+  if (item.danger || matchesAny(label, ["删除", "清空"])) return <Trash2 className={iconClass} />;
+  if (matchesAny(label, ["详情"])) return <Info className={iconClass} />;
+  if (matchesAny(label, ["复制 prompt", "复制图像", "粘贴图像", "复制"])) {
     return <Clipboard className={iconClass} />;
   }
-  if (matchesAny(label, ["璺緞", "路径"])) return <FolderOpen className={iconClass} />;
+  if (matchesAny(label, ["路径", "复制本地路径"])) return <FolderOpen className={iconClass} />;
   if (label.includes("raw")) return <FileText className={iconClass} />;
-  if (matchesAny(label, ["鍙傛暟(涓嶇敓鎴?", "搴旂敤鍙傛暟", "应用参数"])) return <SlidersHorizontal className={iconClass} />;
-  if (matchesAny(label, ["閲嶆柊鐢熸垚", "重新生成"])) return <RotateCcw className={iconClass} />;
-  if (matchesAny(label, ["婧愬浘", "源图"])) return <ImagePlus className={iconClass} />;
-  if (matchesAny(label, ["鍏ㄦ櫙", "全景"])) return <Compass className={iconClass} />;
-  if (matchesAny(label, ["瀵规瘮", "对比"])) return <Split className={iconClass} />;
-  if (matchesAny(label, ["鍙﹀瓨涓?", "淇濆瓨鍘熷浘", "保存原图"])) return <Save className={iconClass} />;
-  if (matchesAny(label, ["鍒嗕韩", "分享"])) return <Share2 className={iconClass} />;
-  if (matchesAny(label, ["鍏抽棴", "鍙栨秷", "关闭", "取消"])) return <X className={iconClass} />;
+  if (matchesAny(label, ["应用参数", "参数"])) return <SlidersHorizontal className={iconClass} />;
+  if (matchesAny(label, ["重新生成", "以此参数重新生成"])) return <RotateCcw className={iconClass} />;
+  if (matchesAny(label, ["设为源图", "源图"])) return <ImagePlus className={iconClass} />;
+  if (matchesAny(label, ["360", "全景"])) return <Compass className={iconClass} />;
+  if (matchesAny(label, ["对比"])) return <Split className={iconClass} />;
+  if (matchesAny(label, ["保存原图", "另存", "保存"])) return <Save className={iconClass} />;
+  if (matchesAny(label, ["分享"])) return <Share2 className={iconClass} />;
+  if (matchesAny(label, ["关闭", "取消"])) return <X className={iconClass} />;
 
   if (typeof item.icon !== "string") return <>{item.icon}</>;
   return <Info className={iconClass} />;
