@@ -43,4 +43,6 @@ jobs:
           path: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.2-Windows-Portable.zip
       - uses: softprops/action-gh-release@v2
         with:
+          name: Desktop V2.0.2
+          body_path: RELEASE_NOTES_DESKTOP_V2.0.2.md
           files: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.2-Windows-Portable.zip
