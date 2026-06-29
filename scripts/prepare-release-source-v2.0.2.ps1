@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$PackageName = "FHL-Image-Studio-Desktop-V2.0.2-Source"
+$PackageName = "FHL-Image-Studio-Desktop-V2.0.2.1-Source"
 
 function Resolve-SourceRoot {
   param([string]$Value)
@@ -82,9 +82,11 @@ foreach ($file in @(
   "README.md",
   "RELEASE_NOTES_DESKTOP_V2.0.1.md",
   "RELEASE_NOTES_DESKTOP_V2.0.2.md",
+  "RELEASE_NOTES_DESKTOP_V2.0.2.1.md",
   "SKILL.md",
   "start-ui.cmd",
   "一键启动FHL Studio V2.0.2.cmd",
+  "一键启动FHL Studio V2.0.2.1.cmd",
   "安装CodexSkill.cmd"
 )) {
   Copy-IfExists (Join-Path $Root $file) (Join-Path $StageRoot $file)

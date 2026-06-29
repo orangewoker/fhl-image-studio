@@ -26,7 +26,7 @@ test("root skill chain assets are present", async () => {
 
   assert.match(agents, /cli\.env\.local/);
   assert.match(agents, /APIMart/);
-  assert.match(skill, /name:\s*fhl-image-studio/);
+  assert.match(skill, /name:\s*fhl-image-studio-v2-0-2-1/);
   assert.match(skill, /APIMart/);
   assert.match(skill, /config\\cli\.env\.local/);
   assert.match(skill, /default CLI execution stays sequential/);

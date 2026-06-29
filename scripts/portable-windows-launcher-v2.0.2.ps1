@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$exe = Join-Path $root "FHL Studio 方汤圆版 V2.0.2.exe"
+$exe = Join-Path $root "FHL Studio 方汤圆版 V2.0.2.1.exe"
 if (-not (Test-Path -LiteralPath $exe)) {
   $exe = Get-ChildItem -LiteralPath $root -Filter "FHL Studio *.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
 }
@@ -30,7 +30,7 @@ if (-not $exe -or -not (Test-Path -LiteralPath $exe)) {
   Add-Content -LiteralPath $startLog -Value "MISSING_EXE" -Encoding UTF8
   Write-Host ""
   Write-Host "[FHL Studio] Missing desktop executable beside this launcher."
-  Write-Host "Expected: FHL Studio 方汤圆版 V2.0.2.exe"
+  Write-Host "Expected: FHL Studio 方汤圆版 V2.0.2.1.exe"
   Write-Host "Folder:   $root"
   exit 1
 }

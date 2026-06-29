@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v2.0.2"
+      - "v2.0.2.1"
 
 permissions:
   contents: write
@@ -34,15 +34,13 @@ jobs:
       - name: Check portable package safety
         shell: pwsh
         run: |
-          $root = Join-Path $env:RUNNER_TEMP "release-assets\FHL-Image-Studio-Desktop-V2.0.2-Windows-Portable"
-          $zip = Join-Path $env:RUNNER_TEMP "release-assets\FHL-Image-Studio-Desktop-V2.0.2-Windows-Portable.zip"
+          $root = Join-Path $env:RUNNER_TEMP "release-assets\FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable"
+          $zip = Join-Path $env:RUNNER_TEMP "release-assets\FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable.zip"
           .\scripts\check-release-safety.ps1 -ReleaseRoot $root -ZipPath $zip
       - uses: actions/upload-artifact@v4
         with:
-          name: FHL-Image-Studio-Desktop-V2.0.2-Windows-Portable
-          path: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.2-Windows-Portable.zip
+          name: FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable
+          path: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable.zip
       - uses: softprops/action-gh-release@v2
         with:
-          name: Desktop V2.0.2
-          body_path: RELEASE_NOTES_DESKTOP_V2.0.2.md
-          files: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.2-Windows-Portable.zip
+          files: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable.zip

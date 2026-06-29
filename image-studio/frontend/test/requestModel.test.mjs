@@ -25,6 +25,54 @@ test("Responses payload defaults partial_images to streaming preview count", () 
   assert.equal(payload.tools[0].partial_images, DEFAULT_PARTIAL_IMAGES);
 });
 
+test("FHL exact-size gpt-image-2 Responses disables partial previews for stable final ratio", () => {
+  const payload = buildResponsesPayload({
+    prompt: "portrait ratio test",
+    size: "864x1536",
+    quality: "medium",
+    outputFormat: "png",
+    imageModelID: "gpt-image-2",
+    textModelID: "gpt-5.5",
+    requestPolicy: "openai",
+    apiMode: "responses",
+    baseURL: "https://www.fhl.mom",
+  }, []);
+  assert.equal(payload.tools[0].partial_images, 0);
+  assert.match(payload.instructions, /9:16/);
+  assert.match(payload.instructions, /MUST use/);
+  assert.match(payload.input[0].content[0].text, /竖版/);
+  assert.match(payload.input[0].content[0].text, /9:16/);
+  assert.match(payload.input[0].content[0].text, /竖版/);
+});
+
+test("FHL exact-size gpt-image-2 Responses adds Chinese aspect suffix by orientation", () => {
+  const cases = [
+    { size: "1024x1024", aspect: "1:1", copy: /正方形/ },
+    { size: "1536x864", aspect: "16:9", copy: /横版/ },
+    { size: "864x1536", aspect: "9:16", copy: /竖版/ },
+    { size: "2048x1024", aspect: "2:1", copy: /横版/ },
+    { size: "1024x2048", aspect: "1:2", copy: /竖版/ },
+  ];
+  for (const item of cases) {
+    const payload = buildResponsesPayload({
+      prompt: "ratio matrix test",
+      size: item.size,
+      quality: "medium",
+      outputFormat: "png",
+      imageModelID: "gpt-image-2",
+      textModelID: "gpt-5.5",
+      requestPolicy: "openai",
+      apiMode: "responses",
+      baseURL: "https://www.fhl.mom",
+    }, []);
+    const text = payload.input[0].content[0].text;
+    assert.equal(payload.tools[0].partial_images, 0);
+    assert.match(payload.instructions, new RegExp(item.aspect));
+    assert.match(text, new RegExp(item.aspect));
+    assert.match(text, item.copy);
+  }
+});
+
 test("normalizePartialImages clamps OpenAI range", () => {
   assert.equal(normalizePartialImages(undefined), DEFAULT_PARTIAL_IMAGES);
   assert.equal(normalizePartialImages(0), 0);

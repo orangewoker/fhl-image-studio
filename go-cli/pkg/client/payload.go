@@ -49,8 +49,12 @@ func BuildPayload(opts Options) ([]byte, error) {
 	}
 	includeExtended := shouldSendExtendedImageParameters(opts.RequestPolicy)
 
+	promptText := opts.Prompt
+	if aspectPrompt := fhlExactResponsesAspectPromptSuffix(opts, size); aspectPrompt != "" {
+		promptText = strings.TrimSpace(promptText) + "\n\n" + aspectPrompt
+	}
 	content := []map[string]any{
-		{"type": "input_text", "text": opts.Prompt},
+		{"type": "input_text", "text": promptText},
 	}
 	action := "generate"
 	imageURLs := opts.EffectiveImageDataURLs()
@@ -69,11 +73,11 @@ func BuildPayload(opts Options) ([]byte, error) {
 		imgModel = ImageModel
 	}
 	tool := map[string]any{
-		"type":          "image_generation",
-		"model":         imgModel,
-		"action":        action,
-		"size":          size,
-		"quality":       quality,
+		"type":           "image_generation",
+		"model":          imgModel,
+		"action":         action,
+		"size":           size,
+		"quality":        quality,
 		"output_format":  outputFormat,
 		"moderation":     "low",
 		"partial_images": 0,
@@ -89,26 +93,29 @@ func BuildPayload(opts Options) ([]byte, error) {
 	if includeExtended && strings.TrimSpace(opts.NegativePrompt) != "" {
 		tool["negative_prompt"] = opts.NegativePrompt
 	}
-	tool["partial_images"] = normalizePartialImages(opts.PartialImages)
+	tool["partial_images"] = effectiveResponsesPartialImages(opts)
 
 	textModel := opts.TextModelID
 	if textModel == "" {
 		textModel = TextModel
 	}
 	payload := map[string]any{
-		"model": textModel,
-		"input": []map[string]any{{"role": "user", "content": content}},
-		"tools": []map[string]any{tool},
+		"model":       textModel,
+		"input":       []map[string]any{{"role": "user", "content": content}},
+		"tools":       []map[string]any{tool},
 		"tool_choice": map[string]any{"type": "image_generation"},
-		"reasoning": map[string]any{"effort": "xhigh"},
-		"store": false,
-		"stream": true,
+		"reasoning":   map[string]any{"effort": "xhigh"},
+		"store":       false,
+		"stream":      true,
 	}
+	instructions := noPromptRevisionInstructions
 	if opts.AllowPromptAdaptation {
-		payload["instructions"] = safeImageToolInstructions
-	} else {
-		payload["instructions"] = noPromptRevisionInstructions
+		instructions = safeImageToolInstructions
 	}
+	if aspectInstruction := fhlExactResponsesAspectInstruction(opts, size); aspectInstruction != "" {
+		instructions += " " + aspectInstruction
+	}
+	payload["instructions"] = instructions
 
 	var buf strings.Builder
 	enc := json.NewEncoder(&buf)
@@ -119,6 +126,7 @@ func BuildPayload(opts Options) ([]byte, error) {
 	out := strings.TrimRight(buf.String(), "\n")
 	return []byte(out), nil
 }
+
 const (
 	openAIImageMinPixels = 655_360
 	openAIImageMaxPixels = 8_294_400
@@ -304,6 +312,81 @@ func normalizePartialImages(value int) int {
 		return 3
 	}
 	return value
+}
+
+func effectiveResponsesPartialImages(opts Options) int {
+	if shouldDisablePartialImagesForFHLExactResponses(opts) {
+		return 0
+	}
+	return normalizePartialImages(opts.PartialImages)
+}
+
+func shouldDisablePartialImagesForFHLExactResponses(opts Options) bool {
+	if opts.APIMode != "" && opts.APIMode != APIModeResponses {
+		return false
+	}
+	if !isFHLBaseURL(opts.BaseURL) || !isGPTImage2Model(opts.ImageModelID) {
+		return false
+	}
+	size := strings.ToLower(strings.TrimSpace(opts.Size))
+	return size != "" && size != "auto" && isExactSizeString(size)
+}
+
+func fhlExactResponsesAspectInstruction(opts Options, size string) string {
+	if !shouldDisablePartialImagesForFHLExactResponses(opts) {
+		return ""
+	}
+	parsed := parseSizeValue(size)
+	if parsed == nil {
+		return ""
+	}
+	width, height := parsed.width, parsed.height
+	divisor := gcd(width, height)
+	if divisor <= 0 {
+		return ""
+	}
+	aspect := fmt.Sprintf("%d:%d", width/divisor, height/divisor)
+	orientation := "square"
+	if width > height {
+		orientation = "landscape"
+	} else if height > width {
+		orientation = "portrait"
+	}
+	return fmt.Sprintf("The selected output aspect ratio is %s (%s). The image_generation result MUST use a %s canvas and must not return any other aspect ratio.", aspect, orientation, aspect)
+}
+func fhlExactResponsesAspectPromptSuffix(opts Options, size string) string {
+	if !shouldDisablePartialImagesForFHLExactResponses(opts) {
+		return ""
+	}
+	parsed := parseSizeValue(size)
+	if parsed == nil {
+		return ""
+	}
+	width, height := parsed.width, parsed.height
+	divisor := gcd(width, height)
+	if divisor <= 0 {
+		return ""
+	}
+	aspect := fmt.Sprintf("%d:%d", width/divisor, height/divisor)
+	if width == height {
+		return fmt.Sprintf("请严格按照 %s 正方形画幅生成最终图片，整张图片必须为 %s 比例。", aspect, aspect)
+	}
+	if height > width {
+		return fmt.Sprintf("请严格按照 %s 竖版画幅生成最终图片，整张图片必须为 %s 竖向构图，不要正方形，不要横版。", aspect, aspect)
+	}
+	return fmt.Sprintf("请严格按照 %s 横版画幅生成最终图片，整张图片必须为 %s 横向构图，不要正方形，不要竖版。", aspect, aspect)
+}
+func gcd(a, b int) int {
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
 }
 
 var slugRe = regexp.MustCompile(`-{2,}`)

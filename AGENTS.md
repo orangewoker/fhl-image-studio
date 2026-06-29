@@ -1,6 +1,6 @@
 ﻿# Codex Workspace Rules
 
-You are working in the portable package root for FHL Studio V2.0.2.
+You are working in the portable package root for FHL Studio V2.0.2.1.
 
 ## Preferred local tool
 
@@ -22,7 +22,7 @@ You are working in the portable package root for FHL Studio V2.0.2.
 
 - Run commands through Windows `cmd /c`.
 - Prefer the package-root launcher for UI-first setup:
-  - `cmd /c "一键启动FHL Studio V2.0.2.cmd"`
+  - `cmd /c "一键启动FHL Studio V2.0.2.1.cmd"`
 - Use the local CLI from the package root:
   - `cmd /c "image-cli.cmd" --prompt "test prompt"`
 

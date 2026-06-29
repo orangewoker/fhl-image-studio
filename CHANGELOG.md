@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## Desktop V2.0.2.1 - 2026-06-29
+
+- 修复桌面版 FHL Responses / `gpt-image-2` 明确尺寸下的比例选择不稳定问题。
+- 对 `1:1`、`16:9`、`9:16`、`2:1`、`1:2` 做了 Codex 浏览器真实出图验证，输出尺寸已经按选择比例生成。
+- 版本号升级为 `V2.0.2.1`，同步更新桌面显示版本、Wails 产品版本、Go CLI packageVersion、CLI User-Agent 版本、便携包产物名和 Skill 说明。
+- Codex Skill 改为版本化命名 `fhl-image-studio-v2-0-2-1`，安装脚本会把旧的稳定名 `fhl-image-studio` 移入 `.disabled` 目录，避免多版本混淆。
+- 新增 Android 对齐交接文档 `docs/android-v2.0.2.1-handoff.md`，把桌面小版本修复内容整理成可直接发送给另一个 Codex 窗口的提示词。
+
 ## Desktop V2.0.2 正式发布整理 - 2026-06-27
 
 本次记录 V2.0.2 正式发布前已经补齐的 360 项目化工作台、精细贴回、APIMart/RH 恢复、一键配置入口、CLI/Skill 与发布整理。

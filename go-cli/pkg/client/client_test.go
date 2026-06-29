@@ -89,6 +89,72 @@ func TestRequestAndExtractWithRetries_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRouteFHLImagesOptionsUsesStableSizeForLegacyModels(t *testing.T) {
+	var logs []string
+	got := routeFHLImagesOptions(Options{
+		APIMode:      APIModeImages,
+		BaseURL:      "https://www.fhl.mom/v1",
+		ImageModelID: "legacy-image-model",
+		Size:         "1152x2048",
+	}, func(message string) {
+		logs = append(logs, message)
+	})
+
+	if got.APIMode != APIModeImages {
+		t.Fatalf("APIMode = %q, want %q", got.APIMode, APIModeImages)
+	}
+	if got.Size != "864x1536" {
+		t.Fatalf("Size = %q, want stable portrait size", got.Size)
+	}
+	if len(logs) != 1 || !strings.Contains(logs[0], "uses stable 864x1536") {
+		t.Fatalf("logs = %#v, want stable-size note", logs)
+	}
+}
+
+func TestRouteFHLImagesOptionsFallsBackToResponsesForUnsafeLegacyExactSize(t *testing.T) {
+	var logs []string
+	got := routeFHLImagesOptions(Options{
+		APIMode:      APIModeImages,
+		BaseURL:      "https://www.fhl.mom",
+		ImageModelID: "legacy-image-model",
+		Size:         "1664x944",
+	}, func(message string) {
+		logs = append(logs, message)
+	})
+
+	if got.APIMode != APIModeResponses {
+		t.Fatalf("APIMode = %q, want %q", got.APIMode, APIModeResponses)
+	}
+	if got.Size != "1664x944" {
+		t.Fatalf("Size = %q, want original unsafe exact size preserved for Responses", got.Size)
+	}
+	if len(logs) != 1 || !strings.Contains(logs[0], "uses Responses API") {
+		t.Fatalf("logs = %#v, want Responses reroute note", logs)
+	}
+}
+
+func TestRouteFHLImagesOptionsPreservesGPTImage2ExactSizes(t *testing.T) {
+	var logs []string
+	got := routeFHLImagesOptions(Options{
+		APIMode:      APIModeImages,
+		BaseURL:      "https://www.fhl.mom",
+		ImageModelID: "gpt-image-2",
+		Size:         "1152x2048",
+	}, func(message string) {
+		logs = append(logs, message)
+	})
+
+	if got.APIMode != APIModeImages {
+		t.Fatalf("APIMode = %q, want %q", got.APIMode, APIModeImages)
+	}
+	if got.Size != "1152x2048" {
+		t.Fatalf("Size = %q, want exact gpt-image-2 size preserved", got.Size)
+	}
+	if len(logs) != 0 {
+		t.Fatalf("logs = %#v, want no routing note", logs)
+	}
+}
+
 func TestRequestAndExtractWithRetriesEmitsPartialImages(t *testing.T) {
 	pngB64 := base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\npartial"))
 	finalB64 := base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\nfinal"))

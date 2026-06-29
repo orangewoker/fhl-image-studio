@@ -1,6 +1,6 @@
 ﻿---
-name: fhl-image-studio
-description: Use when Codex should generate or edit images through the local FHL Studio V2.0.2 package, call its package-root `image-cli.cmd`, detect the current CLI status/profile, or operate the package across FHL Images API, APIMart, and RunningHub bridge profiles. Prefer this stable skill for local package workflows, profile-aware image generation, async polling, output log inspection, and release-package verification. Shared concurrency is a UI/profile setting; default CLI execution stays sequential, but after the first image-to-image reference or character anchor is created, ask the user whether follow-up images should run sequentially or in profile-limited parallel.
+name: fhl-image-studio-v2-0-2-1
+description: Use when Codex should generate or edit images through the local FHL Studio V2.0.2.1 package, call its package-root `image-cli.cmd`, detect the current CLI status/profile, or operate the package across FHL Images API, APIMart, and RunningHub bridge profiles. Prefer this versioned V2.0.2.1 skill for local package workflows, profile-aware image generation, async polling, output log inspection, and release-package verification. Shared concurrency is a UI/profile setting; default CLI execution stays sequential, but after the first image-to-image reference or character anchor is created, ask the user whether follow-up images should run sequentially or in profile-limited parallel.
 ---
 
 # FHL Studio Local CLI
@@ -17,7 +17,7 @@ Use this order:
 
 Run commands through Windows `cmd /c`.
 
-This is the stable skill name for the current package line. Do not install or invoke versioned sibling skills such as `fhl-image-studio-v2.0.2`; the package root `SKILL.md` is updated and reinstalled into this same `fhl-image-studio` skill when the package is upgraded.
+This is the versioned skill for the FHL Studio V2.0.2.1 package line. Use `fhl-image-studio-v2-0-2-1` for this package; future package versions should install their own versioned skill so Codex can distinguish them.
 
 ## Check package and API status first
 
@@ -50,7 +50,7 @@ Never print or infer the actual API key. The status command only reports whether
 Before relying on CLI on a machine, open the desktop UI first:
 
 ```bat
-cmd /c "一键启动FHL Studio V2.0.2.cmd"
+cmd /c "一键启动FHL Studio V2.0.2.1.cmd"
 ```
 
 Then let the user do profile setup in the UI:

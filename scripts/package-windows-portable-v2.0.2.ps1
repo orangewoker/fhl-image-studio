@@ -7,10 +7,10 @@
 
 $ErrorActionPreference = "Stop"
 
-$Version = "2.0.2"
-$DisplayVersion = "V2.0.2"
-$ExeName = "FHL Studio 方汤圆版 V2.0.2.exe"
-$PackageName = "FHL-Image-Studio-Desktop-V2.0.2-Windows-Portable"
+$Version = "2.0.2.1"
+$DisplayVersion = "V2.0.2.1"
+$ExeName = "FHL Studio 方汤圆版 V2.0.2.1.exe"
+$PackageName = "FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable"
 
 function Resolve-SourceRoot {
   param([string]$Value)
@@ -122,7 +122,7 @@ if (-not $SkipBuild) {
     $env:IMAGE_STUDIO_PRODUCT_VERSION = $Version
     $env:IMAGE_STUDIO_FRONTEND_VERSION = $Version
     $env:VITE_APP_VERSION = $Version
-    $env:IMAGE_STUDIO_STORAGE_NAMESPACE = "fhl-image-studio-v2.0.2-release"
+    $env:IMAGE_STUDIO_STORAGE_NAMESPACE = "fhl-image-studio-v2.0.2.1-release"
     wails build -platform windows/amd64 -clean -ldflags "-X github.com/yuanhua/image-gptcodex/pkg/client.Version=$Version"
   } finally {
     Pop-Location
@@ -138,7 +138,7 @@ if (-not (Test-Path -LiteralPath $BuiltExe)) {
 }
 
 Copy-Item -LiteralPath $BuiltExe -Destination (Join-Path $PackageRoot $ExeName) -Force
-Copy-Item -LiteralPath (Join-Path $Root "scripts\portable-windows-launcher-v2.0.2.cmd") -Destination (Join-Path $PackageRoot "一键启动FHL Studio V2.0.2.cmd") -Force
+Copy-Item -LiteralPath (Join-Path $Root "scripts\portable-windows-launcher-v2.0.2.cmd") -Destination (Join-Path $PackageRoot "一键启动FHL Studio V2.0.2.1.cmd") -Force
 Copy-Item -LiteralPath (Join-Path $Root "scripts\portable-windows-launcher-v2.0.2.ps1") -Destination (Join-Path $PackageRoot "portable-windows-launcher-v2.0.2.ps1") -Force
 
 foreach ($dir in @("input", "output", "output\images", "output\thumbs", "output\previews", "output\log", "intermediate", "config")) {
@@ -152,7 +152,7 @@ Copy-IfExists (Join-Path $Root "README.md") (Join-Path $PackageRoot "README.md")
 Copy-IfExists (Join-Path $Root "NOTICE.md") (Join-Path $PackageRoot "NOTICE.md")
 Copy-IfExists (Join-Path $Root "COMPLIANCE.md") (Join-Path $PackageRoot "COMPLIANCE.md")
 Copy-IfExists (Join-Path $Root "LICENSE") (Join-Path $PackageRoot "LICENSE")
-Copy-IfExists (Join-Path $Root "RELEASE_NOTES_DESKTOP_V2.0.2.md") (Join-Path $PackageRoot "RELEASE_NOTES_DESKTOP_V2.0.2.md")
+Copy-IfExists (Join-Path $Root "RELEASE_NOTES_DESKTOP_V2.0.2.1.md") (Join-Path $PackageRoot "RELEASE_NOTES_DESKTOP_V2.0.2.1.md")
 Copy-IfExists (Join-Path $Root "config\cli.env.example") (Join-Path $PackageRoot "config\cli.env.example")
 Copy-IfExists (Join-Path $Root "image-cli.cmd") (Join-Path $PackageRoot "image-cli.cmd")
 Copy-IfExists (Join-Path $Root "AGENTS.md") (Join-Path $PackageRoot "AGENTS.md")
@@ -169,7 +169,7 @@ $Guide = @"
 
 ## 启动方式
 
-双击 `一键启动FHL Studio V2.0.2.cmd`。
+双击 `一键启动FHL Studio V2.0.2.1.cmd`。
 
 这个启动器只负责创建包内目录、设置便携包根目录并启动 EXE，不需要 Node、npm、Vite 或 5173 端口。
 

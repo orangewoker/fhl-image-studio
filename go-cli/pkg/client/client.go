@@ -140,6 +140,10 @@ func RequestAndExtractWithRetriesAndPartial(
 	onProgress func(stage string, elapsed int, bytes int64),
 	onPartial func(PartialImage),
 ) (ImageResult, string, error) {
+	if onLog == nil {
+		onLog = func(string) {}
+	}
+	opts = routeFHLImagesOptions(opts, onLog)
 	switch opts.APIMode {
 	case APIModeImages:
 		return imagesAPIWithRetries(ctx, opts, outputDir, timestamp, onLog, onProgress, onPartial)
@@ -152,6 +156,87 @@ func RequestAndExtractWithRetriesAndPartial(
 	}
 }
 
+const fhlBaseURLForImageRouting = "https://www.fhl.mom"
+
+var safeFHLImagesExactSizes = map[string]struct{}{
+	"1024x1024": {},
+	"1536x1024": {},
+	"1024x1536": {},
+	"1536x864":  {},
+	"864x1536":  {},
+}
+
+var stableFHLImagesSizeOverrides = map[string]string{
+	"2048x1360": "1536x1024",
+	"3456x2304": "1536x1024",
+	"1360x2048": "1024x1536",
+	"2304x3456": "1024x1536",
+	"2048x1152": "1536x864",
+	"3840x2160": "1536x864",
+	"1152x2048": "864x1536",
+	"2160x3840": "864x1536",
+}
+
+func routeFHLImagesOptions(opts Options, onLog func(string)) Options {
+	if opts.APIMode != APIModeImages || !isFHLBaseURL(opts.BaseURL) || isGPTImage2Model(opts.ImageModelID) {
+		return opts
+	}
+	next := opts
+	if stable := stableFHLImagesSize(next); stable != strings.TrimSpace(next.Size) {
+		onLog(fmt.Sprintf("FHL Images size %s uses stable %s for reliable aspect output.", next.Size, stable))
+		next.Size = stable
+	}
+	if shouldPreferResponsesForExactFHLSize(next) {
+		onLog(fmt.Sprintf("FHL exact size %s uses Responses API for stable output.", next.Size))
+		next.APIMode = APIModeResponses
+	}
+	return next
+}
+
+func isFHLBaseURL(raw string) bool {
+	return normalizeBaseURLForFHLComparison(raw) == normalizeBaseURLForFHLComparison(fhlBaseURLForImageRouting)
+}
+
+func normalizeBaseURLForFHLComparison(raw string) string {
+	cleaned := strings.TrimRight(strings.TrimSpace(raw), "/")
+	for strings.HasSuffix(strings.ToLower(cleaned), "/v1") {
+		cleaned = strings.TrimRight(cleaned[:len(cleaned)-3], "/")
+	}
+	return strings.ToLower(cleaned)
+}
+
+func isExactSizeString(raw string) bool {
+	return parseSizeValue(raw) != nil
+}
+
+func shouldPreferResponsesForExactFHLSize(opts Options) bool {
+	if opts.APIMode != APIModeImages || !isFHLBaseURL(opts.BaseURL) || isGPTImage2Model(opts.ImageModelID) {
+		return false
+	}
+	size := strings.ToLower(strings.TrimSpace(opts.Size))
+	if !isExactSizeString(size) {
+		return false
+	}
+	if _, ok := safeFHLImagesExactSizes[size]; ok {
+		return false
+	}
+	if _, ok := stableFHLImagesSizeOverrides[size]; ok {
+		return false
+	}
+	return true
+}
+
+func stableFHLImagesSize(opts Options) string {
+	size := strings.ToLower(strings.TrimSpace(opts.Size))
+	if opts.APIMode != APIModeImages || !isFHLBaseURL(opts.BaseURL) || isGPTImage2Model(opts.ImageModelID) || !isExactSizeString(size) {
+		return opts.Size
+	}
+	if stable, ok := stableFHLImagesSizeOverrides[size]; ok {
+		return stable
+	}
+	return opts.Size
+}
+
 func responsesAPIWithRetries(
 	ctx context.Context,
 	transport Transport,
@@ -162,10 +247,6 @@ func responsesAPIWithRetries(
 	onProgress func(stage string, elapsed int, bytes int64),
 	onPartial func(PartialImage),
 ) (ImageResult, string, error) {
-	if onLog == nil {
-		onLog = func(string) {}
-	}
-
 	if err := os.MkdirAll(outputDir, 0o700); err != nil {
 		return ImageResult{}, "", fmt.Errorf("create output dir: %w", err)
 	}

@@ -13,6 +13,7 @@ export const OPENAI_IMAGE_MAX_PIXELS = 8_294_400;
 export const OPENAI_IMAGE_MAX_SIDE = 3_840;
 export const OPENAI_IMAGE_ALIGNMENT = 16;
 export const OPENAI_IMAGE_MAX_ASPECT = 3;
+export const FHL_BASE_URL = "https://www.fhl.mom";
 
 const NO_PROMPT_REVISION_INSTRUCTIONS = "You are a tool runner. Pass the user prompt to image_generation VERBATIM. DO NOT rewrite, expand, polish, or revise it in any way. Use the exact text the user gave.";
 const SAFE_IMAGE_TOOL_INSTRUCTIONS = "Use the image_generation tool and return an image result, not a text-only answer. If the user's wording is ambiguous or may trigger a safety refusal, adapt it into a policy-compliant visual prompt while preserving the creative intent.";
@@ -278,7 +279,9 @@ export function buildResponsesImageTool(payload, sourceDataURLs, options = {}) {
     quality,
     output_format: outputFormat,
     moderation: "low",
-    partial_images: normalizePartialImages(payload.partialImages),
+    partial_images: shouldDisablePartialImagesForFHLExactResponses(payload, size)
+      ? 0
+      : normalizePartialImages(payload.partialImages),
   };
   if (compatExtensions && payload.seed) tool.seed = payload.seed;
   if (compatExtensions && negativePrompt) tool.negative_prompt = negativePrompt;
@@ -292,11 +295,23 @@ export function buildResponsesImageTool(payload, sourceDataURLs, options = {}) {
   return tool;
 }
 
+export function shouldDisablePartialImagesForFHLExactResponses(payload, size) {
+  const apiMode = String(payload?.apiMode || "responses").trim();
+  if (apiMode && apiMode !== "responses") return false;
+  if (normalizeBaseURL(payload?.baseURL) !== FHL_BASE_URL) return false;
+  if (!normalizeImageModel(payload?.imageModelID).toLowerCase().startsWith("gpt-image-2")) return false;
+  const normalizedSize = String(size || payload?.size || "").trim().toLowerCase();
+  return normalizedSize !== "" && normalizedSize !== "auto" && parseSizeValue(normalizedSize) !== null;
+}
+
 export function buildResponsesPayload(payload, sourceDataURLs, options = {}) {
-  const content = buildResponsesInputContent(payload.prompt, sourceDataURLs);
   const tool = {
     ...buildResponsesImageTool(payload, sourceDataURLs, options),
   };
+  const prompt = fhlExactResponsesAspectPromptSuffix(payload, tool.size)
+    ? `${normalizePromptText(payload.prompt)}\n\n${fhlExactResponsesAspectPromptSuffix(payload, tool.size)}`
+    : payload.prompt;
+  const content = buildResponsesInputContent(prompt, sourceDataURLs);
 
   const request = {
     model: normalizeTextModel(payload.textModelID),
@@ -307,10 +322,53 @@ export function buildResponsesPayload(payload, sourceDataURLs, options = {}) {
     store: false,
     stream: true,
   };
-  request.instructions = payload.noPromptRevision === false
+  let instructions = payload.noPromptRevision === false
     ? SAFE_IMAGE_TOOL_INSTRUCTIONS
     : NO_PROMPT_REVISION_INSTRUCTIONS;
+  const aspectInstruction = fhlExactResponsesAspectInstruction(payload, tool.size);
+  if (aspectInstruction) instructions += ` ${aspectInstruction}`;
+  request.instructions = instructions;
   return request;
+}
+
+export function fhlExactResponsesAspectInstruction(payload, size) {
+  if (!shouldDisablePartialImagesForFHLExactResponses(payload, size)) return "";
+  const parsed = parseSizeValue(String(size || payload?.size || "").trim());
+  if (!parsed) return "";
+  const divisor = gcd(parsed.width, parsed.height);
+  if (!divisor) return "";
+  const aspect = `${parsed.width / divisor}:${parsed.height / divisor}`;
+  const orientation = parsed.width === parsed.height
+    ? "square"
+    : parsed.width > parsed.height
+      ? "landscape"
+      : "portrait";
+  return `The selected output aspect ratio is ${aspect} (${orientation}). The image_generation result MUST use a ${aspect} canvas and must not return any other aspect ratio.`;
+}
+export function fhlExactResponsesAspectPromptSuffix(payload, size) {
+  if (!shouldDisablePartialImagesForFHLExactResponses(payload, size)) return "";
+  const parsed = parseSizeValue(String(size || payload?.size || "").trim());
+  if (!parsed) return "";
+  const divisor = gcd(parsed.width, parsed.height);
+  if (!divisor) return "";
+  const aspect = `${parsed.width / divisor}:${parsed.height / divisor}`;
+  if (parsed.width === parsed.height) {
+    return `请严格按照 ${aspect} 正方形画幅生成最终图片，整张图片必须为 ${aspect} 比例。`;
+  }
+  if (parsed.height > parsed.width) {
+    return `请严格按照 ${aspect} 竖版画幅生成最终图片，整张图片必须为 ${aspect} 竖向构图，不要正方形，不要横版。`;
+  }
+  return `请严格按照 ${aspect} 横版画幅生成最终图片，整张图片必须为 ${aspect} 横向构图，不要正方形，不要竖版。`;
+}
+function gcd(left, right) {
+  let a = Math.abs(Math.trunc(Number(left) || 0));
+  let b = Math.abs(Math.trunc(Number(right) || 0));
+  while (b !== 0) {
+    const next = a % b;
+    a = b;
+    b = next;
+  }
+  return a;
 }
 
 export function buildPromptOptimizePayload(input, sourceDataURLs) {

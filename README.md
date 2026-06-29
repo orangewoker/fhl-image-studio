@@ -1,4 +1,4 @@
-# FHL Image Studio 方汤圆修改版 V2.0.2
+# FHL Image Studio 方汤圆修改版 V2.0.2.1
 
 > 开源致谢：Image-Studio 原作者 RoseKhlifa
 >
@@ -6,7 +6,7 @@
 >
 > 方汤圆修改版项目地址：https://github.com/supart/fhl-image-studio
 
-FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库为桌面版 `V2.0.2` 正式发布源码，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。
+FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库为桌面版 `V2.0.2.1` 源码，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。
 
 本项目与上游原项目无隶属、背书或维护关系。请在二次分发、公开部署或网络服务使用时遵守 AGPLv3 的源码提供义务。
 
@@ -61,7 +61,7 @@ Windows 正式便携包：
 powershell -ExecutionPolicy Bypass -File .\scripts\package-windows-portable-v2.0.2.ps1
 ```
 
-生成后的用户包使用 `一键启动FHL Studio V2.0.2.cmd` 启动，不依赖 Node、Vite 或 5173 预览服务。生成内容默认保存在便携包内的 `output/`，导入图在 `input/`，中间文件在 `intermediate/`，日志在 `output/log/`。
+生成后的用户包使用 `一键启动FHL Studio V2.0.2.1.cmd` 启动，不依赖 Node、Vite 或 5173 预览服务。生成内容默认保存在便携包内的 `output/`，导入图在 `input/`，中间文件在 `intermediate/`，日志在 `output/log/`。
 
 发布源码暂存：
 
@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\prepare-release-source-v2.0.2
 .\image-cli.cmd --status --json
 ```
 
-`--status --json` 只读返回当前包版本、活动 API、模型、尺寸与目录状态；API Key 只显示是否已配置，不会打印明文。`fhl-image-studio` Skill 使用这个状态自动跟随桌面 UI 当前同步的 profile。
+`--status --json` 只读返回当前包版本、活动 API、模型、尺寸与目录状态；API Key 只显示是否已配置，不会打印明文。`fhl-image-studio-v2-0-2-1` Skill 使用这个状态自动跟随桌面 UI 当前同步的 profile。
 
 前端检查：
 
@@ -103,7 +103,7 @@ wails build
 powershell -ExecutionPolicy Bypass -File .\scripts\check-compliance-package.ps1 -Root .
 ```
 
-CI 会在 GitHub Actions 中分别执行 Go、前端和发布安全检查；打 `v2.0.2` tag 时会构建 Windows 便携包并上传 Release 附件。
+CI 会在 GitHub Actions 中分别执行 Go、前端和发布安全检查；打 `v2.0.2.1` tag 时会构建 Windows 便携包并上传 Release 附件。
 
 ## API 配置
 

@@ -8,6 +8,7 @@ export const DEFAULT_PARTIAL_IMAGES: number;
 export const MAX_ATTEMPTS: number;
 export const RETRY_BACKOFF_MS: number;
 export const STATUS_INTERVAL_MS: number;
+export const FHL_BASE_URL: string;
 
 export type RequestPolicy = "openai" | "compat";
 
@@ -26,6 +27,8 @@ export type SharedImageRequestPayload = {
   noPromptRevision?: boolean;
   mode?: string;
   partialImages?: number;
+  apiMode?: string;
+  baseURL?: string;
 };
 
 export function normalizeBaseURL(raw: string): string;
@@ -53,6 +56,9 @@ export function buildResponsesImageTool(
   sourceDataURLs: string[],
   options?: { maskMimeType?: string },
 ): Record<string, unknown>;
+export function shouldDisablePartialImagesForFHLExactResponses(payload: SharedImageRequestPayload, size?: string): boolean;
+export function fhlExactResponsesAspectInstruction(payload: SharedImageRequestPayload, size?: string): string;
+export function fhlExactResponsesAspectPromptSuffix(payload: SharedImageRequestPayload, size?: string): string;
 export function buildResponsesPayload(
   payload: SharedImageRequestPayload,
   sourceDataURLs: string[],

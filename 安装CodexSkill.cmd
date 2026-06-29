@@ -2,9 +2,11 @@
 setlocal
 
 set "SRC=%~dp0SKILL.md"
-set "DST=%USERPROFILE%\.codex\skills\fhl-image-studio"
+set "SKILL_NAME=fhl-image-studio-v2-0-2-1"
+set "DST=%USERPROFILE%\.codex\skills\%SKILL_NAME%"
 set "OLD1=%USERPROFILE%\.codex\skills\fhl-image-studio-cli"
 set "OLD2=%USERPROFILE%\.codex\skills\fhl-ty-v2"
+set "OLD3=%USERPROFILE%\.codex\skills\fhl-image-studio"
 
 if not exist "%SRC%" (
   echo Cannot find "%SRC%"
@@ -24,15 +26,16 @@ if errorlevel 1 (
 
 call :disable_old "%OLD1%" "%USERPROFILE%\.codex\skills\fhl-image-studio-cli.disabled"
 call :disable_old "%OLD2%" "%USERPROFILE%\.codex\skills\fhl-ty-v2.disabled"
+call :disable_old "%OLD3%" "%USERPROFILE%\.codex\skills\fhl-image-studio.disabled"
 
 echo Installed Codex skill:
 echo   %DST%\SKILL.md
 echo.
 echo Skill name:
-echo   fhl-image-studio
+echo   %SKILL_NAME%
 echo.
 echo Package line:
-echo   V2.0.2 stable skill entry, auto-detects CLI status via image-cli.cmd --status --json
+echo   V2.0.2.1 versioned skill entry, auto-detects CLI status via image-cli.cmd --status --json
 echo.
 echo Restart Codex or open a new Codex thread to let it discover the updated skill.
 pause
