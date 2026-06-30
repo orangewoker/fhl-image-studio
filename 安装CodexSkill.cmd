@@ -46,5 +46,6 @@ exit /b 0
 if exist "%~1\SKILL.md" (
   if exist "%~2" rmdir /S /Q "%~2"
   move "%~1" "%~2" >nul
+  if exist "%~2\SKILL.md" ren "%~2\SKILL.md" "SKILL.md.disabled"
 )
 exit /b 0
