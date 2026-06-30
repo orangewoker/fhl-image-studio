@@ -1,5 +1,35 @@
 export namespace backend {
 	
+	export class AutomationStatus {
+	    enabled: boolean;
+	    mode?: string;
+	    serverUrl?: string;
+	    port?: number;
+	    e2eOnly?: boolean;
+	    packageVersion?: string;
+	    pid?: number;
+	    executable?: string;
+	    startedAt?: number;
+	    bridgeMethods?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AutomationStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.mode = source["mode"];
+	        this.serverUrl = source["serverUrl"];
+	        this.port = source["port"];
+	        this.e2eOnly = source["e2eOnly"];
+	        this.packageVersion = source["packageVersion"];
+	        this.pid = source["pid"];
+	        this.executable = source["executable"];
+	        this.startedAt = source["startedAt"];
+	        this.bridgeMethods = source["bridgeMethods"];
+	    }
+	}
 	export class BatchInputImage {
 	    path: string;
 	    name: string;
@@ -370,6 +400,7 @@ export namespace backend {
 	}
 	export class SelectFileResponse {
 	    path: string;
+	    name?: string;
 	    size: number;
 	    imageB64?: string;
 	    imageId?: string;
@@ -386,6 +417,7 @@ export namespace backend {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
+	        this.name = source["name"];
 	        this.size = source["size"];
 	        this.imageB64 = source["imageB64"];
 	        this.imageId = source["imageId"];

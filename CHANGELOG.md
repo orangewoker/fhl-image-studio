@@ -6,6 +6,8 @@
 - 对 `1:1`、`16:9`、`9:16`、`2:1`、`1:2` 做了 Codex 浏览器真实出图验证，输出尺寸已经按选择比例生成。
 - 版本号升级为 `V2.0.2.1`，同步更新桌面显示版本、Wails 产品版本、Go CLI packageVersion、CLI User-Agent 版本、便携包产物名和 Skill 说明。
 - Codex Skill 改为版本化命名 `fhl-image-studio-v2-0-2-1`，安装脚本会把旧的稳定名 `fhl-image-studio` 移入 `.disabled` 目录，避免多版本混淆。
+- 新增桌面 E2E 测试模式，打包后的 EXE 可通过 `--e2e` / `--e2e-only` 暴露 `127.0.0.1:9230` 浏览器镜像，方便 Codex 浏览器回归参考图双击、比例选择、API 配置弹窗和 360 工作台。
+- 项目 README 补充 E2E 测试模式启动命令，避免封装后测试入口只留在聊天记录里。
 - 新增 Android 对齐交接文档 `docs/android-v2.0.2.1-handoff.md`，把桌面小版本修复内容整理成可直接发送给另一个 Codex 窗口的提示词。
 
 ## Desktop V2.0.2 正式发布整理 - 2026-06-27

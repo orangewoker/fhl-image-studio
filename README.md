@@ -55,6 +55,30 @@ Windows 预览：
 .\start-ui.cmd
 ```
 
+### 桌面 E2E 测试模式
+
+用于让 Codex 浏览器或普通浏览器接管打包后的桌面 UI，回归参考图双击、比例选择、API 配置弹窗、360 工作台等流程。
+
+常用启动命令：
+
+```cmd
+scripts\start-desktop-e2e.cmd
+```
+
+只启动浏览器镜像、不打开桌面窗口：
+
+```cmd
+"image-studio\build\bin\FHL Studio 方汤圆版 V2.0.2.1.exe" --e2e-only --e2e-port 9230
+```
+
+启动后打开：
+
+```text
+http://127.0.0.1:9230/
+```
+
+详细说明见 [docs/desktop-e2e-test-mode.md](./docs/desktop-e2e-test-mode.md)。
+
 Windows 正式便携包：
 
 ```powershell

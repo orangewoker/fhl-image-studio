@@ -9,6 +9,12 @@ V2.0.2.1 is a desktop maintenance update after the V2.0.2 feature set. This buil
 - Fixed unstable aspect-ratio matching when using FHL Responses with `gpt-image-2` and explicit size selection.
 - Verified real generation results for `1:1`, `16:9`, `9:16`, `2:1`, and `1:2` in the Codex browser workflow.
 
+## Added
+
+- Added desktop E2E test mode for packaged EXE builds. `--e2e` opens the normal desktop window and a localhost browser mirror; `--e2e-only` starts only the browser mirror at `http://127.0.0.1:9230/`.
+- Added safe frontend E2E hooks and DOM readiness markers so Codex browser automation can verify packaged UI loading, fill prompts, open settings, and regression-test common desktop flows.
+- Documented the E2E startup command in `README.md` and `docs/desktop-e2e-test-mode.md`.
+
 ## Version Metadata
 
 - Desktop display version: `V2.0.2.1`

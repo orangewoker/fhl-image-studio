@@ -30,6 +30,45 @@ func (s *Service) ImportImageFromB64(imageB64, suggestedName string) (ImportedIm
 	if err != nil {
 		return ImportedImage{}, fmt.Errorf("decode base64: %w", err)
 	}
+	return s.importImageBytes(data, suggestedName)
+}
+
+func (s *Service) ImportImagePath(path string) (ImportedImage, error) {
+	imported, err := s.importImageFile(path)
+	if err != nil {
+		return ImportedImage{}, err
+	}
+	if preview, previewErr := s.registerImportedPreview(imported.Path); previewErr == nil {
+		imported.ImageID = preview.ID
+		imported.PreviewURL = preview.PreviewURL
+		imported.PreviewWidth = preview.PreviewWidth
+		imported.PreviewHeight = preview.PreviewHeight
+	}
+	return imported, nil
+}
+
+func (s *Service) importImageFile(path string) (ImportedImage, error) {
+	if strings.TrimSpace(path) == "" {
+		return ImportedImage{}, errors.New("path is empty")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return ImportedImage{}, err
+	}
+	if info.IsDir() {
+		return ImportedImage{}, fmt.Errorf("path is a directory: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ImportedImage{}, err
+	}
+	return s.importImageBytes(data, filepath.Base(path))
+}
+
+func (s *Service) importImageBytes(data []byte, suggestedName string) (ImportedImage, error) {
+	if len(data) == 0 {
+		return ImportedImage{}, errors.New("image data is empty")
+	}
 	if len(data) > client.MaxInputImageBytes {
 		return ImportedImage{}, fmt.Errorf("图片超过 50MB,请换一张更小的图片")
 	}

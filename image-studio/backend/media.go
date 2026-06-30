@@ -123,7 +123,30 @@ func (s *Service) registerImportedPreview(sourcePath string) (mediaAsset, error)
 	if err != nil {
 		return mediaAsset{}, err
 	}
-	return s.registerPreviewMedia(previewPath, width, height)
+	fullWidth, fullHeight := 0, 0
+	if cfg, cfgErr := imageConfig(absSource); cfgErr == nil {
+		fullWidth = cfg.Width
+		fullHeight = cfg.Height
+	}
+	id := mediaIDForPath(absSource)
+	asset := mediaAsset{
+		ID:            id,
+		FullPath:      absSource,
+		PreviewPath:   previewPath,
+		FullURL:       "/media/full/" + id,
+		PreviewURL:    "/media/preview/" + id,
+		Width:         fullWidth,
+		Height:        fullHeight,
+		PreviewWidth:  width,
+		PreviewHeight: height,
+	}
+	s.mu.Lock()
+	if s.mediaAssets == nil {
+		s.mediaAssets = map[string]mediaAsset{}
+	}
+	s.mediaAssets[id] = asset
+	s.mu.Unlock()
+	return asset, nil
 }
 
 func (s *Service) RegisterImportedImageAsset(path string) (MediaAssetRef, error) {
@@ -143,6 +166,7 @@ func (s *Service) RegisterImportedImageAsset(path string) (MediaAssetRef, error)
 		ImageID:       asset.ID,
 		SavedPath:     allowed,
 		PreviewURL:    asset.PreviewURL,
+		FullURL:       asset.FullURL,
 		Width:         width,
 		Height:        height,
 		PreviewWidth:  asset.PreviewWidth,

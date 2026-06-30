@@ -86,6 +86,7 @@ export type ImportedImageLike = {
 export type ImageTransformResultLike = { path: string; acceleration?: string };
 export type SelectFileResponseLike = {
   path: string;
+  name?: string;
   size: number;
   imageB64?: string;
   imageId?: string;
@@ -122,6 +123,19 @@ export type MediaAssetRefLike = {
   height?: number;
   previewWidth?: number;
   previewHeight?: number;
+};
+
+export type AutomationStatusLike = {
+  enabled: boolean;
+  mode?: string;
+  serverUrl?: string;
+  port?: number;
+  e2eOnly?: boolean;
+  packageVersion?: string;
+  pid?: number;
+  executable?: string;
+  startedAt?: number;
+  bridgeMethods?: string[];
 };
 
 export type MaterialOutputSyncItemLike = {

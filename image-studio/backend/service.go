@@ -41,6 +41,7 @@ type Service struct {
 	runningByAPIMode map[string]int
 	outputDir        string // 用户自定义输出目录;空时回退到 defaultOutputDir()
 	apiKeys          apiKeyStore
+	automationStatus AutomationStatus
 
 	trustedOutputRoots map[string]struct{}
 	mediaAssets        map[string]mediaAsset

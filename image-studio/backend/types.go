@@ -172,6 +172,7 @@ type ErrorPayload struct {
 // preview generation is unavailable. Files over 50MB omit both preview forms.
 type SelectFileResponse struct {
 	Path          string `json:"path"`
+	Name          string `json:"name,omitempty"`
 	Size          int64  `json:"size"`
 	ImageB64      string `json:"imageB64,omitempty"`
 	ImageID       string `json:"imageId,omitempty"`

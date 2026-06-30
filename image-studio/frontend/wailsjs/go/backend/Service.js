@@ -50,6 +50,10 @@ export function Generate(arg1) {
   return window['go']['backend']['Service']['Generate'](arg1);
 }
 
+export function GetAutomationStatus() {
+  return window['go']['backend']['Service']['GetAutomationStatus']();
+}
+
 export function GetOutputDir() {
   return window['go']['backend']['Service']['GetOutputDir']();
 }
@@ -64,6 +68,10 @@ export function ImportHistoryFromFile() {
 
 export function ImportImageFromB64(arg1, arg2) {
   return window['go']['backend']['Service']['ImportImageFromB64'](arg1, arg2);
+}
+
+export function ImportImagePath(arg1) {
+  return window['go']['backend']['Service']['ImportImagePath'](arg1);
 }
 
 export function ListBatchInputImages(arg1) {
@@ -148,6 +156,10 @@ export function SaveImagePathToDir(arg1, arg2, arg3) {
 
 export function SaveImageToDir(arg1, arg2, arg3) {
   return window['go']['backend']['Service']['SaveImageToDir'](arg1, arg2, arg3);
+}
+
+export function SetAutomationStatus(arg1) {
+  return window['go']['backend']['Service']['SetAutomationStatus'](arg1);
 }
 
 export function SetOutputDir(arg1) {

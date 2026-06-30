@@ -65,6 +65,7 @@ import {
 import type {
   BatchInputDirectoryLike,
   BatchInputImageLike,
+  AutomationStatusLike,
   GenerateOptionsLike,
   HostCapabilities,
   HostKind,
@@ -903,6 +904,17 @@ export function GetOutputDir(): Promise<string> {
   return Promise.resolve("");
 }
 
+export function GetAutomationStatus(): Promise<AutomationStatusLike> {
+  const bootstrapStatus = typeof window !== "undefined"
+    ? (window as Window & { __IMAGE_STUDIO_E2E_BOOTSTRAP?: AutomationStatusLike }).__IMAGE_STUDIO_E2E_BOOTSTRAP
+    : undefined;
+  if (hasServiceMethod("GetAutomationStatus")) {
+    return invokeService<AutomationStatusLike>(unsupportedMessage, "GetAutomationStatus")
+      .catch(() => bootstrapStatus ?? { enabled: false });
+  }
+  return Promise.resolve(bootstrapStatus ?? { enabled: false });
+}
+
 export function DeleteStoredAPIKey(user: string): Promise<void> {
   if (hasServiceMethod("DeleteStoredAPIKey")) {
     return invokeService<void>(unsupportedMessage, "DeleteStoredAPIKey", user);
@@ -1071,6 +1083,15 @@ export function ImportImageFromB64(imageB64: string, suggestedName: string): Pro
     .then((saved) => saved
       ? { path: saved.path, imageB64 }
       : registerVirtualImage({ imageB64, suggestedName }));
+}
+
+export function ImportImagePath(path: string): Promise<ImportedImageLike> {
+  const suggestedName = fileNameFromPath(path);
+  if (hasServiceMethod("ImportImagePath")) {
+    return invokeService<ImportedImageLike>(unsupportedMessage, "ImportImagePath", path);
+  }
+  return ReadImageAsBase64(path)
+    .then((imageB64) => ImportImageFromB64(imageB64, suggestedName));
 }
 
 export function RotateImage(path: string, degrees: number): Promise<ImageTransformResultLike> {

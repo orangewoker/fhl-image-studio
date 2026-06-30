@@ -7,9 +7,11 @@ import { PlatformProvider } from './platform/context'
 import { applyMacWorkspacePreviewToStore, readPreviewScenario } from './app/dev/previewScenario'
 import './platform/android/wailsShim'
 import { useStudioStore } from './state/studioStore'
+import { installE2EHarness } from './app/dev/e2eHarness'
 
 const container = document.getElementById('root')
 applyPlatformAttributes()
+void installE2EHarness()
 
 const root = createRoot(container!)
 

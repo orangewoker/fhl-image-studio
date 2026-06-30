@@ -154,7 +154,7 @@ func TestRegisterImportedImageAssetCreatesManagedAVIFPreview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref.ImageID == "" || ref.PreviewURL == "" || ref.FullURL != "" {
+	if ref.ImageID == "" || ref.PreviewURL == "" || ref.FullURL == "" {
 		t.Fatalf("unexpected imported media ref: %+v", ref)
 	}
 	resolvedSrc, err := filepath.EvalSymlinks(srcPath)
@@ -180,5 +180,15 @@ func TestRegisterImportedImageAssetCreatesManagedAVIFPreview(t *testing.T) {
 	}
 	if rec.Body.Len() == 0 {
 		t.Fatal("empty imported preview body")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, ref.FullURL, nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("full image status = %d", rec.Code)
+	}
+	if rec.Body.Len() == 0 {
+		t.Fatal("empty imported full image body")
 	}
 }

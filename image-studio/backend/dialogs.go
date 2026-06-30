@@ -54,13 +54,20 @@ func (s *Service) OpenImageDialog() (SelectFileResponse, error) {
 	if err != nil {
 		return SelectFileResponse{}, err
 	}
-	resp := SelectFileResponse{Path: path, Size: info.Size()}
-	if cfg, cfgErr := imageConfig(path); cfgErr == nil {
-		resp.Width = cfg.Width
-		resp.Height = cfg.Height
+	sourceName := filepath.Base(path)
+	imported, err := s.importImageFile(path)
+	if err != nil {
+		return SelectFileResponse{}, err
+	}
+	resp := SelectFileResponse{
+		Path:   imported.Path,
+		Name:   sourceName,
+		Size:   info.Size(),
+		Width:  imported.Width,
+		Height: imported.Height,
 	}
 	if info.Size() > 0 && info.Size() <= maxDialogReadBytes {
-		if preview, previewErr := s.registerImportedPreview(path); previewErr == nil {
+		if preview, previewErr := s.registerImportedPreview(imported.Path); previewErr == nil {
 			resp.ImageID = preview.ID
 			resp.PreviewURL = preview.PreviewURL
 			resp.PreviewWidth = preview.PreviewWidth
@@ -93,17 +100,19 @@ func (s *Service) OpenImagesDialog() (SelectFilesResponse, error) {
 		if statErr != nil || info.IsDir() {
 			continue
 		}
-		item := BatchInputImage{
-			Path: path,
-			Name: filepath.Base(path),
-			Size: info.Size(),
+		imported, importErr := s.importImageFile(path)
+		if importErr != nil {
+			continue
 		}
-		if cfg, cfgErr := imageConfig(path); cfgErr == nil {
-			item.Width = cfg.Width
-			item.Height = cfg.Height
+		item := BatchInputImage{
+			Path:   imported.Path,
+			Name:   filepath.Base(path),
+			Size:   info.Size(),
+			Width:  imported.Width,
+			Height: imported.Height,
 		}
 		if info.Size() > 0 && info.Size() <= maxDialogReadBytes {
-			if preview, previewErr := s.registerImportedPreview(path); previewErr == nil {
+			if preview, previewErr := s.registerImportedPreview(imported.Path); previewErr == nil {
 				item.PreviewURL = preview.PreviewURL
 				item.PreviewWidth = preview.PreviewWidth
 				item.PreviewHeight = preview.PreviewHeight

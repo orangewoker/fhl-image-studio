@@ -1,9 +1,18 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
 	"runtime"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
 
 	"image-studio/backend"
 
@@ -17,8 +26,44 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+const (
+	packageVersion = "2.0.2.1"
+	defaultE2EPort = 9230
+)
+
+type automationLaunchConfig struct {
+	Enabled bool
+	Only    bool
+	Port    int
+	Source  string
+}
+
 func main() {
+	automationConfig := parseAutomationLaunchConfig(os.Args[1:], os.Getenv)
 	svc := backend.NewService()
+	automationStatus := automationStatusFromConfig(automationConfig)
+	svc.SetAutomationStatus(automationStatus)
+
+	if automationConfig.Enabled {
+		server, url, port, err := startE2EServer(assets, svc, automationStatus)
+		if err != nil {
+			println("Error:", err.Error())
+			return
+		}
+		automationStatus.ServerURL = url
+		automationStatus.Port = port
+		automationStatus.BridgeMethods = append([]string(nil), e2eBridgeMethods...)
+		svc.SetAutomationStatus(automationStatus)
+		fmt.Printf("[FHL Studio E2E] %s\n", url)
+		defer server.Close()
+
+		if automationConfig.Only {
+			svc.Startup(context.Background())
+			waitForInterrupt()
+			return
+		}
+	}
+
 	appOptions := &options.App{
 		Title:     "FHL Studio",
 		Width:     1440,
@@ -87,4 +132,96 @@ func main() {
 	if err != nil {
 		println("Error:", err.Error())
 	}
+}
+
+func parseAutomationLaunchConfig(args []string, getenv func(string) string) automationLaunchConfig {
+	config := automationLaunchConfig{
+		Port: defaultE2EPort,
+	}
+	if truthy(getenv("IMAGE_STUDIO_E2E")) {
+		config.Enabled = true
+		config.Source = "env"
+	}
+	if truthy(getenv("IMAGE_STUDIO_E2E_ONLY")) {
+		config.Enabled = true
+		config.Only = true
+		config.Source = "env"
+	}
+	if port, ok := parsePositivePort(getenv("IMAGE_STUDIO_E2E_PORT")); ok {
+		config.Port = port
+	}
+
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		switch {
+		case arg == "--e2e" || arg == "--test-mode":
+			config.Enabled = true
+			config.Source = "argv"
+		case arg == "--e2e-only" || arg == "--test-mode-only":
+			config.Enabled = true
+			config.Only = true
+			config.Source = "argv"
+		case arg == "--e2e-port" || arg == "--test-port":
+			if i+1 < len(args) {
+				if port, ok := parsePositivePort(args[i+1]); ok {
+					config.Port = port
+					i++
+				}
+			}
+		case strings.HasPrefix(arg, "--e2e-port="):
+			if port, ok := parsePositivePort(strings.TrimPrefix(arg, "--e2e-port=")); ok {
+				config.Port = port
+			}
+		case strings.HasPrefix(arg, "--test-port="):
+			if port, ok := parsePositivePort(strings.TrimPrefix(arg, "--test-port=")); ok {
+				config.Port = port
+			}
+		}
+	}
+	if config.Source == "" && config.Enabled {
+		config.Source = "unknown"
+	}
+	return config
+}
+
+func automationStatusFromConfig(config automationLaunchConfig) backend.AutomationStatus {
+	executable, _ := os.Executable()
+	return backend.AutomationStatus{
+		Enabled:        config.Enabled,
+		Mode:           config.Source,
+		Port:           config.Port,
+		E2EOnly:        config.Only,
+		PackageVersion: packageVersion,
+		PID:            os.Getpid(),
+		Executable:     executable,
+		StartedAt:      time.Now().UnixMilli(),
+	}
+}
+
+func truthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on", "y":
+		return true
+	default:
+		return false
+	}
+}
+
+func parsePositivePort(value string) (int, bool) {
+	port, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || port <= 0 || port > 65535 {
+		return 0, false
+	}
+	return port, true
+}
+
+func waitForInterrupt() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	<-ch
+	signal.Stop(ch)
+}
+
+func isServerClosed(err error) bool {
+	return err == nil || errors.Is(err, http.ErrServerClosed)
 }

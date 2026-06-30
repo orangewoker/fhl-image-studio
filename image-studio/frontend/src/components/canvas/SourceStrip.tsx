@@ -6,6 +6,7 @@ import { useBlobURL } from "../../lib/images";
 import { materializeCompareSourceAsHistoryItem } from "../../state/compareSourceSelection";
 import { sourceToDataURL } from "../../lib/virtualHostStore";
 import { usePlatform } from "../../platform/context";
+import { ImportImagePath, ReadImageAsBase64, RegisterImportedImageAsset } from "../../platform/runtime/host";
 import type { BatchProcessConfig, BatchProcessSourceImage, HistoryItem, SourceImage } from "../../types/domain";
 
 function clampBatchQueueSlotIndex(value: unknown, fixedSourceCount: number): number {
@@ -604,21 +605,69 @@ function SourceTile({
   async function openSourceOnCanvas() {
     const state = useStudioStore.getState();
     const dataURL = await sourceToDataURL(source).catch(() => "");
-    const imageB64 = dataURLBase64(dataURL) || source.imageB64 || undefined;
+    let imageB64 = dataURLBase64(dataURL) || source.imageB64 || undefined;
+    let imageBlob = source.imageBlob ?? null;
+    let savedPath = source.path;
+    let previewUrl = source.previewUrl || undefined;
+    let imageId: string | undefined;
+    let fullUrl: string | undefined;
+    let width = source.width;
+    let height = source.height;
+
+    if (savedPath && !imageB64 && !imageBlob) {
+      const ref = await RegisterImportedImageAsset(savedPath).catch(() => null);
+      if (ref) {
+        savedPath = ref.savedPath || savedPath;
+        previewUrl = ref.previewUrl || previewUrl;
+        imageId = ref.imageId || imageId;
+        fullUrl = ref.fullUrl || fullUrlFromImageId(ref.imageId) || fullUrl;
+        width = ref.width || width;
+        height = ref.height || height;
+      }
+    }
+
+    if (savedPath && !fullUrl && !imageId && !imageB64 && !imageBlob) {
+      const imported = await ImportImagePath(savedPath).catch(() => null);
+      if (imported?.path) {
+        savedPath = imported.path;
+        previewUrl = imported.previewUrl || previewUrl;
+        imageId = imported.imageId || imageId;
+        fullUrl = fullUrlFromImageId(imported.imageId) || fullUrl;
+        imageB64 = imported.imageB64 || imageB64;
+        width = imported.width || width;
+        height = imported.height || height;
+      }
+    }
+
+    if (savedPath && !fullUrl && !imageId && !imageB64 && !imageBlob) {
+      const fullB64 = await ReadImageAsBase64(savedPath).catch(() => "");
+      imageB64 = fullB64 || imageB64;
+    }
+
+    if (!fullUrl && imageId) fullUrl = fullUrlFromImageId(imageId);
+    if (!fullUrl && !imageId && !imageB64 && !imageBlob) {
+      state.pushToast("参考图原文件无法读取，请重新导入参考图", "warn", 2800);
+      return;
+    }
+
     const item: HistoryItem = {
       id: `source-preview-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      previewUrl: source.previewUrl || undefined,
+      imageId,
+      previewUrl,
+      fullUrl,
       imageB64,
-      imageBlob: source.imageBlob ?? null,
-      previewBlob: source.imageBlob ?? null,
-      previewOnly: !imageB64 && !source.imageBlob,
+      imageBlob,
+      previewBlob: imageBlob,
+      previewOnly: false,
       prompt: `(参考图) ${source.name}`,
       mode: "edit",
       size: state.size,
       quality: state.quality,
       outputFormat: state.outputFormat,
       createdAt: Date.now(),
-      savedPath: source.path,
+      savedPath,
+      width,
+      height,
     };
     state.openSourcePreview(item);
     state.pushToast("已在画布打开参考图大图", "success");
@@ -704,4 +753,8 @@ function dataURLBase64(dataURL: string): string {
   const comma = dataURL.indexOf(",");
   if (comma < 0 || !dataURL.slice(0, comma).includes(";base64")) return "";
   return dataURL.slice(comma + 1);
+}
+
+function fullUrlFromImageId(imageId?: string | null): string | undefined {
+  return imageId ? `/media/full/${imageId}` : undefined;
 }

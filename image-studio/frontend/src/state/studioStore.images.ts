@@ -124,7 +124,7 @@ export function createImageActions(store: StateAdapter) {
       try {
         const res = await OpenImageDialog();
         if (!res || !res.path) return;
-        const baseName = res.path.split(/[\\/]/).pop() ?? res.path;
+        const baseName = res.name || res.path.split(/[\\/]/).pop() || res.path;
         const existing = store.getState().sources;
         if (existing.some((source) => source.path === res.path)) {
           store.setState({ mode: "edit", editSourceMode: "manual", errorMessage: null, errorRawPath: null });
@@ -285,7 +285,7 @@ export function createImageActions(store: StateAdapter) {
       try {
         const res = await OpenImageDialog();
         if (!res || !res.path) return;
-        const baseName = res.path.split(/[\\/]/).pop() ?? res.path;
+        const baseName = res.name || res.path.split(/[\\/]/).pop() || res.path;
         store.setState({
           reversePromptImage: {
             path: res.path,

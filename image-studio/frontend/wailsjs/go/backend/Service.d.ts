@@ -27,6 +27,8 @@ export function FlipImage(arg1:string,arg2:boolean):Promise<backend.ImageTransfo
 
 export function Generate(arg1:backend.GenerateOptions):Promise<backend.JobStarted>;
 
+export function GetAutomationStatus():Promise<backend.AutomationStatus>;
+
 export function GetOutputDir():Promise<string>;
 
 export function GetStoredAPIKey(arg1:string):Promise<string>;
@@ -34,6 +36,8 @@ export function GetStoredAPIKey(arg1:string):Promise<string>;
 export function ImportHistoryFromFile():Promise<string>;
 
 export function ImportImageFromB64(arg1:string,arg2:string):Promise<backend.ImportedImage>;
+
+export function ImportImagePath(arg1:string):Promise<backend.ImportedImage>;
 
 export function ListBatchInputImages(arg1:string):Promise<backend.BatchInputDirectory>;
 
@@ -76,6 +80,8 @@ export function SaveImagePathAs(arg1:string,arg2:string):Promise<string>;
 export function SaveImagePathToDir(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SaveImageToDir(arg1:string,arg2:string,arg3:string):Promise<string>;
+
+export function SetAutomationStatus(arg1:backend.AutomationStatus):Promise<void>;
 
 export function SetOutputDir(arg1:string):Promise<void>;
 
