@@ -92,6 +92,18 @@ foreach ($file in @(
   Copy-IfExists (Join-Path $Root $file) (Join-Path $StageRoot $file)
 }
 
+# Windows PowerShell 5.1 can misread UTF-8 script literals without BOM.
+# Keep an ASCII-only fallback for required Chinese-named release files.
+foreach ($pattern in @(
+  "AGPL-*.md",
+  "*FHL Studio V2.0.2*.cmd"
+)) {
+  Get-ChildItem -LiteralPath $Root -Filter $pattern -File -ErrorAction SilentlyContinue |
+    ForEach-Object {
+      Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $StageRoot $_.Name) -Force
+    }
+}
+
 $skillInstaller = Get-ChildItem -LiteralPath $Root -Filter "*CodexSkill.cmd" -File -ErrorAction SilentlyContinue |
   Select-Object -First 1
 if ($skillInstaller) {

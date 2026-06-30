@@ -14,6 +14,8 @@ V2.0.2.1 is a desktop maintenance update after the V2.0.2 feature set. This buil
 - Added desktop E2E test mode for packaged EXE builds. `--e2e` opens the normal desktop window and a localhost browser mirror; `--e2e-only` starts only the browser mirror at `http://127.0.0.1:9230/`.
 - Added safe frontend E2E hooks and DOM readiness markers so Codex browser automation can verify packaged UI loading, fill prompts, open settings, and regression-test common desktop flows.
 - Documented the E2E startup command in `README.md` and `docs/desktop-e2e-test-mode.md`.
+- Added global Codex Skill package-root discovery. `安装CodexSkill.cmd` now writes `PACKAGE_ROOT.txt` next to the installed `fhl-image-studio-v2-0-2-1` skill, so new Codex projects can locate the portable package and run `image-cli.cmd` without guessing paths.
+- Documented the UI-first workflow: configure and test API in the desktop app first, install the Skill second, then let Codex read CLI status and generate images without receiving API keys in chat.
 
 ## Version Metadata
 

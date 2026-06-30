@@ -185,6 +185,18 @@ $Guide = @"
 ## API Key
 
 发布包不内置任何 API Key。首次使用请在应用顶部打开上游 API 配置，选择 FHL、APIMart 或 RH，并填入你自己的 Key 或桥接地址。
+
+## Codex 全局 Skill 使用流程
+
+正确顺序：
+
+1. 先双击 `一键启动FHL Studio V2.0.2.1.cmd` 打开桌面端。
+2. 在桌面端手动配置 API，点击保存并测试，确认连接成功。
+3. 再双击 `安装CodexSkill.cmd` 安装全局 Skill。
+4. 新开任意 Codex 项目，使用 `fhl-image-studio-v2-0-2-1` Skill。
+5. Codex 会先读取 Skill 目录里的 `PACKAGE_ROOT.txt` 找到本软件位置，再运行 `image-cli.cmd --status --json` 检查当前 API。
+
+`PACKAGE_ROOT.txt` 只记录软件目录，不保存 API Key。不要把 API Key 发到 Codex 对话里；API 以桌面端同步出来的当前配置为准。
 "@
 Set-Content -LiteralPath (Join-Path $PackageRoot "使用说明.md") -Value $Guide -Encoding UTF8
 

@@ -9,6 +9,8 @@
 - 新增桌面 E2E 测试模式，打包后的 EXE 可通过 `--e2e` / `--e2e-only` 暴露 `127.0.0.1:9230` 浏览器镜像，方便 Codex 浏览器回归参考图双击、比例选择、API 配置弹窗和 360 工作台。
 - 项目 README 补充 E2E 测试模式启动命令，避免封装后测试入口只留在聊天记录里。
 - 新增 Android 对齐交接文档 `docs/android-v2.0.2.1-handoff.md`，把桌面小版本修复内容整理成可直接发送给另一个 Codex 窗口的提示词。
+- Codex Skill 安装脚本新增 `PACKAGE_ROOT.txt` 全局定位文件，新 Codex 项目可通过 `fhl-image-studio-v2-0-2-1` 自动找到便携包根目录并调用 `image-cli.cmd`。
+- README 与便携包使用说明补充“先在桌面端手动配置 API，再安装 Skill，再让 Codex 调用 CLI”的标准流程，避免把 API Key 发到对话里。
 
 ## Desktop V2.0.2 正式发布整理 - 2026-06-27
 

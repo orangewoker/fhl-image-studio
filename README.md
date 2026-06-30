@@ -105,6 +105,23 @@ powershell -ExecutionPolicy Bypass -File .\scripts\prepare-release-source-v2.0.2
 
 `--status --json` 只读返回当前包版本、活动 API、模型、尺寸与目录状态；API Key 只显示是否已配置，不会打印明文。`fhl-image-studio-v2-0-2-1` Skill 使用这个状态自动跟随桌面 UI 当前同步的 profile。
 
+### Codex 全局 Skill 使用流程
+
+推荐顺序是先在桌面端配置 API，再让 Codex 读取全局 Skill：
+
+1. 将 Windows 便携包解压到稳定目录，不要每次运行都更换位置。
+2. 双击 `一键启动FHL Studio V2.0.2.1.cmd` 打开桌面端。
+3. 在桌面端手动配置 FHL / APIMart / RH，点击保存并测试，确认连接成功。
+4. 双击 `安装CodexSkill.cmd`，安装 `fhl-image-studio-v2-0-2-1` 到当前用户的 Codex skills 目录。
+5. 安装脚本会写入 `PACKAGE_ROOT.txt`，记录当前包根路径；这个文件只保存路径，不保存 API Key。
+6. 新开任意 Codex 项目后，让 Codex 使用 `fhl-image-studio-v2-0-2-1`，先运行状态检查：
+
+```cmd
+cmd /c "cd /d ^"<packageRoot>^" && image-cli.cmd --status --json"
+```
+
+如果状态里 `apiKeyConfigured:false`，请回到桌面端配置并测试 API；不要把 API Key 发到 Codex 对话里。配置成功后，Codex 会通过包根 `config\cli.env.local` 自动读取当前活动 API。
+
 前端检查：
 
 ```powershell

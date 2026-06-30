@@ -12,19 +12,38 @@ Use the local package CLI instead of built-in image generation when this package
 Use this order:
 
 1. If the current directory contains `image-cli.cmd`, use the current directory.
-2. If the current directory contains `程序文件\image-cli.cmd`, use the current directory as a legacy package root.
-3. If `FHL_IMAGE_STUDIO_HOME` is set, use that package root.
+2. If this skill is installed globally, read `PACKAGE_ROOT.txt` from the same directory as this `SKILL.md`; use that path only when it contains `image-cli.cmd`.
+3. If `FHL_IMAGE_STUDIO_HOME` is set, use that package root only when it contains `image-cli.cmd`.
+4. If the current directory contains `程序文件\image-cli.cmd`, use the current directory as a legacy package root.
 
-Run commands through Windows `cmd /c`.
+After resolving the package root, run commands through Windows `cmd /c` from that package root:
+
+```bat
+cmd /c "cd /d ^"<packageRoot>^" && image-cli.cmd --status --json"
+```
+
+Do not run `image-cli.cmd` from an unrelated Codex project directory. The package root is the source of truth for `config\cli.env.local`, `input\`, `output\`, `output\log\`, and `intermediate\`.
 
 This is the versioned skill for the FHL Studio V2.0.2.1 package line. Use `fhl-image-studio-v2-0-2-1` for this package; future package versions should install their own versioned skill so Codex can distinguish them.
+
+## Correct user workflow
+
+The user should configure API profiles in the desktop app before Codex generates images:
+
+1. Open the package desktop app.
+2. Configure and test FHL, APIMart, or RunningHub in the UI.
+3. Run `安装CodexSkill.cmd` once to install this global skill and write `PACKAGE_ROOT.txt`.
+4. Open any Codex project and use this skill.
+5. Run the status command before generation so the current UI-synced API profile is used.
+
+Do not ask the user to paste API keys into chat. The CLI follows the desktop app's synced config.
 
 ## Check package and API status first
 
 Before generating or editing, run the package-root status command:
 
 ```bat
-cmd /c "image-cli.cmd" --status --json
+cmd /c "cd /d ^"<packageRoot>^" && image-cli.cmd --status --json"
 ```
 
 Use the returned JSON as the source of truth for:
@@ -50,7 +69,7 @@ Never print or infer the actual API key. The status command only reports whether
 Before relying on CLI on a machine, open the desktop UI first:
 
 ```bat
-cmd /c "一键启动FHL Studio V2.0.2.1.cmd"
+cmd /c "cd /d ^"<packageRoot>^" && ^"一键启动FHL Studio V2.0.2.1.cmd^""
 ```
 
 Then let the user do profile setup in the UI:
@@ -77,31 +96,31 @@ If the user says the UI connection test already succeeded, treat that as suffici
 Text-to-image:
 
 ```bat
-cmd /c "image-cli.cmd" --prompt "cinematic portrait" --size 1024x1024 --quality medium
+cmd /c "cd /d ^"<packageRoot>^" && image-cli.cmd --prompt ^"cinematic portrait^" --size 1024x1024 --quality medium"
 ```
 
 APIMart text-to-image with the current synced profile:
 
 ```bat
-cmd /c "image-cli.cmd" --prompt "vertical story illustration" --size 9:16@1k --quality medium
+cmd /c "cd /d ^"<packageRoot>^" && image-cli.cmd --prompt ^"vertical story illustration^" --size 9:16@1k --quality medium"
 ```
 
 RunningHub text-to-image with the current synced bridge profile:
 
 ```bat
-cmd /c "image-cli.cmd" --api-mode runninghub --prompt "clean product photo" --size 16:9@1k --quality medium
+cmd /c "cd /d ^"<packageRoot>^" && image-cli.cmd --api-mode runninghub --prompt ^"clean product photo^" --size 16:9@1k --quality medium"
 ```
 
 Image-to-image:
 
 ```bat
-cmd /c "image-cli.cmd" --mode edit --image "input\ref.png" --prompt "keep the subject identity and change the scene"
+cmd /c "cd /d ^"<packageRoot>^" && image-cli.cmd --mode edit --image ^"input\ref.png^" --prompt ^"keep the subject identity and change the scene^""
 ```
 
 Multi-reference edit:
 
 ```bat
-cmd /c "image-cli.cmd" --mode edit --image "input\main.png" --image "input\ref2.png" --prompt "use the first image as the main subject and the later images as references"
+cmd /c "cd /d ^"<packageRoot>^" && image-cli.cmd --mode edit --image ^"input\main.png^" --image ^"input\ref2.png^" --prompt ^"use the first image as the main subject and the later images as references^""
 ```
 
 ## APIMart behavior
