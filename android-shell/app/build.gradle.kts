@@ -15,8 +15,8 @@ val androidHomeCacheDir = androidHomeDir.resolve(".android")
 val frontendNodeModules = frontendRoot.resolve("node_modules")
 val fallbackDebugKeystore = androidHomeCacheDir.resolve("debug.keystore")
 val customKeystorePath = providers.environmentVariable("IMAGE_STUDIO_KEYSTORE_PATH")
-val appVersionName = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_NAME").orElse("V2.0.2")
-val appVersionCode = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_CODE").orElse("1050001").map(String::toInt)
+val appVersionName = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_NAME").orElse("V2.0.2.1")
+val appVersionCode = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_CODE").orElse("1050002").map(String::toInt)
 val npmCommand = if (System.getProperty("os.name").lowercase().contains("windows")) "npm.cmd" else "npm"
 val usePrebuiltFrontend = providers.environmentVariable("IMAGE_STUDIO_ANDROID_USE_PREBUILT_FRONTEND")
     .map { value -> value == "1" || value.equals("true", ignoreCase = true) }
@@ -111,7 +111,7 @@ android {
         targetSdk = 34
         versionCode = appVersionCode.get()
         versionName = appVersionName.get()
-        manifestPlaceholders["appLabel"] = "FHL Image Studio 方汤圆版 V2.0.2"
+        manifestPlaceholders["appLabel"] = "FHL Image Studio 方汤圆版 V2.0.2.1"
         buildConfigField("String", "TARGET_PLATFORM", "\"android\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

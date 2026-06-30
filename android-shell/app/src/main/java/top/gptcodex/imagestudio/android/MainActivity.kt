@@ -316,6 +316,18 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         AndroidJobManager.resumePendingWork(applicationContext)
+        refreshAndroidJobsForPage()
+    }
+
+    private fun refreshAndroidJobsForPage() {
+        if (!::webView.isInitialized) return
+        webView.post {
+            AndroidJobManager.attach(applicationContext)
+            webView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('image-studio:android-jobs-resume'))",
+                null,
+            )
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

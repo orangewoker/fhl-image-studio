@@ -33,6 +33,8 @@ export const ASPECT_PRESETS: Array<AspectPresetOption & { value: FHLAspectPreset
   { value: "2:3", label: "2:3", w: 14, h: 20 },
   { value: "16:9", label: "16:9", w: 24, h: 13 },
   { value: "9:16", label: "9:16", w: 12, h: 22 },
+  { value: "2:1", label: "2:1", w: 24, h: 12 },
+  { value: "1:2", label: "1:2", w: 12, h: 24 },
   { value: "7:4", label: "7:4", w: 24, h: 14 },
   { value: "4:7", label: "4:7", w: 14, h: 24 },
 ];
@@ -63,7 +65,7 @@ export const RESOLUTION_PRESETS: Array<{ value: ResolutionPreset; label: string 
   { value: "4k", label: "4K" },
 ];
 
-type VisibleFHLAspectPreset = "1:1" | "3:2" | "2:3" | "16:9" | "9:16" | "7:4" | "4:7";
+type VisibleFHLAspectPreset = "1:1" | "3:2" | "2:3" | "16:9" | "9:16" | "2:1" | "1:2" | "7:4" | "4:7";
 
 const FHL_SIZE_MATRIX: Record<VisibleFHLAspectPreset, Record<Exclude<ResolutionPreset, "auto">, SizeValue>> = {
   "1:1": {
@@ -90,6 +92,16 @@ const FHL_SIZE_MATRIX: Record<VisibleFHLAspectPreset, Record<Exclude<ResolutionP
     "1k": "864x1536",
     "2k": "1152x2048",
     "4k": "2160x3840",
+  },
+  "2:1": {
+    "1k": "1536x768",
+    "2k": "2048x1024",
+    "4k": "3840x1920",
+  },
+  "1:2": {
+    "1k": "768x1536",
+    "2k": "1024x2048",
+    "4k": "1920x3840",
   },
   "7:4": {
     "1k": "1664x944",
@@ -238,51 +250,6 @@ const LARGE_RESOLUTION_PRESETS = new Set<ResolutionPreset>(["2k", "4k"]);
 const DEFAULT_FHL_ASPECT_FROM_AUTO: Exclude<AspectPreset, "auto"> = "1:1";
 const DEFAULT_APIMART_ASPECT_FROM_AUTO: Exclude<AspectPreset, "auto"> = "9:16";
 const DEFAULT_RESOLUTION_FROM_AUTO: Exclude<ResolutionPreset, "auto"> = "1k";
-const FHL_BASE_URL = "https://www.fhl.mom";
-
-const FHL_IMAGES_SAFE_1K_SIZES: Record<string, SizeValue> = {
-  "1024x1024": "1024x1024",
-  "1248x832": "1024x680",
-  "1536x1024": "1024x680",
-  "832x1248": "680x1024",
-  "1024x1536": "680x1024",
-  "1152x864": "1024x768",
-  "1536x1152": "1024x768",
-  "864x1152": "768x1024",
-  "1152x1536": "768x1024",
-  "1120x896": "1024x816",
-  "1520x1216": "1024x816",
-  "896x1120": "816x1024",
-  "1216x1520": "816x1024",
-  "1280x720": "1024x576",
-  "1536x864": "1024x576",
-  "720x1280": "576x1024",
-  "864x1536": "576x1024",
-  "1440x720": "1024x512",
-  "1536x768": "1024x512",
-  "720x1440": "512x1024",
-  "768x1536": "512x1024",
-  "1728x576": "1024x344",
-  "1536x512": "1024x344",
-  "576x1728": "344x1024",
-  "512x1536": "344x1024",
-  "1664x944": "1024x576",
-  "944x1664": "576x1024",
-  "1792x1024": "1024x576",
-  "1024x1792": "576x1024",
-};
-
-function comparableBaseURL(value?: string): string {
-  const normalized = String(value || "").trim().replace(/\/+$/, "").toLowerCase();
-  return normalized.endsWith("/v1") ? normalized.slice(0, -3) : normalized;
-}
-
-function isFHLImagesInput(input: {
-  apiMode: APIMode;
-  baseURL?: string;
-}): boolean {
-  return input.apiMode === "images" && comparableBaseURL(input.baseURL) === comparableBaseURL(FHL_BASE_URL);
-}
 
 function parseAPIMartSize(size: SizeValue): { aspect: AspectPreset; resolution: ResolutionPreset } | null {
   const normalized = String(size || "").trim().toLowerCase();
@@ -302,6 +269,8 @@ function normalizeFHLAspectSelection(aspect: AspectPreset): VisibleFHLAspectPres
     case "2:3":
     case "16:9":
     case "9:16":
+    case "2:1":
+    case "1:2":
     case "7:4":
     case "4:7":
     case "1:1":
@@ -312,10 +281,8 @@ function normalizeFHLAspectSelection(aspect: AspectPreset): VisibleFHLAspectPres
     case "3:4":
     case "4:5":
       return "2:3";
-    case "2:1":
     case "21:9":
       return "16:9";
-    case "1:2":
     case "9:21":
       return "9:16";
     case "3:1":
@@ -481,18 +448,6 @@ export function normalizeSizeSelection(
   const aspect = deriveAspectPreset(size);
   const resolution = deriveResolutionPreset(size);
   return buildSizeSelection(aspect, resolution, input);
-}
-
-export function normalizeFHLImagesBillingSize(
-  size: SizeValue,
-  input: {
-    apiMode: APIMode;
-    baseURL?: string;
-  },
-): SizeValue {
-  if (!isFHLImagesInput(input)) return size;
-  if (deriveResolutionPreset(size) !== "1k") return size;
-  return FHL_IMAGES_SAFE_1K_SIZES[size] ?? size;
 }
 
 export function sizeCapabilityHint(input: {

@@ -16,6 +16,9 @@ const upstreamHeader = readFileSync(new URL("../src/platform/android/upstream/An
 const upstreamRail = readFileSync(new URL("../src/platform/android/upstream/AndroidUpstreamProfileRail.tsx", import.meta.url), "utf8");
 const upstreamModal = readFileSync(new URL("../src/platform/android/upstream/AndroidUpstreamConfigModal.tsx", import.meta.url), "utf8");
 const upstreamCss = readFileSync(new URL("../src/styles/_android-upstream.css", import.meta.url), "utf8");
+const runningHubChoiceModal = readFileSync(new URL("../src/components/panel/RunningHubAPIChoiceModal.tsx", import.meta.url), "utf8");
+const runningHubQuickConfigModal = readFileSync(new URL("../src/components/panel/RunningHubQuickConfigModal.tsx", import.meta.url), "utf8");
+const fhlChoiceModal = readFileSync(new URL("../src/components/panel/FHLAPIChoiceModal.tsx", import.meta.url), "utf8");
 const fhlAPI = readFileSync(new URL("../src/lib/fhlAPI.ts", import.meta.url), "utf8");
 const profiles = readFileSync(new URL("../src/lib/profiles.ts", import.meta.url), "utf8");
 
@@ -89,7 +92,7 @@ test("Android header brand opens about sheet with fork and original GitHub links
   assert.match(header, /onOpenOriginalRepo=\{\(\) => openAndroidExternal\(ANDROID_ORIGINAL_REPO_URL\)\}/);
   assert.match(brandAboutSheet, /ANDROID_FHL_REPO_URL = "https:\/\/github\.com\/supart\/fhl-image-studio"/);
   assert.match(brandAboutSheet, /ANDROID_ORIGINAL_REPO_URL = "https:\/\/github\.com\/RoseKhlifa\/Image-Studio"/);
-  assert.match(brandAboutSheet, /const ANDROID_BRAND_VERSION = "V2\.0\.2";/);
+  assert.match(brandAboutSheet, /const ANDROID_BRAND_VERSION = "V2\.0\.2\.1";/);
   assert.match(brandAboutSheet, /方汤圆版 GitHub/);
   assert.match(brandAboutSheet, /原作者 GitHub/);
   assert.match(brandAboutSheet, /基于 RoseKhlifa\/Image-Studio 的独立修改发行版/);
@@ -103,17 +106,26 @@ test("generation submit uses active profile as API source of truth", () => {
   assert.match(store, /const runningHubBridgeSubmit = submitAPIMode === "runninghub" \|\| isRunningHubBaseURL\(submitBaseURL\);/);
   assert.match(store, /if \(!runningHubBridgeSubmit && !s\.apiKey\.trim\(\)\)/);
   assert.match(store, /if \(!runningHubBridgeSubmit\) \{\s*try \{/);
-  assert.match(store, /const effectiveAPIMode = effectiveAPIModeForSubmit\(s\.mode, submitAPIMode\);/);
+  assert.match(store, /const preliminaryAPIMode = effectiveAPIModeForSubmit\(s\.mode, submitAPIMode\);/);
+  assert.match(store, /const effectiveAPIMode = preliminaryAPIMode;/);
   assert.match(store, /baseURL: cleanedBaseURL/);
   assert.match(store, /apiMode: effectiveAPIMode/);
-  assert.match(store, /const selectedSize = normalizeSizeSelection\(s\.size,/);
-  assert.match(store, /const resolvedSize = normalizeFHLImagesBillingSize\(selectedSize,/);
+  assert.match(store, /const resolvedSize = normalizeSizeSelection\(s\.size,/);
+  assert.doesNotMatch(store, /normalizeFHLImagesBillingSize/);
 });
 
-test("Android FHL preset restores old Responses API config and adds APIMart/RH presets", () => {
+test("FHL Responses custom aspect sizes stay on Responses API", () => {
+  assert.doesNotMatch(store, /FHL_RESPONSES_NATIVE_SIZES/);
+  assert.doesNotMatch(store, /function shouldRouteFHLResponsesSizeThroughImages/);
+  assert.match(store, /const effectiveAPIMode = preliminaryAPIMode;/);
+  assert.match(store, /activeProfile\.imagesNewAPICompat === true \|\| isFHLBaseURL\(cleanedBaseURL\)/);
+});
+
+test("Android FHL preset supports Responses and Images choices with APIMart/RH presets", () => {
   const presetBlock = upstreamConfig.match(/ANDROID_UPSTREAM_MODE_OPTIONS[\s\S]*?\];/)?.[0] ?? "";
-  assert.match(presetBlock, /id: "responses"[\s\S]*FHL/);
+  assert.match(presetBlock, /id: "responses"[\s\S]*一键配置 FHL/);
   assert.match(presetBlock, /Responses/);
+  assert.match(presetBlock, /Images/);
   assert.match(presetBlock, /SSE/);
   assert.match(presetBlock, /FHL/);
   assert.match(presetBlock, /title: "一键配置 APIMart 异步"/);
@@ -126,14 +138,22 @@ test("Android FHL preset restores old Responses API config and adds APIMart/RH p
   assert.match(apiModeBlock, /id: "apimart"/);
   assert.match(apiModeBlock, /id: "runninghub"/);
 
-  assert.match(upstreamConfig, /import \{ ensureFHLResponsesProfile, focusFHLAPIKeyInput \} from "\.\.\/\.\.\/\.\.\/lib\/fhlAPI";/);
+  assert.match(upstreamConfig, /import \{ ensureFHLImagesProfile, ensureFHLResponsesProfile, focusFHLAPIKeyInput \} from "\.\.\/\.\.\/\.\.\/lib\/fhlAPI";/);
   assert.match(upstreamConfig, /async function handleNew\(apiMode: APIMode = "responses"\)/);
   assert.match(upstreamConfig, /requestPolicy: "openai"/);
-  assert.match(upstreamConfig, /const id = await ensureFHLResponsesProfile\(useStudioStore\.getState\(\)\);/);
-  assert.match(upstreamConfig, /handleUseExistingRunningHubAPI/);
+  assert.match(upstreamConfig, /async function handleUseExistingFHLAPI\(apiMode: "responses" \| "images" = "responses"\)/);
+  assert.match(upstreamConfig, /apiMode === "images"[\s\S]*ensureFHLImagesProfile\(useStudioStore\.getState\(\)\)/);
+  assert.match(upstreamConfig, /ensureFHLResponsesProfile\(useStudioStore\.getState\(\)\)/);
+  assert.match(upstreamModal, /handleUseExistingFHLAPI\("responses"\)/);
+  assert.match(upstreamModal, /handleUseExistingFHLAPI\("images"\)/);
+  assert.match(upstreamModal, /onUseImagesAPI=\{handleUseFHLImagesAPI\}/);
+  assert.match(upstreamModal, /handleUseExistingRunningHubAPI/);
   assert.match(upstreamHeader, /onConfigureRunningHub/);
   assert.doesNotMatch(upstreamModal, /onCreateImages/);
   assert.doesNotMatch(upstreamHeader, /onCreateImages/);
+  assert.match(fhlChoiceModal, /data-fhl-api-choice="responses"/);
+  assert.match(fhlChoiceModal, /data-fhl-api-choice="images"/);
+  assert.match(fhlChoiceModal, /data-fhl-api-choice="get"/);
 
   assert.doesNotMatch(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*return ensureFHLImagesProfile\(store\);/);
   assert.match(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*apiMode: "responses"/);
@@ -149,6 +169,30 @@ test("Android FHL preset restores old Responses API config and adds APIMart/RH p
   assert.match(store, /const nextFHLAPIMode: APIMode = localFHLConfig\?\.apiMode \?\? "responses";/);
   assert.match(store, /apiMode: nextFHLAPIMode/);
   assert.match(store, /imagesNewAPICompat: nextFHLAPIMode === "images"/);
+});
+
+test("Android RunningHub one-click opens choice and quick config before creating profiles", () => {
+  assert.match(upstreamModal, /import \{ RunningHubAPIChoiceModal \} from "\.\.\/\.\.\/\.\.\/components\/panel\/RunningHubAPIChoiceModal";/);
+  assert.match(upstreamModal, /import \{ RunningHubQuickConfigModal \} from "\.\.\/\.\.\/\.\.\/components\/panel\/RunningHubQuickConfigModal";/);
+  assert.match(upstreamModal, /const \[runningHubChoiceOpen, setRunningHubChoiceOpen\] = useState\(false\);/);
+  assert.match(upstreamModal, /const \[runningHubQuickConfigOpen, setRunningHubQuickConfigOpen\] = useState\(false\);/);
+  assert.match(upstreamModal, /function handleConfigureRunningHub\(\) \{\s*setRunningHubChoiceOpen\(true\);/);
+  assert.match(upstreamModal, /function handleUseExistingRunningHubAPI\(\) \{\s*setRunningHubChoiceOpen\(false\);\s*setRunningHubQuickConfigOpen\(true\);/);
+  assert.match(upstreamModal, /onConfigureRunningHub=\{handleConfigureRunningHub\}/);
+  assert.match(upstreamModal, /<RunningHubAPIChoiceModal[\s\S]*onUseExistingAPI=\{handleUseExistingRunningHubAPI\}/);
+  assert.match(upstreamModal, /<RunningHubQuickConfigModal[\s\S]*onOpenUpstream=\{\(banana2Id\) => \{/);
+  assert.doesNotMatch(upstreamConfig, /handleUseExistingRunningHubAPI/);
+  assert.doesNotMatch(upstreamConfig, /ensureRunningHubProfiles/);
+
+  assert.match(runningHubChoiceModal, /data-runninghub-api-choice="existing"/);
+  assert.match(runningHubChoiceModal, /data-runninghub-api-choice="get"/);
+  assert.match(runningHubChoiceModal, /RUNNINGHUB_REGISTER_URL/);
+  assert.match(runningHubChoiceModal, /安卓模拟器桥接地址/);
+
+  assert.match(runningHubQuickConfigModal, /saveRunningHubConfig\(baseURL, \{ apiKey \}, controller\.signal\)/);
+  assert.match(runningHubQuickConfigModal, /verifyRunningHubBridge\(baseURL, controller\.signal\)/);
+  assert.match(runningHubQuickConfigModal, /ensureRunningHubProfiles\(useStudioStore\.getState\(\), baseURL\)/);
+  assert.match(runningHubQuickConfigModal, /不会保存到安卓 profile/);
 });
 
 test("Android upstream starts with empty defaults and highlights one-click presets", () => {

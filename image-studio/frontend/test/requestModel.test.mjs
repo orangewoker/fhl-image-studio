@@ -27,6 +27,53 @@ test("Responses payload defaults partial_images to streaming preview count", () 
   assert.equal(payload.tools[0].partial_images, DEFAULT_PARTIAL_IMAGES);
 });
 
+test("FHL exact-size gpt-image-2 Responses disables partial previews for stable final ratio", () => {
+  const payload = buildResponsesPayload({
+    prompt: "portrait ratio test",
+    size: "864x1536",
+    quality: "medium",
+    outputFormat: "png",
+    imageModelID: "gpt-image-2",
+    textModelID: "gpt-5.5",
+    requestPolicy: "openai",
+    apiMode: "responses",
+    baseURL: "https://www.fhl.mom",
+  }, []);
+  assert.equal(payload.tools[0].partial_images, 0);
+  assert.match(payload.instructions, /9:16/);
+  assert.match(payload.instructions, /MUST use/);
+  assert.match(payload.input[0].content[0].text, /竖版/);
+  assert.match(payload.input[0].content[0].text, /9:16/);
+});
+
+test("FHL exact-size gpt-image-2 Responses adds Chinese aspect suffix by orientation", () => {
+  const cases = [
+    { size: "1024x1024", aspect: "1:1", copy: /正方形/ },
+    { size: "1536x864", aspect: "16:9", copy: /横版/ },
+    { size: "864x1536", aspect: "9:16", copy: /竖版/ },
+    { size: "2048x1024", aspect: "2:1", copy: /横版/ },
+    { size: "1024x2048", aspect: "1:2", copy: /竖版/ },
+  ];
+  for (const item of cases) {
+    const payload = buildResponsesPayload({
+      prompt: "ratio matrix test",
+      size: item.size,
+      quality: "medium",
+      outputFormat: "png",
+      imageModelID: "gpt-image-2",
+      textModelID: "gpt-5.5",
+      requestPolicy: "openai",
+      apiMode: "responses",
+      baseURL: "https://www.fhl.mom/v1",
+    }, []);
+    const text = payload.input[0].content[0].text;
+    assert.equal(payload.tools[0].partial_images, 0);
+    assert.match(payload.instructions, new RegExp(item.aspect));
+    assert.match(text, new RegExp(item.aspect));
+    assert.match(text, item.copy);
+  }
+});
+
 test("normalizePartialImages clamps OpenAI range", () => {
   assert.equal(normalizePartialImages(undefined), DEFAULT_PARTIAL_IMAGES);
   assert.equal(normalizePartialImages(0), 0);
@@ -40,6 +87,19 @@ test("repairSizeForOpenAI aligns GPT Image 2 pixel sizes", () => {
   assert.deepEqual(repairSizeForOpenAI({ size: "4096x4096" }), { size: "2880x2880" });
   assert.equal(repairSizeForOpenAI({ size: "2160x3840" }), null);
   assert.equal(repairSizeForOpenAI({ size: "auto" }), null);
+});
+
+test("Responses payload preserves the requested image tool size", () => {
+  const payload = buildResponsesPayload({
+    prompt: "cat",
+    size: "864x1536",
+    quality: "low",
+    outputFormat: "png",
+    imageModelID: "gpt-image-2",
+    textModelID: "gpt-5.5",
+    requestPolicy: "openai",
+  }, []);
+  assert.equal(payload.tools[0].size, "864x1536");
 });
 
 test("Responses payload can allow safe prompt adaptation", () => {
@@ -95,6 +155,33 @@ test("batch variation is added to Responses and plain prompt payloads", () => {
   const prompt = promptWithBatchVariation(variationInput);
   assert.match(prompt, /^cat\n\nRequest isolation:/);
   assert.match(prompt, /Do not render the run id/);
+});
+
+test("FHL exact-size constraints survive image-to-image batch variation", () => {
+  const payload = buildResponsesPayload({
+    prompt: "edit the scene",
+    size: "1536x768",
+    quality: "medium",
+    outputFormat: "png",
+    imageModelID: "gpt-image-2",
+    textModelID: "gpt-5.5",
+    requestPolicy: "openai",
+    apiMode: "responses",
+    baseURL: "https://www.fhl.mom",
+    requestRunId: "run-edit",
+    batchVariationKey: "run-edit-2",
+    batchIndex: 1,
+    batchCount: 3,
+  }, ["data:image/png;base64,AAAA"]);
+
+  assert.equal(payload.tools[0].action, "edit");
+  assert.equal(payload.tools[0].size, "1536x768");
+  assert.equal(payload.tools[0].partial_images, 0);
+  assert.match(payload.input[0].content[0].text, /2:1/);
+  assert.match(payload.input[0].content[0].text, /横版/);
+  assert.match(payload.input[0].content[1].text, /Request isolation/);
+  assert.match(payload.input[0].content[1].text, /run-edit-2/);
+  assert.equal(payload.input[0].content[2].type, "input_image");
 });
 
 test("Reverse prompt payload uses input_text and input_image with Chinese-only instructions", () => {

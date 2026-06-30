@@ -423,6 +423,13 @@ object AndroidJobManager {
                 if (!result.apimartTaskId.isNullOrBlank()) current.put("apimartTaskId", result.apimartTaskId)
                 if (!result.apimartTaskStatus.isNullOrBlank()) current.put("apimartTaskStatus", result.apimartTaskStatus)
             }
+            AndroidJobNotifications.notifySuccess(
+                context,
+                jobId,
+                payload.optString("prompt"),
+                savedPath,
+                galleryUri,
+            )
         } catch (cancelled: CancellationException) {
             updateSlot(context, jobId, "cancelled") { current ->
                 current.put("status", "cancelled")
@@ -445,6 +452,7 @@ object AndroidJobManager {
                 if (!error.apimartTaskId.isNullOrBlank()) current.put("apimartTaskId", error.apimartTaskId)
                 if (!error.apimartTaskStatus.isNullOrBlank()) current.put("apimartTaskStatus", error.apimartTaskStatus)
             }
+            AndroidJobNotifications.notifyFailure(context, jobId, error.message ?: "生成失败")
         } catch (error: Exception) {
             updateSlot(context, jobId, "error") { current ->
                 current.put("status", "failed")
@@ -453,6 +461,7 @@ object AndroidJobManager {
                 current.put("elapsedSec", ((System.currentTimeMillis() - startedAt) / 1000.0))
                 current.put("errorMessage", error.message ?: error.javaClass.simpleName)
             }
+            AndroidJobNotifications.notifyFailure(context, jobId, error.message ?: error.javaClass.simpleName)
         } finally {
             activeConnections.remove(jobId)?.disconnect()
             liveJobIds.remove(jobId)
@@ -1339,7 +1348,18 @@ object AndroidJobManager {
 
     private fun buildResponsesPayload(context: Context, payload: JSONObject): JSONObject {
         val sourceDataUrls = resolveSourceDataURLs(context, payload)
-        val content = JSONArray().put(JSONObject().put("type", "input_text").put("text", payload.optString("prompt").trim()))
+        val rawSize = payload.optString("size", "1024x1024").trim()
+        val parsedSize = if (rawSize.isNotBlank() && !rawSize.equals("auto", ignoreCase = true)) parseSizePixels(rawSize) else null
+        val size = when {
+            rawSize.equals("auto", ignoreCase = true) -> "auto"
+            parsedSize != null -> repairSizeForOpenAI(rawSize)
+            else -> "1024x1024"
+        }
+        val aspectSuffix = fhlExactResponsesAspectPromptSuffix(payload, size)
+        val prompt = payload.optString("prompt").trim().let { base ->
+            if (aspectSuffix.isBlank()) base else "$base\n\n$aspectSuffix"
+        }
+        val content = JSONArray().put(JSONObject().put("type", "input_text").put("text", prompt))
         val variation = batchVariationInstruction(payload)
         if (variation.isNotBlank()) {
             content.put(JSONObject().put("type", "input_text").put("text", variation))
@@ -1352,11 +1372,14 @@ object AndroidJobManager {
             .put("type", "image_generation")
             .put("model", payload.optString("imageModelID", defaultImageModel).ifBlank { defaultImageModel })
             .put("action", if (sourceDataUrls.length() > 0) "edit" else "generate")
-            .put("size", repairSizeForOpenAI(payload.optString("size", "1024x1024").ifBlank { "1024x1024" }))
+            .put("size", size)
             .put("quality", payload.optString("quality", "medium").ifBlank { "medium" })
             .put("output_format", payload.optString("outputFormat", "png").ifBlank { "png" })
             .put("moderation", "low")
-            .put("partial_images", normalizePartialImages(payload.opt("partialImages")))
+            .put(
+                "partial_images",
+                if (shouldDisablePartialImagesForFHLExactResponses(payload, size)) 0 else normalizePartialImages(payload.opt("partialImages")),
+            )
         val seed = payload.optLong("seed", 0L)
         val negativePrompt = payload.optString("negativePrompt").trim()
         if (compat && seed > 0L) tool.put("seed", seed)
@@ -1375,8 +1398,69 @@ object AndroidJobManager {
             .put("stream", true)
             .put(
                 "instructions",
-                if (payload.optBoolean("noPromptRevision", true)) noPromptRevisionInstructions else safeImageToolInstructions,
+                buildResponsesInstructions(payload, size),
             )
+    }
+
+    private fun buildResponsesInstructions(payload: JSONObject, size: String): String {
+        val base = if (payload.optBoolean("noPromptRevision", true)) {
+            noPromptRevisionInstructions
+        } else {
+            safeImageToolInstructions
+        }
+        val aspectInstruction = fhlExactResponsesAspectInstruction(payload, size)
+        return if (aspectInstruction.isBlank()) base else "$base $aspectInstruction"
+    }
+
+    private fun shouldDisablePartialImagesForFHLExactResponses(payload: JSONObject, size: String): Boolean {
+        val apiMode = payload.optString("apiMode", "responses").trim()
+        if (apiMode.isNotBlank() && normalizeAPIMode(apiMode) != "responses") return false
+        if (!isFHLBaseURL(payload.optString("baseURL"))) return false
+        if (!isGPTImage2Model(payload.optString("imageModelID", defaultImageModel))) return false
+        val normalizedSize = size.ifBlank { payload.optString("size") }.trim()
+        return normalizedSize.isNotBlank()
+            && !normalizedSize.equals("auto", ignoreCase = true)
+            && parseSizePixels(normalizedSize) != null
+    }
+
+    private fun fhlExactResponsesAspectInstruction(payload: JSONObject, size: String): String {
+        if (!shouldDisablePartialImagesForFHLExactResponses(payload, size)) return ""
+        val parsed = parseSizePixels(size.ifBlank { payload.optString("size") }) ?: return ""
+        val divisor = gcd(parsed.width, parsed.height)
+        if (divisor <= 0) return ""
+        val aspect = "${parsed.width / divisor}:${parsed.height / divisor}"
+        val orientation = when {
+            parsed.width == parsed.height -> "square"
+            parsed.width > parsed.height -> "landscape"
+            else -> "portrait"
+        }
+        return "The selected output aspect ratio is $aspect ($orientation). The image_generation result MUST use a $aspect canvas and must not return any other aspect ratio."
+    }
+
+    private fun fhlExactResponsesAspectPromptSuffix(payload: JSONObject, size: String): String {
+        if (!shouldDisablePartialImagesForFHLExactResponses(payload, size)) return ""
+        val parsed = parseSizePixels(size.ifBlank { payload.optString("size") }) ?: return ""
+        val divisor = gcd(parsed.width, parsed.height)
+        if (divisor <= 0) return ""
+        val aspect = "${parsed.width / divisor}:${parsed.height / divisor}"
+        if (parsed.width == parsed.height) {
+            return "请严格按照 $aspect 正方形画幅生成最终图片，整张图片必须为 $aspect 比例。"
+        }
+        if (parsed.height > parsed.width) {
+            return "请严格按照 $aspect 竖版画幅生成最终图片，整张图片必须为 $aspect 竖向构图，不要正方形，不要横版。"
+        }
+        return "请严格按照 $aspect 横版画幅生成最终图片，整张图片必须为 $aspect 横向构图，不要正方形，不要竖版。"
+    }
+
+    private fun gcd(left: Int, right: Int): Int {
+        var a = kotlin.math.abs(left)
+        var b = kotlin.math.abs(right)
+        while (b != 0) {
+            val next = a % b
+            a = b
+            b = next
+        }
+        return a
     }
 
     private fun batchVariationInstruction(payload: JSONObject): String {
@@ -1399,7 +1483,7 @@ object AndroidJobManager {
         val baseUrl = normalizeBaseURL(payload.optString("baseURL"))
         val mode = if (payload.optString("mode") == "edit") "edit" else "generate"
         val imageModel = payload.optString("imageModelID", defaultImageModel).ifBlank { defaultImageModel }
-        val size = repairSizeForOpenAI(payload.optString("size", "1024x1024").ifBlank { "1024x1024" })
+        val size = payload.optString("size", "864x1536").ifBlank { "864x1536" }
         val quality = payload.optString("quality", "auto").ifBlank { "auto" }
         val outputFormat = payload.optString("outputFormat", "png").ifBlank { "png" }
         val includeExtended = payload.optString("requestPolicy", "openai") == "compat"
@@ -1596,6 +1680,9 @@ object AndroidJobManager {
             JSONObject(raw)
         } catch (error: Exception) {
             throw JobRequestException("Images API JSON parse failed: ${error.message ?: error.javaClass.simpleName}", rawPath, true)
+        }
+        describeJSONProblem(parsed, 0)?.let {
+            throw JobRequestException(it, rawPath, isRetryableRaw(raw, payloadStatusCode(parsed)))
         }
         parsed.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }?.let {
             throw JobRequestException(it, rawPath, isRetryableRaw(raw, 0))
@@ -2734,11 +2821,37 @@ object AndroidJobManager {
         if (lower.contains("504") || lower.contains("gateway time-out")) return "Cloudflare 504：上游网关超时"
         return try {
             val parsed = JSONObject(text)
-            parsed.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
+            describeJSONProblem(parsed, status)
+                ?: parsed.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
                 ?: parsed.optString("message").takeIf { it.isNotBlank() }
                 ?: "接口已返回内容，但没有发现 image_generation_call.result"
         } catch (_: Exception) {
             "接口已返回内容，但没有发现 image_generation_call.result"
+        }
+    }
+
+    private fun describeJSONProblem(parsed: JSONObject, httpStatus: Int): String? {
+        val payloadStatus = payloadStatusCode(parsed)
+        if (httpStatus < 400 && payloadStatus < 400 && !parsed.optBoolean("cloudflare_error", false)) return null
+        val status = if (payloadStatus >= 400) payloadStatus else httpStatus
+        val title = parsed.optString("title").takeIf { it.isNotBlank() }
+        val message = parsed.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
+            ?: parsed.optString("message").takeIf { it.isNotBlank() }
+            ?: parsed.optString("detail").takeIf { it.isNotBlank() }
+            ?: title
+            ?: parsed.optString("error_name").takeIf { it.isNotBlank() }
+        if (parsed.optBoolean("cloudflare_error", false) || message?.contains("cloudflare", ignoreCase = true) == true) {
+            return "Cloudflare ${if (status > 0) status else "错误"}：${message ?: "上游网关错误"}"
+        }
+        if (status > 0) return "接口返回 $status：${message ?: "请求失败"}"
+        return message
+    }
+
+    private fun payloadStatusCode(parsed: JSONObject): Int {
+        return when (val statusValue = parsed.opt("status")) {
+            is Number -> statusValue.toInt()
+            is String -> statusValue.trim().toIntOrNull() ?: 0
+            else -> 0
         }
     }
 

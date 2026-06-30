@@ -13,6 +13,7 @@ export const OPENAI_IMAGE_MAX_PIXELS: number;
 export const OPENAI_IMAGE_MAX_SIDE: number;
 export const OPENAI_IMAGE_ALIGNMENT: number;
 export const OPENAI_IMAGE_MAX_ASPECT: number;
+export const FHL_BASE_URL: string;
 
 export type RequestPolicy = "openai" | "compat";
 
@@ -27,6 +28,8 @@ export type SharedImageRequestPayload = {
   maskB64?: string;
   seed?: number;
   requestPolicy?: RequestPolicy;
+  apiMode?: string;
+  baseURL?: string;
   imagesNewAPICompat?: boolean;
   noPromptRevision?: boolean;
   mode?: string;
@@ -65,6 +68,9 @@ export function buildResponsesImageTool(
   sourceDataURLs: string[],
   options?: { maskMimeType?: string },
 ): Record<string, unknown>;
+export function shouldDisablePartialImagesForFHLExactResponses(payload: SharedImageRequestPayload, size?: string): boolean;
+export function fhlExactResponsesAspectInstruction(payload: SharedImageRequestPayload, size?: string): string;
+export function fhlExactResponsesAspectPromptSuffix(payload: SharedImageRequestPayload, size?: string): string;
 export function buildResponsesPayload(
   payload: SharedImageRequestPayload,
   sourceDataURLs: string[],

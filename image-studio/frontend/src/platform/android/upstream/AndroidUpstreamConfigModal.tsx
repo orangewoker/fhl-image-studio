@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Modal } from "../../../components/common/Modal";
 import { APIMartAPIChoiceModal } from "../../../components/panel/APIMartAPIChoiceModal";
 import { FHLAPIChoiceModal } from "../../../components/panel/FHLAPIChoiceModal";
+import { RunningHubAPIChoiceModal } from "../../../components/panel/RunningHubAPIChoiceModal";
+import { RunningHubQuickConfigModal } from "../../../components/panel/RunningHubQuickConfigModal";
 import { AndroidUpstreamEmptyState } from "./AndroidUpstreamEmptyState";
 import { AndroidUpstreamHeader } from "./AndroidUpstreamHeader";
 import { AndroidUpstreamProfileForm } from "./AndroidUpstreamProfileForm";
@@ -18,10 +20,17 @@ export function AndroidUpstreamConfigModal({
   const upstream = useAndroidUpstreamConfig(open);
   const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
   const [apimartChoiceOpen, setAPIMartChoiceOpen] = useState(false);
+  const [runningHubChoiceOpen, setRunningHubChoiceOpen] = useState(false);
+  const [runningHubQuickConfigOpen, setRunningHubQuickConfigOpen] = useState(false);
 
   async function handleUseExistingFHLAPI() {
     setFHLChoiceOpen(false);
-    await upstream.handleUseExistingFHLAPI();
+    await upstream.handleUseExistingFHLAPI("responses");
+  }
+
+  async function handleUseFHLImagesAPI() {
+    setFHLChoiceOpen(false);
+    await upstream.handleUseExistingFHLAPI("images");
   }
 
   async function handleUseExistingAPIMartAPI() {
@@ -29,8 +38,13 @@ export function AndroidUpstreamConfigModal({
     await upstream.handleUseExistingAPIMartAPI();
   }
 
-  async function handleUseExistingRunningHubAPI() {
-    await upstream.handleUseExistingRunningHubAPI();
+  function handleConfigureRunningHub() {
+    setRunningHubChoiceOpen(true);
+  }
+
+  function handleUseExistingRunningHubAPI() {
+    setRunningHubChoiceOpen(false);
+    setRunningHubQuickConfigOpen(true);
   }
 
   return (
@@ -42,7 +56,7 @@ export function AndroidUpstreamConfigModal({
             profileCount={upstream.profiles.length}
             onConfigureAPIMart={() => setAPIMartChoiceOpen(true)}
             onConfigureFHL={() => setFHLChoiceOpen(true)}
-            onConfigureRunningHub={handleUseExistingRunningHubAPI}
+            onConfigureRunningHub={handleConfigureRunningHub}
           />
 
           {upstream.profiles.length === 0 ? (
@@ -91,11 +105,25 @@ export function AndroidUpstreamConfigModal({
         open={fhlChoiceOpen}
         onClose={() => setFHLChoiceOpen(false)}
         onUseExistingAPI={handleUseExistingFHLAPI}
+        onUseImagesAPI={handleUseFHLImagesAPI}
       />
       <APIMartAPIChoiceModal
         open={apimartChoiceOpen}
         onClose={() => setAPIMartChoiceOpen(false)}
         onUseExistingAPI={handleUseExistingAPIMartAPI}
+      />
+      <RunningHubAPIChoiceModal
+        open={runningHubChoiceOpen}
+        onClose={() => setRunningHubChoiceOpen(false)}
+        onUseExistingAPI={handleUseExistingRunningHubAPI}
+      />
+      <RunningHubQuickConfigModal
+        open={runningHubQuickConfigOpen}
+        onClose={() => setRunningHubQuickConfigOpen(false)}
+        onOpenUpstream={(banana2Id) => {
+          upstream.openProfileForEditing(banana2Id);
+          setRunningHubQuickConfigOpen(false);
+        }}
       />
     </>
   );

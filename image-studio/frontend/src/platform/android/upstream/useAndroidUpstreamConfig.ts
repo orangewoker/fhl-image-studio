@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ensureAPIMartAsyncProfile, focusAPIMartAPIKeyInput } from "../../../lib/apimartAPI";
-import { ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../../lib/fhlAPI";
-import { RUNNINGHUB_BASE_URL, keyringUserFor } from "../../../lib/profiles";
-import { ensureRunningHubProfiles } from "../../../lib/runninghubAPI";
+import { ensureFHLImagesProfile, ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../../lib/fhlAPI";
+import { keyringUserFor } from "../../../lib/profiles";
 import { useStudioStore } from "../../../state/studioStore";
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../../../types/domain";
 import { GetStoredAPIKey } from "../../runtime/host";
@@ -14,7 +13,7 @@ export const ANDROID_UPSTREAM_MODE_OPTIONS: Array<{
   title: string;
   meta: string;
 }> = [
-  { id: "responses", title: "一键配置 FHL Responses", meta: "SSE 保活 / gpt-5.5 + gpt-image-2 / 不内置 API Key" },
+  { id: "responses", title: "一键配置 FHL", meta: "Responses SSE / Images 两种形态 / gpt-5.5 + gpt-image-2 / 不内置 API Key" },
   { id: "apimart", title: "一键配置 APIMart 异步", meta: "推荐异步 task_id 参数 / 不内置 API Key" },
   { id: "runninghub", title: "一键配置 RH", meta: "桥接 8117 / banana2 + image_g2 / 安卓端不写 RH Key" },
 ];
@@ -146,10 +145,18 @@ export function useAndroidUpstreamConfig(open: boolean) {
     selectProfileForEditing(id);
   }
 
-  async function handleUseExistingFHLAPI() {
-    const id = await ensureFHLResponsesProfile(useStudioStore.getState());
+  async function handleUseExistingFHLAPI(apiMode: "responses" | "images" = "responses") {
+    const id = apiMode === "images"
+      ? await ensureFHLImagesProfile(useStudioStore.getState())
+      : await ensureFHLResponsesProfile(useStudioStore.getState());
     selectProfileForEditing(id);
-    pushToast("FHL Responses profile ready. Paste your API key to test.", "success", 4200);
+    pushToast(
+      apiMode === "images"
+        ? "FHL Images profile ready. Paste your API key to test."
+        : "FHL Responses profile ready. Paste your API key to test.",
+      "success",
+      4200,
+    );
     focusFHLAPIKeyInput();
   }
 
@@ -158,12 +165,6 @@ export function useAndroidUpstreamConfig(open: boolean) {
     selectProfileForEditing(id);
     pushToast("APIMart async profile ready. Paste your API key to test.", "success", 4600);
     focusAPIMartAPIKeyInput();
-  }
-
-  async function handleUseExistingRunningHubAPI() {
-    const ids = await ensureRunningHubProfiles(useStudioStore.getState(), RUNNINGHUB_BASE_URL);
-    selectProfileForEditing(ids.banana2Id);
-    pushToast("RH bridge profiles ready. Emulator uses 10.0.2.2:8117 by default.", "success", 5200);
   }
 
   async function handleDuplicate() {
@@ -248,8 +249,8 @@ export function useAndroidUpstreamConfig(open: boolean) {
     handleSetActive,
     handleUseExistingAPIMartAPI,
     handleUseExistingFHLAPI,
-    handleUseExistingRunningHubAPI,
     isTestingKey,
+    openProfileForEditing: selectProfileForEditing,
     patchDraft,
     profiles,
     savedKeyLoaded,

@@ -6,7 +6,6 @@ import {
   buildResponsesPayload as buildSharedResponsesPayload,
   normalizePartialImages,
   promptWithBatchVariation,
-  repairSizeForOpenAI,
   shouldSendExtendedImageParameters,
   shouldUseImagesNewAPICompat,
   supportsImagesResponseFormat,
@@ -31,9 +30,7 @@ export async function buildImagesRequestBody(
   const baseURL = normalizeBaseURL(request.payload.baseURL);
   const mode = request.payload.mode === "edit" ? "edit" : "generate";
   const imageModel = normalizeImageModel(request.payload.imageModelID);
-  const rawSize = request.payload.size || "1024x1024";
-  const repairedPayload = repairSizeForOpenAI({ size: rawSize });
-  const size = repairedPayload?.size || rawSize;
+  const size = request.payload.size || "864x1536";
   const quality = request.payload.quality || "auto";
   const outputFormat = request.payload.outputFormat || "png";
   const includeExtended = shouldSendExtendedImageParameters(request.payload.requestPolicy);

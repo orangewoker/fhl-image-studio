@@ -8,7 +8,7 @@ const frontendDir = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(frontendDir, "../..");
 const runStamp = new Date().toISOString().replace(/[:.]/g, "-");
 const matrixMode = process.env.ANDROID_COMPAT_FULL === "1" || process.argv.includes("--full") ? "full" : "quick";
-const outRoot = path.resolve(repoRoot, "compat-screenshots", `android-v2.0.2-${matrixMode}-${runStamp}`);
+const outRoot = path.resolve(repoRoot, "compat-screenshots", `android-v2.0.2.1-${matrixMode}-${runStamp}`);
 const reportOutRoot = outRoot.replaceAll("\\", "/");
 
 const fullViewports = [

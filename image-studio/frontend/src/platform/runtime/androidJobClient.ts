@@ -36,6 +36,15 @@ function ensureAndroidJobEventHook() {
     }
     previousHook?.(event);
   };
+  const refreshEvents = () => {
+    void attachAndroidJobEvents().catch(() => undefined);
+  };
+  window.addEventListener("focus", refreshEvents);
+  window.addEventListener("pageshow", refreshEvents);
+  window.addEventListener("image-studio:android-jobs-resume", refreshEvents);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshEvents();
+  });
   hooksInstalled = true;
 }
 

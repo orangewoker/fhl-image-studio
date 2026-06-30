@@ -395,3 +395,107 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 - Desktop 360/Panorama is confirmed present in the desktop V3/V2.0.2 line but intentionally not ported to Android for this release.
 - Release validation completed on 2026-06-28: `npm test` passed with 205 tests, `npm run build:android` passed, `assembleRelease` passed with the local release keystore, `apksigner` verified v2 signing, `aapt` confirmed package/version/label, and emulator `emulator-5554` installed/launched the release APK with an empty crash buffer.
 - Release assets generated under ignored `release-assets/`: `FHL-Image-Studio-方汤圆版-V2.0.2-Android-Release-20260628.apk` SHA256 `775E035F266BAAFEACD8C93EB8D67CA405B6F71E5A0FF89F0E2E5F096BB21475`, and matching ZIP SHA256 `33867FE2E8FE475803B4957E855E159C76B5DB3022062A854895DB2222C1D8A2`.
+
+## 2026-06-29 Android V2.0.2.1 Alignment Log
+
+- Scope: sync the desktop V2.0.2.1 FHL Responses / `gpt-image-2` aspect-ratio fix into Android only. Desktop release packages were not touched, GitHub was not uploaded, and configured API keys were not cleared.
+- Version alignment:
+  - Android Gradle version is now `V2.0.2.1` with debug `versionNameSuffix=-debug` and `versionCode=1050002`.
+  - Android app label, frontend header brand, Android about sheet, and Android compatibility matrix now display `FHL Image Studio 方汤圆版 V2.0.2.1`.
+- Request-path alignment:
+  - Android WebView and remote-kernel paths reuse `shared/kernel/requestModel.js`, so the shared desktop FHL aspect fix enters Android payload construction.
+  - Android native background jobs in `AndroidJobManager.kt` now mirror the shared behavior for FHL Responses + `gpt-image-2` + explicit size.
+  - The old Android workaround that forced custom FHL Responses sizes through Images was removed.
+- FHL Responses / `gpt-image-2` explicit-size behavior:
+  - Keep explicit pixel sizes on the `responses` route.
+  - Disable `partial_images` by sending `partial_images=0`.
+  - Add exact-size English instruction text plus Chinese ratio constraints for square, landscape, and portrait choices.
+  - Add visible FHL `2:1` and `1:2` size choices.
+- APIMart and RunningHub:
+  - APIMart / RunningHub ratio semantics remain independent.
+  - No change converts APIMart or RunningHub ratio parameters into FHL pixel sizes.
+- Verification completed:
+  - `npm test` passed with 213 tests.
+  - `npm run build:android` passed with the existing Vite large chunk warning only.
+  - `cd android-shell && .\gradlew :app:assembleDebug` passed.
+  - `aapt dump badging` confirmed package `top.fangtangyuan.fhlstudio.android.debug`, `versionCode=1050002`, `versionName=V2.0.2.1-debug`, and label `FHL Image Studio 方汤圆版 V2.0.2.1`.
+  - The debug APK installed and launched on emulator `emulator-5554`; logcat showed no `AndroidRuntime` fatal crash or ANR.
+- Live emulator FHL Responses ratio evidence from `.tmp/android-v2.0.2.1-aspect-qa-results.json`:
+  - Text-to-image `1:1`: requested `1024x1024`, route `responses`, actual `1254x1254`, passed.
+  - Text-to-image `16:9`: requested `1536x864`, route `responses`, actual `1672x941`, passed.
+  - Text-to-image `9:16`: requested `864x1536`, route `responses`, actual `941x1672`, passed.
+  - Text-to-image `2:1`: requested `1536x768`, route `responses`, actual `1774x887`, passed.
+  - Text-to-image `1:2`: requested `768x1536`, route `responses`, actual `887x1774`, passed.
+- Image-to-image and batch coverage:
+  - Live single image-to-image `9:16` used route `responses`, saved as `responses-edit`, produced `941x1672`, and passed.
+  - Live batch image-to-image with `batchCount=2` was blocked by the Android Responses concurrency guard: `当前还可提交 1 个，本次需要 2 个`.
+  - Batch image-to-image payload behavior is covered by the updated unit test instead.
+- Evidence files:
+  - Manual test APK copy: `I:\AI\Image-Studio\android-test-builds\FHL-Image-Studio-方汤圆版-V2.0.2.1-Android-Debug-20260629.apk`
+  - `release-assets/evidence-v2.0.2.1-android/android-v2.0.2.1-launch.png`
+  - `release-assets/evidence-v2.0.2.1-android/android-v2.0.2.1-after-aspect-qa.png`
+  - `release-assets/evidence-v2.0.2.1-android/android-v2.0.2.1-img2img-batch-blocked.png`
+  - `.tmp/android-v2.0.2.1-aspect-qa-results.json`
+  - `.tmp/android-v2.0.2.1-img2img-qa-results.json`
+- Device note:
+  - Emulator flow validation was completed.
+  - Real-phone heat and long-run thermal observation were not completed because no real device was confirmed connected in this pass.
+
+### 2026-06-29 Background Completion Notification Patch
+
+- Added native background completion notifications for Android jobs:
+  - `AndroidJobNotifications.kt` owns the generation notification channel, foreground-service notification, success notification, and failure notification.
+  - Successful native jobs now post `图片已生成` with `已保存到相册 Pictures/ImageStudio，点此回到结果。` when a gallery URI is available.
+  - Failed native jobs now post `图片生成失败` so background failures are visible without waiting for WebView polling.
+  - Notification taps reopen `MainActivity`.
+- Added foreground-return recovery:
+  - `MainActivity.onResume()` still calls `AndroidJobManager.resumePendingWork(applicationContext)` and now calls `refreshAndroidJobsForPage()`.
+  - `refreshAndroidJobsForPage()` invokes `AndroidJobManager.attach(applicationContext)` and dispatches `image-studio:android-jobs-resume` into the WebView.
+  - `androidJobClient.ts` now reattaches native job events on `focus`, `pageshow`, `visibilitychange`, and `image-studio:android-jobs-resume`.
+- Verification completed:
+  - `npm test` passed with 215 tests.
+  - `npm run build:android` passed with the existing Vite large chunk warning only.
+  - `cd android-shell && .\gradlew :app:assembleDebug` passed; Kotlin warnings were existing deprecated Android API warnings.
+  - `aapt dump badging` confirmed package `top.fangtangyuan.fhlstudio.android.debug`, `versionCode=1050002`, `versionName=V2.0.2.1-debug`, and label `FHL Image Studio 方汤圆版 V2.0.2.1`.
+  - Installed the debug APK on emulator `emulator-5554` and granted `POST_NOTIFICATIONS`.
+- Live emulator background generation evidence:
+  - Scenario: start a real FHL Responses generation in the foreground, wait until the native job enters `running`, press Home, wait with the app in the background, then relaunch.
+  - Result: job `android-job-2735d8ef-9ee8-4882-b03f-3a5b7b618d51` succeeded in the background.
+  - Requested size `1024x1024`, route `responses`, actual output `1254x1254`.
+  - Saved path: `/storage/emulated/0/Android/data/top.fangtangyuan.fhlstudio.android.debug/files/Pictures/ImageStudio/responses-generate-Android-aspect-QA-1-1-a-20260629-155101-879-1.png`.
+  - Gallery URI: `content://media/external/images/media/578`.
+  - `dumpsys notification --noredact` confirmed a posted notification with title `图片已生成` and text `已保存到相册 Pictures/ImageStudio，点此回到结果。`.
+  - Logcat showed no `AndroidRuntime` crash or ANR during the background run.
+- Evidence files:
+  - Manual test APK copy: `I:\AI\Image-Studio\android-test-builds\FHL-Image-Studio-方汤圆版-V2.0.2.1-Android-Debug-BackgroundNotify-20260629.apk`
+  - `release-assets/evidence-v2.0.2.1-android/android-v2.0.2.1-background-notification-after-resume.png`
+  - `.tmp/android-v2.0.2.1-background-notification-final.json`
+- Test note:
+  - An initial automated attempt pressed Home before the native job had entered `running`, leaving a queued job. Relaunching the app resumed that queued job correctly; the accepted live validation used the real-user flow of pressing Home only after foreground submission had reached the native worker.
+
+### 2026-06-30 Android V2.0.2.1 Release Package Log
+
+- Final release assets were generated under ignored `release-assets/`:
+  - `FHL-Image-Studio-方汤圆版-V2.0.2.1-Android-Release-20260630.apk`
+  - `FHL-Image-Studio-方汤圆版-V2.0.2.1-Android-Release-20260630.zip`
+  - `FHL-Image-Studio-方汤圆版-V2.0.2.1-Android-Release-20260630.sha256.txt`
+- SHA256:
+  - APK: `E85ACE9A1159DF9AA24B2EAD1DA3B6DFBF6C23AF0E9A3F1762353C843EAB23A8`
+  - ZIP: `1BF0742C598F08CA515BCF2BCF35B4DE961E6ED0E0685E2DB7E26C307DA7264A`
+- Release notes:
+  - `RELEASE_NOTES_V2.0.2.1_ANDROID.md`
+- Verification completed:
+  - `npm test` passed with 215 tests.
+  - `npm run build:android` passed with the existing Vite large chunk warning only.
+  - `assembleRelease` passed using the local release keystore from `.local/android-release/`.
+  - `apksigner verify --verbose --print-certs` verified APK Signature Scheme v2 with the RSA 4096 release certificate.
+  - `aapt dump badging` confirmed package `top.fangtangyuan.fhlstudio.android`, `versionCode=1050002`, `versionName=V2.0.2.1`, and label `FHL Image Studio 方汤圆版 V2.0.2.1`.
+- Clean release launch smoke:
+  - Reinstalled release package ID `top.fangtangyuan.fhlstudio.android` only; debug package data was not cleared.
+  - Release package launched on emulator `emulator-5554`; focused app was `top.fangtangyuan.fhlstudio.android/.MainActivity`.
+  - Crash buffer was empty.
+  - Release package is not debuggable, so `run-as top.fangtangyuan.fhlstudio.android` correctly failed with `package not debuggable`.
+  - UIAutomator could not read WebView text on this emulator run, so first-launch API cleanliness is covered by fresh install + static source/asset scan rather than WebView text extraction.
+- Final privacy checks:
+  - `git ls-files` did not include `.local`, keystore files, APK/ZIP, `.tmp`, `android-test-builds`, or `release-assets`.
+  - `git grep` / `rg` scans found no high-confidence API Key, RH Key, GitHub token, keystore, or local runtime config in tracked source/release notes.

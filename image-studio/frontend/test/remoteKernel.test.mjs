@@ -450,7 +450,7 @@ test("runRemoteImageJob emits Images API stream partial image previews", async (
   });
 });
 
-test("runRemoteImageJob repairs Images API size before sending", async () => {
+test("runRemoteImageJob preserves Images API 9:16 size before sending", async () => {
   let captured = null;
   await withPatchedGlobals(async () => {
     globalThis.fetch = async (_url, init) => {
@@ -468,7 +468,7 @@ test("runRemoteImageJob repairs Images API size before sending", async () => {
           apiKey: "key",
           mode: "generate",
           prompt: "bird",
-          size: "1793x1025",
+          size: "864x1536",
           quality: "medium",
           outputFormat: "png",
           imagePaths: [],
@@ -486,7 +486,7 @@ test("runRemoteImageJob repairs Images API size before sending", async () => {
       },
       { signal: new AbortController().signal },
     );
-    assert.equal(captured.size, "1792x1024");
+    assert.equal(captured.size, "864x1536");
   });
 });
 

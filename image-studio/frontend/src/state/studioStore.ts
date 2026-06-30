@@ -102,7 +102,7 @@ import {
   type RunningJobMeta,
   type WorkspacePatch,
 } from "./workspaceRuntime";
-import { normalizeFHLImagesBillingSize, normalizeSizeSelection } from "../components/panel/sizeCapabilities";
+import { normalizeSizeSelection } from "../components/panel/sizeCapabilities";
 import { buildMacWorkspacePreview, readPreviewScenario } from "../app/dev/previewData";
 import {
   applyTheme,
@@ -1156,14 +1156,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set({ errorMessage: "请填写提示词", errorRawPath: null });
       return;
     }
-    const submitImagesNewAPICompat = submitAPIMode === "images"
-      ? (activeProfile ? activeProfile.imagesNewAPICompat === true : s.imagesNewAPICompat === true)
-      : false;
     if (!submitBaseURL.trim()) {
       set({ errorMessage: "请在右侧工作栏顶部的「上游配置」中填入你的中转站地址(必须兼容 OpenAI Responses API + image_generation 工具)", errorRawPath: null });
       return;
     }
     const cleanedBaseURL = cleanBaseURL(submitBaseURL);
+    const preliminaryAPIMode = effectiveAPIModeForSubmit(s.mode, submitAPIMode);
+    const effectiveAPIMode = preliminaryAPIMode;
+    const submitImagesNewAPICompat = effectiveAPIMode === "images"
+      ? (activeProfile ? activeProfile.imagesNewAPICompat === true || isFHLBaseURL(cleanedBaseURL) : s.imagesNewAPICompat === true)
+      : false;
     const selectedBatchCount = normalizeBatchCount(s.batchCount);
     const requestedBatchCount = s.continuousGenerateTest === true ? 1 : selectedBatchCount;
     let batchCount = requestedBatchCount;
@@ -1171,7 +1173,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const concurrencyLimit = readRuntimePlatformState().isAndroid
       ? Math.min(2, Math.max(1, rawConcurrencyLimit || 1))
       : rawConcurrencyLimit;
-    const effectiveAPIMode = effectiveAPIModeForSubmit(s.mode, submitAPIMode);
     const submitAPIShortLabel = upstreamConfigShortLabel({
       apiMode: effectiveAPIMode,
       baseURL: cleanedBaseURL,
@@ -1299,14 +1300,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       augmentedPrompt = `${augmentedPrompt}, ${styleSuffix}`;
     }
 
-    const selectedSize = normalizeSizeSelection(s.size, {
+    const resolvedSize = normalizeSizeSelection(s.size, {
       apiMode: effectiveAPIMode,
       requestPolicy: submitRequestPolicy,
       imageModelID: submitImageModelID,
-    });
-    const resolvedSize = normalizeFHLImagesBillingSize(selectedSize, {
-      apiMode: effectiveAPIMode,
-      baseURL: cleanedBaseURL,
     });
 
     const basePayload: RuntimeGenerateOptions = {

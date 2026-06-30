@@ -6,7 +6,7 @@ const caps = await import("../src/components/panel/sizeCapabilities.ts");
 test("FHL aspect presets expose the supported ratio list in order", () => {
   assert.deepEqual(
     caps.ASPECT_PRESETS.map((item) => item.value),
-    ["auto", "1:1", "3:2", "2:3", "16:9", "9:16", "7:4", "4:7"],
+    ["auto", "1:1", "3:2", "2:3", "16:9", "9:16", "2:1", "1:2", "7:4", "4:7"],
   );
 });
 
@@ -91,6 +91,12 @@ test("FHL aspect ratios map to concrete pixel sizes", () => {
     ["9:16", "1k", "864x1536"],
     ["9:16", "2k", "1152x2048"],
     ["9:16", "4k", "2160x3840"],
+    ["2:1", "1k", "1536x768"],
+    ["2:1", "2k", "2048x1024"],
+    ["2:1", "4k", "3840x1920"],
+    ["1:2", "1k", "768x1536"],
+    ["1:2", "2k", "1024x2048"],
+    ["1:2", "4k", "1920x3840"],
     ["7:4", "1k", "1664x944"],
     ["7:4", "2k", "2208x1264"],
     ["7:4", "4k", "3808x2176"],
@@ -195,23 +201,13 @@ test("explicit Auto selections keep upstream-determined size", () => {
   assert.equal(caps.buildResolutionSizeSelection("16:9", "auto", input), "auto");
 });
 
-test("FHL Images 1K submission sizes stay below the 2K billing edge", () => {
+test("FHL Images keep desktop-aligned 1K pixel sizes", () => {
   const input = {
     apiMode: "images",
-    baseURL: "https://www.fhl.mom",
+    requestPolicy: "openai",
+    imageModelID: "gpt-image-2",
   };
-  assert.equal(caps.normalizeFHLImagesBillingSize("1536x864", input), "1024x576");
-  assert.equal(caps.normalizeFHLImagesBillingSize("1536x1024", input), "1024x680");
-  assert.equal(caps.normalizeFHLImagesBillingSize("864x1536", input), "576x1024");
-  assert.equal(caps.normalizeFHLImagesBillingSize("2048x1152", input), "2048x1152");
-});
-
-test("FHL Images billing-size guard does not affect APIMart", () => {
-  assert.equal(
-    caps.normalizeFHLImagesBillingSize("1536x864", {
-      apiMode: "apimart",
-      baseURL: "https://api.apimart.ai",
-    }),
-    "1536x864",
-  );
+  assert.equal(caps.normalizeSizeSelection("1536x864", input), "1536x864");
+  assert.equal(caps.normalizeSizeSelection("1536x1024", input), "1536x1024");
+  assert.equal(caps.normalizeSizeSelection("864x1536", input), "864x1536");
 });
