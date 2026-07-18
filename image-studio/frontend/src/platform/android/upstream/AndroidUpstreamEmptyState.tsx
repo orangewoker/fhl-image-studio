@@ -9,8 +9,8 @@ export function AndroidUpstreamEmptyState() {
       <div className="android-upstream-empty-copy">
         <h4>添加第一个上游</h4>
         <p>
-          请选择上方的 FHL 常规 或 APIMart 异步入口。
-          一键配置只会写入推荐参数，API Key 需要你在配置表单里手动粘贴。
+          可选择 FHL、OpenAI 标准 v1、APIMart 或 RunningHub。
+          自定义服务商请选择 OpenAI 标准 v1，再填写 Base URL、API Key 并拉取模型列表。
         </p>
       </div>
     </section>

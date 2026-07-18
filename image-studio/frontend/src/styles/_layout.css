@@ -322,7 +322,7 @@ html[data-ui-family="android"] {
   --android-header-height: calc(var(--android-header-safe-top-value, 24px) + var(--android-header-visual-height));
   --android-bottom-nav-visual-height: 88px;
   --android-bottom-nav-height: calc(var(--android-bottom-nav-visual-height) + var(--android-safe-bottom-value, 0px));
-  --android-content-bottom-reserve: var(--android-bottom-nav-height);
+  --android-content-bottom-reserve: 0px;
   --android-content-height: calc(var(--android-viewport-height) - var(--android-header-height) - var(--android-bottom-nav-height));
   --android-compose-cta-height: 78px;
 }
@@ -339,7 +339,7 @@ html[data-target-platform="android"] .studio {
   grid-template-areas: "main";
   height: var(--android-content-height);
   min-height: 0;
-  padding-bottom: var(--android-content-bottom-reserve);
+  padding-bottom: 0;
   background: var(--bg);
 }
 

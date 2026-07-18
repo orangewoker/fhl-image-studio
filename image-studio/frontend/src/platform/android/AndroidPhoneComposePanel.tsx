@@ -1,10 +1,12 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronDown, ChevronRight, ClipboardCopy, FileText, ImageUp, ListPlus, RotateCw, Search, Settings, Settings2, Sparkles, Trash2, X,
 } from "lucide-react";
 import { useStudioStore } from "../../state/studioStore";
 import { copyText } from "../../lib/fhlAPI";
 import { dataURLFromBase64 } from "../../lib/images";
+import { formatUpstreamError } from "../../lib/upstreamErrors";
 import { OpenFile } from "../runtime/host";
 import { Mode } from "../../types/domain";
 import { QUALITY_TIERS, STYLE_CHIPS } from "../../components/panel/panelOptions";
@@ -74,6 +76,8 @@ export function AndroidPhoneComposePanel() {
   const effectivePromptReady = promptPrefixActive || prompt.trim().length > 0;
   const promptCollapsedPreview = prompt.trim() || "主提示词未输入";
   const promptCollapseLabel = promptCollapsed ? "展开提示词框" : "折叠提示词框";
+  const errorDisplay = errorMessage ? formatUpstreamError(errorMessage) : null;
+  const unsupportedImageModel = errorDisplay?.kind === "unsupported-image-model";
   const recommendAPISwitch = errorMessage ? shouldRecommendAPISwitch(errorMessage) : false;
   const recommendAPIMart = recommendAPISwitch && apiMode !== "apimart";
   const hasMultipleProfiles = profiles.length > 1;
@@ -228,7 +232,15 @@ export function AndroidPhoneComposePanel() {
       {errorMessage ? (
         <section className="platform-card border border-red-500/18 bg-red-500/10 p-3 text-xs text-red-700 dark:text-red-200">
           <div className="flex items-start gap-2">
-            <div className="flex-1 whitespace-pre-wrap leading-relaxed">{errorMessage}</div>
+            <div className="min-w-0 flex-1 leading-relaxed">
+              <div className="whitespace-pre-wrap">{errorDisplay?.message}</div>
+              {errorDisplay?.detail ? (
+                <details className="mt-1.5 text-[10px] text-red-600/80 dark:text-red-200/75">
+                  <summary className="cursor-pointer font-medium">查看原始错误</summary>
+                  <div className="mt-1 break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{errorDisplay.detail}</div>
+                </details>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={clearError}
@@ -253,6 +265,15 @@ export function AndroidPhoneComposePanel() {
                 <Settings2 className="h-3 w-3" /> 切换 API 配置
               </button>
             </div>
+          ) : null}
+          {unsupportedImageModel ? (
+            <button
+              type="button"
+              onClick={() => openUpstreamConfig("app")}
+              className="mt-2 inline-flex items-center gap-1 rounded-full border border-red-500/25 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-red-500/18"
+            >
+              <Settings2 className="h-3 w-3" /> 修复模型配置
+            </button>
           ) : null}
           {(lastPayload && !isRunning) || errorRawPath || showAPIMartRecovery ? (
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -592,7 +613,7 @@ export function AndroidPhoneComposePanel() {
         />
       ) : null}
 
-      <div className="android-phone-sticky-cta" style={{ paddingLeft: "calc(var(--android-safe-left-value, 0px) + 12px)", paddingRight: "calc(var(--android-safe-right-value, 0px) + 12px)" }}>
+      {createPortal(<div className="android-phone-sticky-cta" data-audit-id="phone-submit-area" style={{ paddingLeft: "calc(var(--android-safe-left-value, 0px) + 12px)", paddingRight: "calc(var(--android-safe-right-value, 0px) + 12px)" }}>
         {isRunning ? (
           <AndroidCanvasProgressOverlay
             stage={progress?.stage}
@@ -652,6 +673,8 @@ export function AndroidPhoneComposePanel() {
         ) : (
           <button
             type="button"
+            data-audit-id="submit"
+            aria-label={mode === "edit" ? "开始编辑" : "开始生成"}
             onClick={handleSubmit}
             disabled={!hasUsableUpstream || !hasBaseURL || !effectivePromptReady}
             className="liquid-primary-button h-[54px] w-full text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 dark:disabled:bg-zinc-800"
@@ -659,7 +682,7 @@ export function AndroidPhoneComposePanel() {
             {mode === "edit" ? "开始编辑" : "开始生成"}
           </button>
         )}
-      </div>
+      </div>, document.body)}
       <AndroidPromptTemplateModal
         open={templateOpen}
         onClose={() => setTemplateOpen(false)}

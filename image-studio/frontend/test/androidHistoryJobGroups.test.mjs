@@ -56,7 +56,7 @@ test("Android batch result API badges prefer configured provider labels", () => 
   assert.match(profiles, /export function upstreamConfigShortLabel/);
   assert.match(profiles, /kind === "fhl"[\s\S]*return "FHL"/);
   assert.match(profiles, /kind === "apimart"[\s\S]*return "APIMart"/);
-  assert.match(profiles, /kind === "images" \? "Images" : "Responses"/);
+  assert.match(profiles, /kind === "images" \? "OpenAI v1" : "Responses"/);
   assert.match(domain, /apiLabel\?: string;/);
   assert.match(contracts, /apiLabel\?: string;/);
   assert.match(store, /upstreamConfigShortLabel/);

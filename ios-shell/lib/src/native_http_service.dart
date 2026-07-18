@@ -5,6 +5,15 @@ import 'dart:io';
 typedef NativeProgressCallback =
     Future<void> Function(String requestKey, Map<String, Object?> payload);
 
+class UpstreamProbeException implements Exception {
+  const UpstreamProbeException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class NativeHttpService {
   NativeHttpService({required this.onProgress});
 
@@ -115,36 +124,53 @@ class NativeHttpService {
       candidates.add(Uri.parse('https://api.apib.ai'));
     }
     Object? lastError;
+    var exhaustedTransientRetries = false;
     for (final candidate in candidates) {
-      try {
-        final suffix = apiMode == 'apimart' ? '/v1/balance' : '/v1/models';
-        final result = await request(<String, dynamic>{
-          'requestKey': 'probe-${DateTime.now().microsecondsSinceEpoch}',
-          'url':
-              '${candidate.toString().replaceFirst(RegExp(r'/+$'), '')}$suffix',
-          'method': 'GET',
-          'headers': <String, String>{
-            'Authorization': 'Bearer $apiKey',
-            'Accept': 'application/json',
-            'User-Agent': 'fhl-studio-ios',
-          },
-          'proxyMode': payload['proxyMode'] ?? 'system',
-          'proxyURL': payload['proxyURL'] ?? '',
-        });
-        final status = result['status'] as int;
-        final body = result['body']?.toString() ?? '';
-        if (status < 200 || status >= 300) {
-          throw HttpException('上游连接测试返回 HTTP $status${_bodySummary(body)}');
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        try {
+          final suffix = apiMode == 'apimart' ? '/v1/balance' : '/v1/models';
+          final result = await request(<String, dynamic>{
+            'requestKey': 'probe-${DateTime.now().microsecondsSinceEpoch}',
+            'url':
+                '${candidate.toString().replaceFirst(RegExp(r'/+$'), '')}$suffix',
+            'method': 'GET',
+            'headers': <String, String>{
+              'Authorization': 'Bearer $apiKey',
+              'Accept': 'application/json',
+              'Connection': 'close',
+              'User-Agent': 'fhl-studio-ios',
+            },
+            'proxyMode': payload['proxyMode'] ?? 'system',
+            'proxyURL': payload['proxyURL'] ?? '',
+          });
+          final status = result['status'] as int;
+          final body = result['body']?.toString() ?? '';
+          if (status < 200 || status >= 300) {
+            throw HttpException('上游连接测试返回 HTTP $status${_bodySummary(body)}');
+          }
+          if (apiMode == 'apimart') return <String, Object?>{'ok': true};
+          final parsed = jsonDecode(body);
+          final models = parseModelIDs(parsed);
+          return <String, Object?>{
+            'modelCount': models.length,
+            'models': models,
+          };
+        } catch (error) {
+          lastError = error;
+          final transient = isTransientProbeError(error);
+          exhaustedTransientRetries = transient && attempt == 3;
+          if (!transient || attempt == 3) break;
+          await Future<void>.delayed(Duration(milliseconds: 350 * attempt));
         }
-        if (apiMode == 'apimart') return <String, Object?>{'ok': true};
-        final parsed = jsonDecode(body);
-        final models = parseModelIDs(parsed);
-        return <String, Object?>{'modelCount': models.length, 'models': models};
-      } catch (error) {
-        lastError = error;
       }
     }
-    throw StateError(lastError?.toString() ?? '上游连接测试失败');
+    throw UpstreamProbeException(
+      probeFailureMessage(
+        lastError,
+        host: baseUri.host,
+        exhaustedTransientRetries: exhaustedTransientRetries,
+      ),
+    );
   }
 
   void cancel(String requestKey) {
@@ -206,6 +232,32 @@ class NativeHttpService {
             .toList()
           ..sort();
     return models;
+  }
+
+  static bool isTransientProbeError(Object error) {
+    if (error is SocketException || error is TimeoutException) return true;
+    final message = error.toString().toLowerCase();
+    return message.contains('connection reset') ||
+        message.contains('broken pipe') ||
+        message.contains('connection closed before') ||
+        message.contains('timed out') ||
+        message.contains('timeout');
+  }
+
+  static String probeFailureMessage(
+    Object? error, {
+    required String host,
+    required bool exhaustedTransientRetries,
+  }) {
+    if (exhaustedTransientRetries) {
+      final service = host.toLowerCase() == 'www.fhl.mom' ? 'FHL' : '上游';
+      return '$service 连接被服务器重置（已自动重试 3 次）。请切换网络后再次测试；API Key 尚未完成验证。';
+    }
+    final message = (error?.toString() ?? '上游连接测试失败')
+        .replaceFirst(RegExp(r'^Bad state:\s*', caseSensitive: false), '')
+        .replaceFirst(RegExp(r'^HttpException:\s*', caseSensitive: false), '')
+        .trim();
+    return message.isEmpty ? '上游连接测试失败' : message;
   }
 
   static String _cleanBase64(String value) {

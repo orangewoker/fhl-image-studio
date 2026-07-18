@@ -208,7 +208,7 @@ test("Android upstream starts with empty defaults and highlights one-click prese
 });
 
 test("Android upstream keeps Responses labels and compat policy wording", () => {
-  assert.match(upstreamHeader, /profile\.apiMode === "responses" \? "Responses API" : "Images API"/);
+  assert.match(upstreamHeader, /profile\.apiMode === "responses" \? "Responses API" : "OpenAI 标准 v1"/);
   assert.match(upstreamRail, /profile\.apiMode === "responses" \? "Responses" : "Images"/);
   assert.doesNotMatch(upstreamHeader, /FHL \/ Responses API/);
   assert.doesNotMatch(upstreamRail, /FHL \/ Responses/);

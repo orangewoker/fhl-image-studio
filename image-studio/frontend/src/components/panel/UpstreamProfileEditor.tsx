@@ -1,7 +1,12 @@
 import { Eye, EyeOff, HelpCircle, Info, Plug, RefreshCw } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../../types/domain";
-import { requestPolicyLabel } from "../../lib/profiles";
+import {
+  FHL_SUPPORTED_IMAGE_MODEL_IDS,
+  isFHLBaseURL,
+  isSupportedFHLImageModelID,
+  requestPolicyLabel,
+} from "../../lib/profiles";
 import { usePlatform } from "../../platform/context";
 import { useUpstreamModelCatalog } from "./useUpstreamModelCatalog";
 
@@ -47,6 +52,13 @@ export function UpstreamProfileEditor({
     apiKey: draftKey,
     apiMode: draft.apiMode,
   });
+  const fhlProfile = isFHLBaseURL(draft.baseURL);
+  const imageModels = fhlProfile
+    ? Array.from(new Set([
+        ...FHL_SUPPORTED_IMAGE_MODEL_IDS,
+        ...catalog.models.filter(isSupportedFHLImageModelID),
+      ]))
+    : catalog.models;
 
   return (
     <div className={`upstream-profile-editor flex min-w-0 flex-col ${isAndroidPhone ? "gap-3" : "gap-3.5"}`}>
@@ -86,7 +98,7 @@ export function UpstreamProfileEditor({
         <div className={`grid gap-2 ${isAndroidPhone ? "grid-cols-1" : "grid-cols-2"}`}>
           {([
             { id: "responses" as APIMode, title: "Responses API", sub: "SSE 保活(CF 超时推荐)" },
-            { id: "images" as APIMode, title: "Images API", sub: "标准 generations / edits" },
+            { id: "images" as APIMode, title: "OpenAI 标准 v1", sub: "/v1/images/generations · /v1/images/edits" },
           ]).map((option) => {
             const active = draft.apiMode === option.id;
             return (
@@ -109,7 +121,7 @@ export function UpstreamProfileEditor({
         <Hint>
           {draft.apiMode === "responses"
             ? "需要 key 绑定到「拥有 gpt-5.5 模型的分组」。SSE 保活可防 Cloudflare 524。"
-            : "使用标准 Images API,key 用 image-2 / image API 分组,兼容性最广。"}
+            : "使用 OpenAI 标准 v1 图像端点；可直连 OpenAI 或兼容服务商。"}
         </Hint>
       </Field>
 
@@ -228,9 +240,9 @@ export function UpstreamProfileEditor({
       ) : null}
 
       <Field label="图像模型 ID">
-        {catalog.models.length > 0 ? (
+        {imageModels.length > 0 ? (
           <ModelSelect
-            models={catalog.models}
+            models={imageModels}
             value={draft.imageModelID}
             onChange={(value) => onPatchDraft({ imageModelID: value })}
             className={usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}
@@ -244,6 +256,7 @@ export function UpstreamProfileEditor({
           spellCheck={false}
           className={`focus-ring w-full min-w-0 border border-black/[0.08] bg-[var(--surface)] px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-white/[0.08] dark:text-zinc-100 dark:placeholder:text-zinc-500 font-mono-token ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
         />
+        {fhlProfile ? <Hint>FHL 保存无效图像模型时会自动回退为 gpt-image-2，避免 unsupported image model。</Hint> : null}
       </Field>
 
       <Field label="并发数量限制">
@@ -308,7 +321,7 @@ export function UpstreamProfileEditor({
       {draft.apiMode === "images" ? (
         <div className={`${usesAppleUI ? "liquid-glass-panel" : ""} flex items-start gap-2 border border-[color:var(--accent)]/20 bg-[var(--accent-soft)] px-3 py-2 text-[11px] text-[var(--accent)] ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 break-words [overflow-wrap:anywhere]">Images API 路径走标准 <code className="font-mono-token">/v1/images/generations</code> + <code className="font-mono-token">/v1/images/edits</code>,无 SSE 保活,长推理 CF 524 风险更高,但兼容性最广。</span>
+          <span className="min-w-0 break-words [overflow-wrap:anywhere]">OpenAI 标准 v1 路径使用 <code className="font-mono-token">/v1/images/generations</code> + <code className="font-mono-token">/v1/images/edits</code>；模型列表仍从 <code className="font-mono-token">/v1/models</code> 拉取。</span>
         </div>
       ) : null}
     </div>

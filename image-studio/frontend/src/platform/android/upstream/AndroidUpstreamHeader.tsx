@@ -9,12 +9,14 @@ export function AndroidUpstreamHeader({
   profileCount,
   onConfigureAPIMart,
   onConfigureFHL,
+  onCreateOpenAI,
   onConfigureRunningHub,
 }: {
   activeProfile: UpstreamProfile | null;
   profileCount: number;
   onConfigureAPIMart: () => void;
   onConfigureFHL: () => void;
+  onCreateOpenAI: () => void;
   onConfigureRunningHub: () => void;
 }) {
   const activeMode = activeProfile
@@ -50,6 +52,8 @@ export function AndroidUpstreamHeader({
             onClick={() => {
               if (option.id === "apimart") {
                 onConfigureAPIMart();
+              } else if (option.id === "images") {
+                onCreateOpenAI();
               } else if (option.id === "runninghub") {
                 onConfigureRunningHub();
               } else {
@@ -76,5 +80,5 @@ function profileModeLabel(profile: UpstreamProfile): string {
   if (profile.apiMode === "runninghub" || isRunningHubBaseURL(profile.baseURL)) return "RunningHub";
   if (isAPIMartAsyncProfile(profile)) return "APIMart 异步参数";
   if (isFHLBaseURL(profile.baseURL)) return "FHL 常规";
-  return profile.apiMode === "responses" ? "Responses API" : "Images API";
+  return profile.apiMode === "responses" ? "Responses API" : "OpenAI 标准 v1";
 }

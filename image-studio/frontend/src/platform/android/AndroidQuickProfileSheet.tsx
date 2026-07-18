@@ -9,8 +9,8 @@ import { vibrateForPlatform } from "./bridge";
 function profileModeLabel(profile: UpstreamProfile): string {
   if (isAPIMartAsyncProfile(profile)) return "APIMart";
   if (isFHLBaseURL(profile.baseURL)) return "FHL";
-  if (profile.apiMode === "responses") return "FHL";
-  return "Images";
+  if (profile.apiMode === "responses") return "Responses";
+  return "OpenAI v1";
 }
 
 function profileDetailLabel(profile: UpstreamProfile): string {

@@ -56,6 +56,7 @@ export function AndroidUpstreamConfigModal({
             profileCount={upstream.profiles.length}
             onConfigureAPIMart={() => setAPIMartChoiceOpen(true)}
             onConfigureFHL={() => setFHLChoiceOpen(true)}
+            onCreateOpenAI={() => { void upstream.handleNew("images"); }}
             onConfigureRunningHub={handleConfigureRunningHub}
           />
 

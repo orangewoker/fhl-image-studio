@@ -36,10 +36,10 @@ test("normalizes api mode and concurrency values", () => {
   assert.equal(runtime.normalizeAPIMode("images"), "images");
   assert.equal(runtime.normalizeAPIMode("responses"), "responses");
   assert.equal(runtime.normalizeAPIMode("apimart"), "apimart");
-  assert.equal(runtime.apiModeLabel("images"), "Images API");
+  assert.equal(runtime.apiModeLabel("images"), "OpenAI 标准 v1");
   assert.equal(runtime.apiModeLabel("responses"), "Responses API");
   assert.equal(runtime.apiModeLabel("apimart"), "APIMart");
-  assert.equal(runtime.apiModeShortLabel("images"), "Images");
+  assert.equal(runtime.apiModeShortLabel("images"), "OpenAI v1");
   assert.equal(runtime.apiModeShortLabel("responses"), "Responses");
   assert.equal(runtime.apiModeShortLabel("apimart"), "APIMart");
   assert.equal(runtime.normalizeConcurrencyLimit(3.8), 3);

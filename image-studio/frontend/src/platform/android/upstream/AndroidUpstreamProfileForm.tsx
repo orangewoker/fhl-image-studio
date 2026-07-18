@@ -1,6 +1,11 @@
 import { Check, Eye, EyeOff, Minus, Plug, Plus, RefreshCw, Save } from "lucide-react";
 import type { ReactNode } from "react";
 import { isAPIMartAsyncProfile } from "../../../lib/apimartAPI";
+import {
+  FHL_SUPPORTED_IMAGE_MODEL_IDS,
+  isFHLBaseURL,
+  isSupportedFHLImageModelID,
+} from "../../../lib/profiles";
 import type { UpstreamProfile } from "../../../types/domain";
 import {
   ANDROID_API_MODE_OPTIONS,
@@ -55,6 +60,13 @@ export function AndroidUpstreamProfileForm({
     apiKey: draftKey,
     apiMode: draft.apiMode,
   });
+  const fhlProfile = isFHLBaseURL(draft.baseURL);
+  const imageModels = fhlProfile
+    ? Array.from(new Set([
+        ...FHL_SUPPORTED_IMAGE_MODEL_IDS,
+        ...catalog.models.filter(isSupportedFHLImageModelID),
+      ]))
+    : catalog.models;
 
   return (
     <section className="android-upstream-form" aria-label="编辑上游配置">
@@ -213,11 +225,15 @@ export function AndroidUpstreamProfileForm({
 
       <AndroidField
         label="图像模型 ID"
-        hint={runningHubPreset ? "RunningHub 这里填桥接模型键，建议 banana2 或 image_g2。" : undefined}
+        hint={runningHubPreset
+          ? "RunningHub 这里填桥接模型键，建议 banana2 或 image_g2。"
+          : fhlProfile
+            ? "FHL 仅显示当前支持的图像模型；保存无效值时会自动回退为 gpt-image-2。"
+            : "可从 /v1/models 拉取后选择，也可以手动填写服务商提供的模型 ID。"}
       >
-        {catalog.models.length > 0 ? (
+        {imageModels.length > 0 ? (
           <AndroidModelSelect
-            models={catalog.models}
+            models={imageModels}
             value={draft.imageModelID}
             onChange={(value) => onPatchDraft({ imageModelID: value })}
           />

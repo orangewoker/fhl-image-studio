@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { probeCurrentUpstream } from "../../platform/runtime/host";
 import { useStudioStore } from "../../state/studioStore";
 import type { APIMode } from "../../types/domain";
+import { upstreamErrorMessage } from "../../lib/upstreamErrors";
 
 export function useUpstreamModelCatalog(input: {
   profileId: string;
@@ -52,7 +53,7 @@ export function useUpstreamModelCatalog(input: {
       return next;
     } catch (error: any) {
       setModels([]);
-      setMessage(error?.message ? `读取失败：${error.message}` : "模型列表读取失败。");
+      setMessage(`读取失败：${upstreamErrorMessage(error)}`);
       return [];
     } finally {
       setLoading(false);

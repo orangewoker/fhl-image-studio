@@ -11,6 +11,7 @@ import {
   genProfileId,
   keyringUserFor,
   nextDefaultProfileName,
+  normalizeFHLImageModelID,
   pickActiveProfile,
 } from "../lib/profiles";
 import { normalizeAPIKeyInput } from "../lib/apiKey";
@@ -41,15 +42,16 @@ export function createProfileActions(store: StateAdapter) {
       const list = store.getState().profiles;
       const id = genProfileId();
       const defaults = defaultProfileValuesForAPIMode(input.apiMode);
+      const baseURL = cleanBaseURL(input.baseURL ?? defaults.baseURL);
       const profile: UpstreamProfile = {
         id,
         name: input.name?.trim() || nextDefaultProfileName(list),
         providerName: input.providerName?.trim() || "",
         apiMode: input.apiMode,
         requestPolicy: input.requestPolicy ?? defaults.requestPolicy,
-        baseURL: cleanBaseURL(input.baseURL ?? defaults.baseURL),
+        baseURL,
         textModelID: (input.textModelID ?? defaults.textModelID).trim(),
-        imageModelID: (input.imageModelID ?? defaults.imageModelID).trim(),
+        imageModelID: normalizeFHLImageModelID(baseURL, input.imageModelID ?? defaults.imageModelID),
         concurrencyLimit: normalizeConcurrencyLimit(input.concurrencyLimit ?? 0),
         imagesNewAPICompat: input.apiMode === "images" && input.imagesNewAPICompat === true,
         createdAt: Date.now(),
@@ -78,21 +80,23 @@ export function createProfileActions(store: StateAdapter) {
       const nextAPIMode = patch.apiMode ?? current.apiMode;
       const defaults = defaultProfileValuesForAPIMode(nextAPIMode);
       const shouldApplyModeDefaults = patch.apiMode !== undefined && patch.apiMode !== current.apiMode;
+      const nextBaseURL = patch.baseURL !== undefined
+        ? cleanBaseURL(patch.baseURL)
+        : shouldApplyModeDefaults ? current.baseURL || defaults.baseURL : current.baseURL;
+      const requestedImageModelID = patch.imageModelID !== undefined
+        ? patch.imageModelID.trim()
+        : shouldApplyModeDefaults ? current.imageModelID || defaults.imageModelID : current.imageModelID;
       const next: UpstreamProfile = {
         ...current,
         name: patch.name !== undefined ? patch.name.trim() : current.name,
         providerName: patch.providerName !== undefined ? patch.providerName.trim() : current.providerName,
         apiMode: nextAPIMode,
         requestPolicy: patch.requestPolicy ?? current.requestPolicy,
-        baseURL: patch.baseURL !== undefined
-          ? cleanBaseURL(patch.baseURL)
-          : shouldApplyModeDefaults ? current.baseURL || defaults.baseURL : current.baseURL,
+        baseURL: nextBaseURL,
         textModelID: patch.textModelID !== undefined
           ? patch.textModelID.trim()
           : shouldApplyModeDefaults ? current.textModelID || defaults.textModelID : current.textModelID,
-        imageModelID: patch.imageModelID !== undefined
-          ? patch.imageModelID.trim()
-          : shouldApplyModeDefaults ? current.imageModelID || defaults.imageModelID : current.imageModelID,
+        imageModelID: normalizeFHLImageModelID(nextBaseURL, requestedImageModelID),
         concurrencyLimit: patch.concurrencyLimit !== undefined
           ? normalizeConcurrencyLimit(patch.concurrencyLimit) : current.concurrencyLimit,
         imagesNewAPICompat: (patch.apiMode ?? current.apiMode) === "images"

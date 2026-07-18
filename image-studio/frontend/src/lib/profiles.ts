@@ -19,6 +19,13 @@ export const FHL_PROFILE_NAME = "配置1";
 export const FHL_BASE_URL = "https://www.fhl.mom";
 export const FHL_TEXT_MODEL_ID = "gpt-5.5";
 export const FHL_IMAGE_MODEL_ID = "gpt-image-2";
+export const FHL_SUPPORTED_IMAGE_MODEL_IDS = [
+  "codex-gpt-image-2",
+  "gpt-image-2",
+  "plus-codex-gpt-image-2",
+  "pro-codex-gpt-image-2",
+  "team-codex-gpt-image-2",
+] as const;
 export const DEFAULT_CONCURRENCY_LIMIT = 1;
 export const APIMART_PROFILE_ID = "apimart-default";
 export const APIMART_PROFILE_NAME = "APIMart";
@@ -59,6 +66,17 @@ export function isFHLBaseURL(baseURL: string): boolean {
   return comparableBaseURL(baseURL) === comparableBaseURL(FHL_BASE_URL);
 }
 
+export function isSupportedFHLImageModelID(modelID: string): boolean {
+  const normalized = String(modelID || "").trim().toLowerCase();
+  return FHL_SUPPORTED_IMAGE_MODEL_IDS.some((model) => model === normalized);
+}
+
+export function normalizeFHLImageModelID(baseURL: string, modelID: string): string {
+  const normalized = String(modelID || "").trim();
+  if (!isFHLBaseURL(baseURL)) return normalized;
+  return isSupportedFHLImageModelID(normalized) ? normalized : FHL_IMAGE_MODEL_ID;
+}
+
 export function isAPIMartBaseURL(baseURL: string): boolean {
   return comparableBaseURL(baseURL) === comparableBaseURL(APIMART_BASE_URL)
     || comparableBaseURL(baseURL) === comparableBaseURL(APIMART_OPENAI_BASE_URL)
@@ -87,7 +105,7 @@ export function upstreamConfigLabel(input: UpstreamConfigInput): string {
   if (customLabel) return customLabel;
   const kind = identifyUpstreamConfig(input);
   if (kind === "fhl") return "FHL";
-  if (kind === "images") return "Images API";
+  if (kind === "images") return "OpenAI 标准 v1";
   if (kind === "apimart") return "APIMart";
   if (kind === "runninghub") return "RunningHub";
   return "Responses API";
@@ -100,7 +118,7 @@ export function upstreamConfigShortLabel(input: UpstreamConfigInput): string {
   if (kind === "fhl") return "FHL";
   if (kind === "apimart") return "APIMart";
   if (kind === "runninghub") return "RH";
-  return kind === "images" ? "Images" : "Responses";
+  return kind === "images" ? "OpenAI v1" : "Responses";
 }
 
 export function defaultProfileValuesForAPIMode(apiMode: APIMode): {
@@ -211,7 +229,7 @@ export function keyringUserFor(profileId: string): string {
 export function apiModeLabel(mode: APIMode): string {
   if (mode === "apimart") return "APIMart";
   if (mode === "runninghub") return "RunningHub";
-  return mode === "images" ? "Images API" : "Responses API";
+  return mode === "images" ? "OpenAI 标准 v1" : "Responses API";
 }
 
 export function requestPolicyLabel(mode: RequestPolicy): string {

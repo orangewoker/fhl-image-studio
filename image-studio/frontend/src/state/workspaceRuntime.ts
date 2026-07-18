@@ -56,6 +56,7 @@ export function normalizeAPIMode(mode: string): APIModeValue {
 
 export function apiModeLabel(mode: string): string {
   const shortLabel = apiModeShortLabel(mode);
+  if (shortLabel === "OpenAI v1") return "OpenAI 标准 v1";
   return shortLabel === "APIMart" || shortLabel === "RunningHub" ? shortLabel : `${shortLabel} API`;
 }
 
@@ -63,7 +64,7 @@ export function apiModeShortLabel(mode: string): string {
   const normalized = normalizeAPIMode(mode);
   if (normalized === "apimart") return "APIMart";
   if (normalized === "runninghub") return "RunningHub";
-  return normalized === "images" ? "Images" : "Responses";
+  return normalized === "images" ? "OpenAI v1" : "Responses";
 }
 
 export function normalizeConcurrencyLimit(value: unknown): number {

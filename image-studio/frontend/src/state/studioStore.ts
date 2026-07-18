@@ -70,6 +70,7 @@ import {
 import { normalizeAPIKeyInput, validateAPIKeyForHeader } from "../lib/apiKey";
 import { ensureBase64FromSource } from "../lib/images";
 import { loadProxyConfig, normalizeProxyMode, persistProxyConfig } from "../lib/proxy";
+import { upstreamErrorMessage } from "../lib/upstreamErrors";
 import { syncCLIConfigQuietly, type CLIConfigSyncInput } from "../lib/cliConfigSync";
 import {
   duplicateProfile as cloneProfile,
@@ -82,6 +83,7 @@ import {
   isRunningHubBaseURL,
   keyringUserFor,
   makeFHLResponsesProfile,
+  normalizeFHLImageModelID,
   pickActiveProfile,
   upstreamConfigShortLabel,
 } from "../lib/profiles";
@@ -1130,7 +1132,17 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const submitRequestPolicy = activeProfile?.requestPolicy ?? s.requestPolicy;
     const submitBaseURL = activeProfile?.baseURL ?? s.baseURL;
     const submitTextModelID = activeProfile?.textModelID ?? s.textModelID;
-    const submitImageModelID = activeProfile?.imageModelID ?? s.imageModelID;
+    let submitImageModelID = activeProfile?.imageModelID ?? s.imageModelID;
+    const normalizedFHLImageModelID = normalizeFHLImageModelID(submitBaseURL, submitImageModelID);
+    if (normalizedFHLImageModelID !== submitImageModelID.trim()) {
+      submitImageModelID = normalizedFHLImageModelID;
+      if (activeProfile) {
+        await s.updateProfile(activeProfile.id, { imageModelID: normalizedFHLImageModelID });
+      } else {
+        set({ imageModelID: normalizedFHLImageModelID });
+      }
+      s.pushToast(`FHL 图像模型已自动修正为 ${normalizedFHLImageModelID}`, "info", 5200);
+    }
     const runningHubBridgeSubmit = submitAPIMode === "runninghub" || isRunningHubBaseURL(submitBaseURL);
     if (!runningHubBridgeSubmit && !s.apiKey.trim()) {
       set({ errorMessage: "请填写 API Key", errorRawPath: null });
@@ -2219,7 +2231,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       );
     } catch (e: any) {
       set({ isTestingKey: false });
-      s.pushToast(`连接失败:${e?.message ?? e}`, "error", 6000);
+      s.pushToast(`连接失败：${upstreamErrorMessage(e)}`, "error", 7600);
     }
   },
 

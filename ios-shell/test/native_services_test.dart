@@ -131,6 +131,40 @@ void main() {
         ['private-model'],
       );
     });
+
+    test('classifies transient reset failures for automatic retries', () {
+      expect(
+        NativeHttpService.isTransientProbeError(
+          const SocketException('Connection reset by peer'),
+        ),
+        isTrue,
+      );
+      expect(
+        NativeHttpService.isTransientProbeError(
+          const HttpException('上游连接测试返回 HTTP 401'),
+        ),
+        isFalse,
+      );
+    });
+
+    test('formats exhausted FHL retries without Dart wrapper noise', () {
+      expect(
+        NativeHttpService.probeFailureMessage(
+          const SocketException('Connection reset by peer'),
+          host: 'www.fhl.mom',
+          exhaustedTransientRetries: true,
+        ),
+        'FHL 连接被服务器重置（已自动重试 3 次）。请切换网络后再次测试；API Key 尚未完成验证。',
+      );
+      expect(
+        NativeHttpService.probeFailureMessage(
+          StateError('HTTP 401'),
+          host: 'example.com',
+          exhaustedTransientRetries: false,
+        ),
+        'HTTP 401',
+      );
+    });
   });
 
   group('NativeFileService filename safety', () {

@@ -207,9 +207,9 @@ export function UpstreamConfigModal({
               },
               {
                 id: "images" as APIMode,
-                title: "Images API",
-                sub: "兼容性更广，接标准 generations / edits。",
-                note: "适合只想尽快接上常规生图接口。",
+                title: "OpenAI 标准 v1",
+                sub: "标准 /v1/images/generations 与 /v1/images/edits。",
+                note: "适合 OpenAI 官方接口及兼容服务商。",
               },
             ]).map((item) => (
               <button

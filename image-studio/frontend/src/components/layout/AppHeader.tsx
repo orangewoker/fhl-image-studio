@@ -39,9 +39,9 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
     : activeProfile && isFHLBaseURL(activeProfile.baseURL)
       ? "FHL"
       : activeProfile?.apiMode === "responses"
-        ? "FHL"
+        ? "Responses"
       : activeProfile?.apiMode === "images"
-        ? "Images"
+        ? "OpenAI v1"
         : "API";
 
   const openFHLAPIConfig = (event: MouseEvent<HTMLButtonElement>) => {

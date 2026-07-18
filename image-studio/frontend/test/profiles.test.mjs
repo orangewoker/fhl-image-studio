@@ -46,3 +46,21 @@ test("custom provider names survive profile parsing and drive UI labels", () => 
   assert.equal(profiles.upstreamConfigLabel(parsed), "My Private NewAPI");
   assert.equal(profiles.upstreamConfigShortLabel(parsed), "My Privat…");
 });
+
+test("FHL image models reject unsupported selections and fall back safely", () => {
+  assert.equal(profiles.isSupportedFHLImageModelID("team-codex-gpt-image-2"), true);
+  assert.equal(profiles.isSupportedFHLImageModelID("gpt-5.5"), false);
+  assert.equal(
+    profiles.normalizeFHLImageModelID("https://www.fhl.mom/v1", "gpt-5.5"),
+    "gpt-image-2",
+  );
+  assert.equal(
+    profiles.normalizeFHLImageModelID("https://api.openai.example/v1", "custom-image"),
+    "custom-image",
+  );
+});
+
+test("standard images mode is clearly labeled as OpenAI v1", () => {
+  assert.equal(profiles.apiModeLabel("images"), "OpenAI 标准 v1");
+  assert.equal(profiles.upstreamConfigLabel({ apiMode: "images" }), "OpenAI 标准 v1");
+});
