@@ -42,6 +42,8 @@ jobs:
           npm test
           npm run build:android
           node ../../scripts/prepare-ios-frontend.mjs
+          test -n "$(find ../../ios-shell/assets/web/assets -name '*.js' -print -quit)"
+          test -n "$(find ../../ios-shell/assets/web/assets -name '*.css' -print -quit)"
 
       - name: Resolve Flutter dependencies
         working-directory: ios-shell
@@ -71,6 +73,8 @@ jobs:
           APP="build/ios/iphoneos/Runner.app"
           test -d "$APP"
           test ! -e "$APP/embedded.mobileprovision"
+          test -n "$(find "$APP" -path '*flutter_assets/assets/web/assets/*.js' -print -quit)"
+          test -n "$(find "$APP" -path '*flutter_assets/assets/web/assets/*.css' -print -quit)"
           rm -rf build/ios/unsigned-ipa
           mkdir -p build/ios/unsigned-ipa/Payload
           ditto "$APP" build/ios/unsigned-ipa/Payload/Runner.app

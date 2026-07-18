@@ -1,8 +1,23 @@
+import 'dart:io';
+
 import 'package:fhl_image_studio_ios/src/native_file_service.dart';
 import 'package:fhl_image_studio_ios/src/native_http_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('pubspec includes the compiled React asset directory', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    expect(pubspec, contains('- assets/web/'));
+    expect(pubspec, contains('- assets/web/assets/'));
+    expect(Directory('assets/web/assets').existsSync(), isTrue);
+    expect(
+      Directory(
+        'assets/web/assets',
+      ).listSync().whereType<File>().any((file) => file.path.endsWith('.js')),
+      isTrue,
+    );
+  });
+
   group('NativeHttpService URL validation', () {
     test('accepts supported upstream URLs', () {
       expect(
