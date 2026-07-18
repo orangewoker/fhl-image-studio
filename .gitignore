@@ -28,6 +28,8 @@ browser-jobs.v1.json
 node_modules/
 dist/
 build/
+ios-shell/assets/web/*
+!ios-shell/assets/web/.gitkeep
 .gradle/
 .gradle-wrapper/
 .tmp/
@@ -38,4 +40,6 @@ local.properties
 
 # Release binaries are attached to GitHub Releases, not committed.
 *.apk
+*.ipa
 *.zip
+release/ios/

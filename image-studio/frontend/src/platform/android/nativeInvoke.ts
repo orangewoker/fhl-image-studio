@@ -1,6 +1,7 @@
 type BrowserWindow = Window & {
   AndroidImageStudio?: {
     invoke?: (requestId: string, method: string, payloadJson: string) => void;
+    supportsBackgroundJobs?: boolean;
   };
   __imageStudioNativeResolve?: (requestId: string, payload: unknown) => void;
   __imageStudioNativeReject?: (requestId: string, message: string) => void;
@@ -48,6 +49,11 @@ function ensureAndroidInvokeHooks() {
 
 export function hasAndroidInvokeBridge(): boolean {
   return typeof getAndroidBridge()?.invoke === "function";
+}
+
+export function hasAndroidBackgroundJobBridge(): boolean {
+  const bridge = getAndroidBridge();
+  return typeof bridge?.invoke === "function" && bridge.supportsBackgroundJobs !== false;
 }
 
 export function invokeAndroidNative<T>(method: string, ...args: unknown[]): Promise<T> {

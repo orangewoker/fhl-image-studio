@@ -2,20 +2,22 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const historyRail = readFileSync(new URL("../src/components/history/HistoryRail.tsx", import.meta.url), "utf8");
-const windowsHistoryRail = readFileSync(new URL("../src/components/history/WindowsHistoryRail.tsx", import.meta.url), "utf8");
-const jobGroup = readFileSync(new URL("../src/platform/android/history/AndroidHistoryJobGroup.tsx", import.meta.url), "utf8");
-const storeTypes = readFileSync(new URL("../src/state/studioStore.types.ts", import.meta.url), "utf8");
-const imageActions = readFileSync(new URL("../src/state/studioStore.images.ts", import.meta.url), "utf8");
-const store = readFileSync(new URL("../src/state/studioStore.ts", import.meta.url), "utf8");
-const css = readFileSync(new URL("../src/styles/_android-history.css", import.meta.url), "utf8");
-const domain = readFileSync(new URL("../src/types/domain.ts", import.meta.url), "utf8");
-const profiles = readFileSync(new URL("../src/lib/profiles.ts", import.meta.url), "utf8");
-const contracts = readFileSync(new URL("../src/platform/runtime/browserJobContracts.ts", import.meta.url), "utf8");
-const canvasStage = readFileSync(new URL("../src/platform/android/canvas/AndroidCanvasStage.tsx", import.meta.url), "utf8");
-const batchGrid = readFileSync(new URL("../src/components/canvas/BatchResultGrid.tsx", import.meta.url), "utf8");
-const workspaceRuntime = readFileSync(new URL("../src/state/workspaceRuntime.ts", import.meta.url), "utf8");
-const androidJobManager = readFileSync(new URL("../../../android-shell/app/src/main/java/top/gptcodex/imagestudio/android/AndroidJobManager.kt", import.meta.url), "utf8");
+const readSource = (url, encoding) => readFileSync(url, encoding).replace(/\r\n/g, "\n");
+
+const historyRail = readSource(new URL("../src/components/history/HistoryRail.tsx", import.meta.url), "utf8");
+const windowsHistoryRail = readSource(new URL("../src/components/history/WindowsHistoryRail.tsx", import.meta.url), "utf8");
+const jobGroup = readSource(new URL("../src/platform/android/history/AndroidHistoryJobGroup.tsx", import.meta.url), "utf8");
+const storeTypes = readSource(new URL("../src/state/studioStore.types.ts", import.meta.url), "utf8");
+const imageActions = readSource(new URL("../src/state/studioStore.images.ts", import.meta.url), "utf8");
+const store = readSource(new URL("../src/state/studioStore.ts", import.meta.url), "utf8");
+const css = readSource(new URL("../src/styles/_android-history.css", import.meta.url), "utf8");
+const domain = readSource(new URL("../src/types/domain.ts", import.meta.url), "utf8");
+const profiles = readSource(new URL("../src/lib/profiles.ts", import.meta.url), "utf8");
+const contracts = readSource(new URL("../src/platform/runtime/browserJobContracts.ts", import.meta.url), "utf8");
+const canvasStage = readSource(new URL("../src/platform/android/canvas/AndroidCanvasStage.tsx", import.meta.url), "utf8");
+const batchGrid = readSource(new URL("../src/components/canvas/BatchResultGrid.tsx", import.meta.url), "utf8");
+const workspaceRuntime = readSource(new URL("../src/state/workspaceRuntime.ts", import.meta.url), "utf8");
+const androidJobManager = readSource(new URL("../../../android-shell/app/src/main/java/top/gptcodex/imagestudio/android/AndroidJobManager.kt", import.meta.url), "utf8");
 
 test("Android history renders recent job groups like desktop history", () => {
   assert.match(historyRail, /AndroidHistoryJobGroup/);

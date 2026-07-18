@@ -158,6 +158,7 @@ import {
   type StreamPreviewPayload,
 } from "./studioStore.streamPreview";
 import { buildEffectivePrompt } from "./promptComposition";
+import { foregroundJobScheduler } from "./foregroundJobScheduler";
 
 type RuntimeGenerateOptions = backend.GenerateOptions & {
   sourceImages?: SourceImage[];
@@ -1422,6 +1423,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
 
     const batchIndexOffset = appendingContinuousRun ? existingJobsTotal : 0;
+    const foregroundTasks: Array<(onTerminal: () => void) => Promise<void>> = [];
     for (let i = 0; i < batchCount; i++) {
       const batchIndex = batchIndexOffset + i;
       const jobSeed = s.seed ? s.seed + batchIndex : 0;
@@ -1433,7 +1435,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         batchCount: existingJobsTotal + batchCount,
         batchVariationKey: `${requestRunId}-${batchIndex + 1}`,
       };
-      void launchOneJob(s.mode, p, {
+      foregroundTasks.push((onTerminal) => launchOneJob(s.mode, p, {
         workspaceId,
         apiMode: effectiveAPIMode,
         apiLabel: submitAPIShortLabel,
@@ -1444,13 +1446,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         sources: s.sources,
         currentImage: s.currentImage,
         styleTag: s.styleTag,
-      });
+      }, onTerminal));
     }
+    foregroundJobScheduler.enqueue(workspaceId, concurrencyLimit, foregroundTasks);
   },
 
   cancel: async () => {
     const s = get();
     const workspaceId = s.activeWorkspaceId;
+    foregroundJobScheduler.cancelPending(workspaceId);
     const ids = [...s.runningJobs];
     if (isBackgroundTaskProxyMode()) {
       for (const id of ids) {
@@ -2562,6 +2566,7 @@ async function launchOneJob(
     currentImage: HistoryItem | null;
     styleTag: string;
   },
+  onTerminal?: () => void,
 ): Promise<void> {
   const store = useStudioStore;
   const jobId = cryptoIDFallback();
@@ -2572,6 +2577,12 @@ async function launchOneJob(
   let offResult = () => {};
   let offError = () => {};
   const cleanup = () => { offProgress(); offLog(); offPreview(); offAPIMartTask(); offResult(); offError(); };
+  let terminalNotified = false;
+  const notifyTerminal = () => {
+    if (terminalNotified) return;
+    terminalNotified = true;
+    onTerminal?.();
+  };
   try {
     store.setState((state) => {
       const runtime = workspaceRuntimeFromState(state, snapshot.workspaceId);
@@ -2698,6 +2709,7 @@ async function launchOneJob(
     const startedAt = Date.now();
     offResult = EventsOn(`result:${jobId}`, (r: any) => {
       cleanup();
+      notifyTerminal();
       void (async () => {
         try {
           const elapsedSec = (Date.now() - startedAt) / 1000;
@@ -2869,6 +2881,7 @@ async function launchOneJob(
       apimartTaskStatus?: string;
     }) => {
       cleanup();
+      notifyTerminal();
       const apimartTaskId = typeof e?.apimartTaskId === "string" ? e.apimartTaskId.trim() : "";
       const apimartRecoveryTask: APIMartRecoveryTask | null = apimartTaskId ? {
         taskId: apimartTaskId,
@@ -2943,6 +2956,7 @@ async function launchOneJob(
     }
   } catch (e: any) {
     cleanup();
+    notifyTerminal();
     const patch: WorkspacePatch = {
       errorMessage: `提交失败:${e?.message ?? e}`,
       errorRawPath: null,

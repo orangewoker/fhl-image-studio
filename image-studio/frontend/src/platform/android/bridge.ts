@@ -2,6 +2,7 @@ import { readRuntimePlatformState } from "..";
 import { invokeAndroidNative } from "./nativeInvoke";
 
 export type AndroidBridge = {
+  supportsBackgroundJobs?: boolean;
   getDeviceDiagnosticsJson?: () => string;
   invoke?: (requestId: string, method: string, payloadJson: string) => void;
   saveImage?: (imageB64: string, suggestedName: string) => string | Promise<string>;

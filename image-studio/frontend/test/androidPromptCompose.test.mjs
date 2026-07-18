@@ -1,23 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+
+const readSource = (url, encoding) => readFileSync(url, encoding).replace(/\r\n/g, "\n");
 import { readFileSync } from "node:fs";
 
-const phoneCompose = readFileSync(new URL("../src/platform/android/AndroidPhoneComposePanel.tsx", import.meta.url), "utf8");
-const padCompose = readFileSync(new URL("../src/platform/android/AndroidPadComposePanel.tsx", import.meta.url), "utf8");
-const templateModal = readFileSync(new URL("../src/platform/android/AndroidPromptTemplateModal.tsx", import.meta.url), "utf8");
-const phoneSourceSection = readFileSync(new URL("../src/platform/android/AndroidPhoneSourceSection.tsx", import.meta.url), "utf8");
-const padSourceSection = readFileSync(new URL("../src/platform/android/AndroidPadSourceSection.tsx", import.meta.url), "utf8");
-const promptTouchScroll = readFileSync(new URL("../src/platform/android/AndroidPromptTouchScroll.ts", import.meta.url), "utf8");
-const layoutCss = readFileSync(new URL("../src/styles/_layout.css", import.meta.url), "utf8");
-const parameterCss = readFileSync(new URL("../src/styles/_android-parameters.css", import.meta.url), "utf8");
-const store = readFileSync(new URL("../src/state/studioStore.ts", import.meta.url), "utf8");
-const storeTypes = readFileSync(new URL("../src/state/studioStore.types.ts", import.meta.url), "utf8");
-const workspaces = readFileSync(new URL("../src/state/studioStore.workspaces.ts", import.meta.url), "utf8");
-const runtime = readFileSync(new URL("../src/state/studioStore.runtime.ts", import.meta.url), "utf8");
-const shared = readFileSync(new URL("../src/state/studioStore.shared.ts", import.meta.url), "utf8");
-const imageActions = readFileSync(new URL("../src/state/studioStore.images.ts", import.meta.url), "utf8");
-const domain = readFileSync(new URL("../src/types/domain.ts", import.meta.url), "utf8");
-const promptComposition = readFileSync(new URL("../src/state/promptComposition.ts", import.meta.url), "utf8");
+const phoneCompose = readSource(new URL("../src/platform/android/AndroidPhoneComposePanel.tsx", import.meta.url), "utf8");
+const padCompose = readSource(new URL("../src/platform/android/AndroidPadComposePanel.tsx", import.meta.url), "utf8");
+const templateModal = readSource(new URL("../src/platform/android/AndroidPromptTemplateModal.tsx", import.meta.url), "utf8");
+const phoneSourceSection = readSource(new URL("../src/platform/android/AndroidPhoneSourceSection.tsx", import.meta.url), "utf8");
+const padSourceSection = readSource(new URL("../src/platform/android/AndroidPadSourceSection.tsx", import.meta.url), "utf8");
+const promptTouchScroll = readSource(new URL("../src/platform/android/AndroidPromptTouchScroll.ts", import.meta.url), "utf8");
+const layoutCss = readSource(new URL("../src/styles/_layout.css", import.meta.url), "utf8");
+const parameterCss = readSource(new URL("../src/styles/_android-parameters.css", import.meta.url), "utf8");
+const store = readSource(new URL("../src/state/studioStore.ts", import.meta.url), "utf8");
+const storeTypes = readSource(new URL("../src/state/studioStore.types.ts", import.meta.url), "utf8");
+const workspaces = readSource(new URL("../src/state/studioStore.workspaces.ts", import.meta.url), "utf8");
+const runtime = readSource(new URL("../src/state/studioStore.runtime.ts", import.meta.url), "utf8");
+const shared = readSource(new URL("../src/state/studioStore.shared.ts", import.meta.url), "utf8");
+const imageActions = readSource(new URL("../src/state/studioStore.images.ts", import.meta.url), "utf8");
+const domain = readSource(new URL("../src/types/domain.ts", import.meta.url), "utf8");
+const promptComposition = readSource(new URL("../src/state/promptComposition.ts", import.meta.url), "utf8");
 
 test("Android prompt editor can collapse and expand like desktop compose panels", () => {
   for (const source of [phoneCompose, padCompose]) {

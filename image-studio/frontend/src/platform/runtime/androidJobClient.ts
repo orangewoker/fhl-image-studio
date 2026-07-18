@@ -1,4 +1,4 @@
-import { hasAndroidInvokeBridge, invokeAndroidNative } from "../android/nativeInvoke.ts";
+import { hasAndroidBackgroundJobBridge, invokeAndroidNative } from "../android/nativeInvoke.ts";
 import type {
   BrowserJobCancelPayload,
   BrowserJobCancelResponse,
@@ -49,7 +49,7 @@ function ensureAndroidJobEventHook() {
 }
 
 export function canUseAndroidJobs(): boolean {
-  return hasAndroidInvokeBridge();
+  return hasAndroidBackgroundJobBridge();
 }
 
 export async function submitAndroidJobGroup(payload: BrowserJobSubmitPayload): Promise<BrowserJobSubmitResponse> {
