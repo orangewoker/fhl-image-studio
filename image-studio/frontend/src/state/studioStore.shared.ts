@@ -41,6 +41,11 @@ const WORKSPACE_SESSION_LS_KEY = storageKey("gptcodex.workspaceSession.v1");
 
 let detachSystemThemeListener: (() => void) | null = null;
 
+function nativeIOSUsesWhiteAppearance(): boolean {
+  return typeof document !== "undefined"
+    && document.documentElement.dataset.nativePlatform === "ios";
+}
+
 export function currentWorkspaceServiceInstanceId(): string {
   const env = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env;
   const raw = typeof env?.IMAGE_STUDIO_SERVICE_INSTANCE_ID === "string"
@@ -50,6 +55,7 @@ export function currentWorkspaceServiceInstanceId(): string {
 }
 
 export function resolvedTheme(theme: ThemeMode): "light" | "dark" {
+  if (nativeIOSUsesWhiteAppearance()) return "light";
   if (theme === "dark" || theme === "light") return theme;
   if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -65,12 +71,17 @@ export function unbindSystemThemeListener() {
 }
 
 export function writeResolvedTheme(theme: "light" | "dark") {
-  document.documentElement.setAttribute("data-theme", theme);
-  document.documentElement.classList.toggle("dark", theme === "dark");
-  document.documentElement.style.colorScheme = theme;
+  const effectiveTheme = nativeIOSUsesWhiteAppearance() ? "light" : theme;
+  document.documentElement.setAttribute("data-theme", effectiveTheme);
+  document.documentElement.classList.toggle("dark", effectiveTheme === "dark");
+  document.documentElement.style.colorScheme = effectiveTheme;
 }
 
 export function bindSystemThemeListener() {
+  if (nativeIOSUsesWhiteAppearance()) {
+    writeResolvedTheme("light");
+    return;
+  }
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   const apply = (matches: boolean) => writeResolvedTheme(matches ? "dark" : "light");
@@ -87,7 +98,7 @@ export function bindSystemThemeListener() {
 
 export function applyTheme(theme: ThemeMode) {
   unbindSystemThemeListener();
-  document.documentElement.setAttribute("data-appearance", theme);
+  document.documentElement.setAttribute("data-appearance", nativeIOSUsesWhiteAppearance() ? "light" : theme);
   writeResolvedTheme(resolvedTheme(theme));
   if (isWindows) {
     if (theme === "system") WindowSetSystemDefaultTheme();

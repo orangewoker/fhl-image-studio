@@ -29,6 +29,11 @@ const MAX_VIEW_SCALE = 8;
 const ZOOM_STEP = 1.2;
 const ANDROID_KONVA_PIXEL_RATIO = 1;
 
+function nativeIOSDisablesPinchZoom() {
+  return typeof document !== "undefined"
+    && document.documentElement.dataset.nativePlatform === "ios";
+}
+
 if (typeof window !== "undefined") {
   Konva.pixelRatio = ANDROID_KONVA_PIXEL_RATIO;
 }
@@ -544,6 +549,7 @@ export function AndroidCanvasStage() {
   }
 
   function beginPinch(e: Konva.KonvaEventObject<TouchEvent>) {
+    if (nativeIOSDisablesPinchZoom()) return;
     if (e.evt.touches.length < 2) return;
     e.evt.preventDefault();
     const a = touchPoint(e.evt.touches[0]);

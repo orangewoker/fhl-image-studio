@@ -384,6 +384,32 @@ html.dark[data-ui-family="android"] body {
     linear-gradient(180deg, rgb(123 218 207 / 0.04), transparent 16rem),
     linear-gradient(135deg, #101412 0%, #141916 54%, #101512 100%);
 }
+
+/* The native iOS shell is intentionally fixed to a white, screen-fitted
+   surface. Cards and controls keep their contrast, while the application,
+   workspace and canvas backgrounds no longer use gradients or tinted fills. */
+:root[data-native-platform="ios"] {
+  --bg: #ffffff;
+  --bg-2: #ffffff;
+  --toolbar: #ffffff;
+  --canvas-bg: #ffffff;
+  background: #ffffff !important;
+}
+
+html[data-native-platform="ios"] body,
+html[data-native-platform="ios"] #root,
+html[data-native-platform="ios"] .app-root,
+html[data-native-platform="ios"] .studio,
+html[data-native-platform="ios"] .control-panel,
+html[data-native-platform="ios"] .canvas-shell,
+html[data-native-platform="ios"] .history-rail {
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+html[data-native-platform="ios"] .liquid-ambient {
+  display: none;
+}
 button, input, textarea, select { font-family: inherit; }
 
 /* 全局滚动条 —— 模仿 fuckwangui 的圆角 thumb */

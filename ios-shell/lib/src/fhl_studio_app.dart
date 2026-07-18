@@ -16,9 +16,9 @@ class FHLStudioApp extends StatelessWidget {
     return MaterialApp(
       title: 'FHL Image Studio',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(
+      theme: ThemeData.light(
         useMaterial3: true,
-      ).copyWith(scaffoldBackgroundColor: const Color(0xFF09090B)),
+      ).copyWith(scaffoldBackgroundColor: Colors.white),
       home: const FHLStudioWebView(),
     );
   }
@@ -48,7 +48,8 @@ class _FHLStudioWebViewState extends State<FHLStudioWebView>
     _bridge = NativeBridge();
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFF09090B))
+      ..enableZoom(false)
+      ..setBackgroundColor(Colors.white)
       ..addJavaScriptChannel(
         'FlutterBridge',
         onMessageReceived: (message) {
@@ -238,9 +239,10 @@ class _FHLStudioWebViewState extends State<FHLStudioWebView>
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light.copyWith(
+      value: SystemUiOverlayStyle.dark.copyWith(
         statusBarColor: Colors.transparent,
-        systemNavigationBarColor: const Color(0xFF09090B),
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
       ),
       child: Scaffold(
         body: Stack(
@@ -249,7 +251,7 @@ class _FHLStudioWebViewState extends State<FHLStudioWebView>
             WebViewWidget(controller: _controller),
             if (!_frontendReady && _startupError == null)
               const ColoredBox(
-                color: Color(0xFF09090B),
+                color: Colors.white,
                 child: Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -263,7 +265,7 @@ class _FHLStudioWebViewState extends State<FHLStudioWebView>
               ),
             if (_startupError case final error?)
               ColoredBox(
-                color: const Color(0xFF09090B),
+                color: Colors.white,
                 child: SafeArea(
                   minimum: const EdgeInsets.all(24),
                   child: Center(

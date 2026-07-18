@@ -19,6 +19,25 @@
   var channel = window.FlutterBridge;
   if (!channel || typeof channel.postMessage !== "function") return;
 
+  var root = document.documentElement;
+  if (root) {
+    root.dataset.nativePlatform = "ios";
+    root.classList.remove("dark");
+    root.setAttribute("data-theme", "light");
+    root.setAttribute("data-appearance", "light");
+    root.style.colorScheme = "light";
+    root.style.backgroundColor = "#ffffff";
+  }
+
+  // WKWebView can still deliver native iOS gesture events even when a page has
+  // a fixed viewport. Cancel them as a second line of defence so the interface
+  // always remains fitted to the current screen width.
+  ["gesturestart", "gesturechange", "gestureend"].forEach(function (eventName) {
+    document.addEventListener(eventName, function (event) {
+      event.preventDefault();
+    }, { passive: false });
+  });
+
   var metrics = {
     widthPx: Math.round(window.innerWidth * (window.devicePixelRatio || 1)),
     heightPx: Math.round(window.innerHeight * (window.devicePixelRatio || 1)),
