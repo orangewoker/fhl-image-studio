@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'local_asset_server.dart';
 import 'native_bridge.dart';
 
 class FHLStudioApp extends StatelessWidget {
@@ -34,7 +35,11 @@ class _FHLStudioWebViewState extends State<FHLStudioWebView>
     with WidgetsBindingObserver {
   late final WebViewController _controller;
   late final NativeBridge _bridge;
+  final LocalAssetServer _assetServer = LocalAssetServer();
   bool _loaded = false;
+  bool _frontendReady = false;
+  String? _startupError;
+  Timer? _startupWatchdog;
 
   @override
   void initState() {
@@ -50,23 +55,118 @@ class _FHLStudioWebViewState extends State<FHLStudioWebView>
           unawaited(_bridge.handleMessage(message.message));
         },
       )
+      ..addJavaScriptChannel(
+        'FlutterDiagnostics',
+        onMessageReceived: (message) {
+          _handleFrontendDiagnostic(message.message);
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
+          onPageStarted: (url) {
+            if (!_assetServer.owns(url)) return;
+            _startupWatchdog?.cancel();
+            _loaded = false;
+            _frontendReady = false;
+            if (mounted) {
+              setState(() => _startupError = null);
+            }
+          },
           onNavigationRequest: (request) async {
-            if (_bridge.isBundledAppUrl(request.url)) {
+            if (_assetServer.owns(request.url) ||
+                _bridge.isBundledAppUrl(request.url)) {
               return NavigationDecision.navigate;
             }
             await _bridge.openExternalUrl(request.url);
             return NavigationDecision.prevent;
           },
-          onPageFinished: (_) async {
+          onPageFinished: (url) async {
+            if (!_assetServer.owns(url)) return;
             _loaded = true;
             await _updateEnvironment();
+            _startupWatchdog?.cancel();
+            _startupWatchdog = Timer(
+              const Duration(seconds: 2),
+              () => unawaited(_verifyFrontendMounted()),
+            );
+          },
+          onWebResourceError: (error) {
+            if (error.isForMainFrame == true && !_frontendReady) {
+              _showStartupError('页面加载失败：${error.description}');
+            }
           },
         ),
       );
     _bridge.attachController(_controller);
-    unawaited(_controller.loadFlutterAsset('assets/web/index.html'));
+    unawaited(_startFrontend());
+  }
+
+  Future<void> _startFrontend() async {
+    _startupWatchdog?.cancel();
+    if (mounted) {
+      setState(() {
+        _loaded = false;
+        _frontendReady = false;
+        _startupError = null;
+      });
+    }
+    try {
+      final indexUri = await _assetServer.start();
+      await _controller.loadRequest(indexUri);
+      _startupWatchdog = Timer(
+        const Duration(seconds: 10),
+        () => _showStartupError('页面启动超时，前端没有完成挂载。'),
+      );
+    } catch (error) {
+      _showStartupError('本地页面服务启动失败：$error');
+    }
+  }
+
+  void _handleFrontendDiagnostic(String rawMessage) {
+    if (_frontendReady) return;
+    try {
+      final decoded = jsonDecode(rawMessage);
+      if (decoded is Map) {
+        final kind = decoded['kind']?.toString() ?? 'JavaScript';
+        final message = decoded['message']?.toString() ?? '未知错误';
+        _showStartupError('$kind：$message');
+        return;
+      }
+    } catch (_) {
+      // Fall through and show the original diagnostic text.
+    }
+    _showStartupError('JavaScript：$rawMessage');
+  }
+
+  Future<void> _verifyFrontendMounted() async {
+    if (!mounted || _frontendReady || _startupError != null) return;
+    try {
+      final result = await _controller.runJavaScriptReturningResult(
+        "Boolean(document.getElementById('root')?.firstElementChild)",
+      );
+      final mounted = result == true || result.toString() == 'true';
+      if (!mounted) {
+        _showStartupError('前端入口已加载，但 React 页面没有挂载。');
+        return;
+      }
+      _startupWatchdog?.cancel();
+      if (!this.mounted) return;
+      setState(() {
+        _frontendReady = true;
+        _startupError = null;
+      });
+    } catch (error) {
+      _showStartupError('页面状态检查失败：$error');
+    }
+  }
+
+  void _showStartupError(String message) {
+    _startupWatchdog?.cancel();
+    if (!mounted || _frontendReady) return;
+    final clean = message.trim();
+    setState(() {
+      _startupError = clean.length > 600 ? clean.substring(0, 600) : clean;
+    });
   }
 
   @override
@@ -128,8 +228,10 @@ class _FHLStudioWebViewState extends State<FHLStudioWebView>
 
   @override
   void dispose() {
+    _startupWatchdog?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _bridge.dispose();
+    unawaited(_assetServer.close());
     super.dispose();
   }
 
@@ -140,7 +242,68 @@ class _FHLStudioWebViewState extends State<FHLStudioWebView>
         statusBarColor: Colors.transparent,
         systemNavigationBarColor: const Color(0xFF09090B),
       ),
-      child: Scaffold(body: WebViewWidget(controller: _controller)),
+      child: Scaffold(
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            WebViewWidget(controller: _controller),
+            if (!_frontendReady && _startupError == null)
+              const ColoredBox(
+                color: Color(0xFF09090B),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 18),
+                      Text('正在启动 FHL Image Studio…'),
+                    ],
+                  ),
+                ),
+              ),
+            if (_startupError case final error?)
+              ColoredBox(
+                color: const Color(0xFF09090B),
+                child: SafeArea(
+                  minimum: const EdgeInsets.all(24),
+                  child: Center(
+                    child: SingleChildScrollView(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Text(
+                                  '启动失败',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                SelectableText(error),
+                                const SizedBox(height: 18),
+                                FilledButton.icon(
+                                  onPressed: _startFrontend,
+                                  icon: const Icon(Icons.refresh),
+                                  label: const Text('重新加载'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

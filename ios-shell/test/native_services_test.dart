@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fhl_image_studio_ios/src/native_file_service.dart';
 import 'package:fhl_image_studio_ios/src/native_http_service.dart';
+import 'package:fhl_image_studio_ios/src/local_asset_server.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -17,6 +20,64 @@ void main() {
       isTrue,
     );
   });
+
+  test(
+    'loopback server serves the entry and every static module reference',
+    () async {
+      final server = LocalAssetServer(
+        loadAsset: (key) async {
+          final bytes = await File(key).readAsBytes();
+          return ByteData.sublistView(Uint8List.fromList(bytes));
+        },
+      );
+      final client = HttpClient();
+      addTearDown(() async {
+        client.close(force: true);
+        await server.close();
+      });
+
+      final indexUri = await server.start();
+      expect(server.owns(indexUri.toString()), isTrue);
+      final indexResponse = await (await client.getUrl(indexUri)).close();
+      expect(indexResponse.statusCode, HttpStatus.ok);
+      expect(indexResponse.headers.contentType?.mimeType, 'text/html');
+      final html = await indexResponse.transform(const Utf8Decoder()).join();
+
+      final references = RegExp(
+        r'''(?:src|href)=["']\.\/(assets\/[^"']+)["']''',
+      ).allMatches(html).map((match) => match.group(1)!).toSet();
+      expect(references.where((path) => path.endsWith('.js')), isNotEmpty);
+      expect(references.where((path) => path.endsWith('.css')), isNotEmpty);
+
+      for (final reference in references) {
+        final response = await (await client.getUrl(
+          indexUri.resolve(reference),
+        )).close();
+        expect(response.statusCode, HttpStatus.ok, reason: reference);
+        await response.drain<void>();
+      }
+    },
+  );
+
+  test(
+    'loopback server blocks traversal paths and emits module MIME types',
+    () {
+      expect(
+        LocalAssetServer.assetPathForRequest(
+          Uri.parse('/assets/%2e%2e/secret'),
+        ),
+        isNull,
+      );
+      expect(
+        LocalAssetServer.contentTypeForPath('assets/app.js').mimeType,
+        'text/javascript',
+      );
+      expect(
+        LocalAssetServer.contentTypeForPath('assets/app.css').mimeType,
+        'text/css',
+      );
+    },
+  );
 
   group('NativeHttpService URL validation', () {
     test('accepts supported upstream URLs', () {

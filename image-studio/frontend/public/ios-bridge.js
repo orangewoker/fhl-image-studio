@@ -1,5 +1,20 @@
 (function installFHLStudioIOSBridge() {
-  if (typeof window === "undefined" || window.AndroidImageStudio) return;
+  if (typeof window === "undefined") return;
+
+  var diagnosticsChannel = window.FlutterDiagnostics;
+  var reportStartupError = function reportStartupError(kind, value) {
+    if (!diagnosticsChannel || typeof diagnosticsChannel.postMessage !== "function") return;
+    var message = value && value.message ? value.message : String(value || "Unknown JavaScript error");
+    diagnosticsChannel.postMessage(JSON.stringify({ kind: kind, message: message }));
+  };
+  window.addEventListener("error", function (event) {
+    reportStartupError("JavaScript error", event.error || event.message);
+  });
+  window.addEventListener("unhandledrejection", function (event) {
+    reportStartupError("Unhandled promise rejection", event.reason);
+  });
+
+  if (window.AndroidImageStudio) return;
 
   var channel = window.FlutterBridge;
   if (!channel || typeof channel.postMessage !== "function") return;
