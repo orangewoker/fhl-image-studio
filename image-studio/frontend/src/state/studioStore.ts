@@ -1177,6 +1177,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const submitAPIShortLabel = upstreamConfigShortLabel({
       apiMode: effectiveAPIMode,
       baseURL: cleanedBaseURL,
+      providerName: activeProfile?.providerName,
     });
     if (concurrencyLimit > 0) {
       const activeCount = workspaceRunningCount(s, effectiveAPIMode);

@@ -2996,7 +2996,7 @@ object AndroidJobManager {
     }
 
     private fun normalizeBaseURL(raw: String): String {
-        val cleaned = raw.trim().trimEnd('/')
+        val cleaned = raw.trim().trimEnd('/').removeSuffix("/v1")
         if (cleaned.isBlank()) throw JobRequestException("BASE_URL 为空", null, false)
         return cleaned
     }

@@ -630,7 +630,7 @@ test("runtimeHost probes upstream through Wails backend", async () => {
           Edit: async () => ({ jobId: "job" }),
           ProbeUpstream: async (payload) => {
             calls.push(payload);
-            return { modelCount: 1 };
+            return { modelCount: 1, models: ["gpt-image-custom"] };
           },
         },
       },
@@ -645,7 +645,8 @@ test("runtimeHost probes upstream through Wails backend", async () => {
     };
   }, async () => {
     const runtimeHost = await loadRuntimeHost();
-    await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-test");
+    const result = await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-test");
+    assert.deepEqual(result, { modelCount: 1, models: ["gpt-image-custom"] });
     assert.deepEqual(globalThis.__probeCalls, [
       { baseURL: "https://relay.example.com", apiKey: "sk-test", apiMode: "responses", proxyMode: "system", proxyURL: "" },
     ]);
@@ -660,7 +661,7 @@ test("runtimeHost probes upstream through Android backend", async () => {
         calls.push({ method, args: JSON.parse(payloadJson) });
         queueMicrotask(() => {
           if (method === "ProbeUpstream") {
-            window.__imageStudioNativeResolve?.(requestId, { modelCount: 2 });
+            window.__imageStudioNativeResolve?.(requestId, { modelCount: 2, models: ["text-custom", "image-custom"] });
             return;
           }
           window.__imageStudioNativeReject?.(requestId, `unsupported ${method}`);
@@ -673,13 +674,39 @@ test("runtimeHost probes upstream through Android backend", async () => {
     };
   }, async () => {
     const runtimeHost = await loadRuntimeHost();
-    await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-android");
+    const result = await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-android");
+    assert.deepEqual(result, { modelCount: 2, models: ["text-custom", "image-custom"] });
     assert.deepEqual(globalThis.__probeCalls, [
       {
         method: "ProbeUpstream",
         args: [{ baseURL: "https://relay.example.com", apiKey: "sk-android", apiMode: "responses", proxyMode: "system", proxyURL: "" }],
       },
     ]);
+  });
+});
+
+test("runtimeHost parses custom provider model lists in browser mode", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url) => {
+      assert.equal(String(url), "https://custom-provider.example/v1/models");
+      return new Response(JSON.stringify({
+        data: [
+          { id: "vision-image-v2" },
+          { id: "chat-text-v1" },
+          { id: "vision-image-v2" },
+        ],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const result = await runtimeHost.probeCurrentUpstream(
+      "https://custom-provider.example/v1",
+      "custom-token",
+    );
+    assert.deepEqual(result, {
+      modelCount: 2,
+      models: ["chat-text-v1", "vision-image-v2"],
+    });
   });
 });
 

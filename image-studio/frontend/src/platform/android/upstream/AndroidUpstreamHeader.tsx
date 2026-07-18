@@ -1,6 +1,6 @@
 import { Boxes, CheckCircle2, PlugZap, ShieldCheck, Sparkles } from "lucide-react";
 import { isAPIMartAsyncProfile } from "../../../lib/apimartAPI";
-import { isFHLBaseURL, isRunningHubBaseURL } from "../../../lib/profiles";
+import { isFHLBaseURL, isRunningHubBaseURL, upstreamConfigLabel } from "../../../lib/profiles";
 import type { UpstreamProfile } from "../../../types/domain";
 import { ANDROID_UPSTREAM_MODE_OPTIONS } from "./useAndroidUpstreamConfig";
 
@@ -72,6 +72,7 @@ export function AndroidUpstreamHeader({
 }
 
 function profileModeLabel(profile: UpstreamProfile): string {
+  if (profile.providerName?.trim()) return upstreamConfigLabel(profile);
   if (profile.apiMode === "runninghub" || isRunningHubBaseURL(profile.baseURL)) return "RunningHub";
   if (isAPIMartAsyncProfile(profile)) return "APIMart 异步参数";
   if (isFHLBaseURL(profile.baseURL)) return "FHL 常规";

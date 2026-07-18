@@ -669,11 +669,23 @@ class AndroidImageStudioBridge(
                             return@thread
                         }
                         val parsed = JSONObject(body)
-                        if (!parsed.has("data") || parsed.isNull("data")) {
-                            throw IllegalStateException("上游 /v1/models 响应缺少 data 数组")
+                        val data = parsed.optJSONArray("data")
+                            ?: parsed.optJSONArray("models")
+                            ?: throw IllegalStateException("上游 /v1/models 响应缺少 data/models 数组")
+                        val models = linkedSetOf<String>()
+                        for (modelIndex in 0 until data.length()) {
+                            val entry = data.opt(modelIndex)
+                            val modelId = when (entry) {
+                                is String -> entry.trim()
+                                is JSONObject -> sequenceOf("id", "model", "name")
+                                    .map { key -> entry.optString(key).trim() }
+                                    .firstOrNull { value -> value.isNotBlank() }
+                                    .orEmpty()
+                                else -> ""
+                            }
+                            if (modelId.isNotBlank()) models.add(modelId)
                         }
-                        val data = parsed.optJSONArray("data") ?: throw IllegalStateException("上游 /v1/models 响应缺少 data 数组")
-                        resolve(requestId, mapOf("modelCount" to data.length()))
+                        resolve(requestId, mapOf("modelCount" to models.size, "models" to models.sorted()))
                         return@thread
                     } catch (error: Exception) {
                         lastError = error

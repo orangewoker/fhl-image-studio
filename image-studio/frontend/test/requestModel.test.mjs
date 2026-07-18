@@ -9,10 +9,16 @@ import {
   buildPromptReversePayload,
   describeProblem,
   isRetryableRaw,
+  normalizeBaseURL,
   normalizePartialImages,
   promptWithBatchVariation,
   repairSizeForOpenAI,
 } from "../../../shared/kernel/requestModel.js";
+
+test("custom provider base URLs accept both root and trailing v1 forms", () => {
+  assert.equal(normalizeBaseURL("https://provider.example/"), "https://provider.example");
+  assert.equal(normalizeBaseURL("https://provider.example/openai/v1"), "https://provider.example/openai");
+});
 
 test("Responses payload defaults partial_images to streaming preview count", () => {
   const payload = buildResponsesPayload({

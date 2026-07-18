@@ -45,6 +45,7 @@ export async function ensureAPIMartAsyncProfile(store: APIMartProfileActions): P
   if (!existing) {
     const id = await store.createProfile({
       name: profileName(store),
+      providerName: "APIMart",
       apiMode: "apimart",
       requestPolicy: "openai",
       baseURL: APIMART_BASE_URL,
@@ -61,6 +62,7 @@ export async function ensureAPIMartAsyncProfile(store: APIMartProfileActions): P
     name: shouldRenameLegacyAPIMartProfile(existing.name)
       ? profileName(store, existing.id)
       : existing.name,
+    providerName: existing.providerName || "APIMart",
     apiMode: "apimart",
     requestPolicy: "openai",
     baseURL: isAPIMartBaseURL(existing.baseURL) ? existing.baseURL : APIMART_BASE_URL,

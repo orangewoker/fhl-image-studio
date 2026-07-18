@@ -39,6 +39,7 @@ export const RUNNINGHUB_IMAGE_G2_MODEL_ID = "image_g2";
 type UpstreamConfigInput = {
   apiMode?: APIMode | string;
   baseURL?: string;
+  providerName?: string;
 };
 
 export type UpstreamConfigKind = "fhl" | "images" | "apimart" | "runninghub" | "responses";
@@ -82,6 +83,8 @@ export function identifyUpstreamConfig(input: UpstreamConfigInput): UpstreamConf
 }
 
 export function upstreamConfigLabel(input: UpstreamConfigInput): string {
+  const customLabel = String(input.providerName || "").trim();
+  if (customLabel) return customLabel;
   const kind = identifyUpstreamConfig(input);
   if (kind === "fhl") return "FHL";
   if (kind === "images") return "Images API";
@@ -91,6 +94,8 @@ export function upstreamConfigLabel(input: UpstreamConfigInput): string {
 }
 
 export function upstreamConfigShortLabel(input: UpstreamConfigInput): string {
+  const customLabel = String(input.providerName || "").trim();
+  if (customLabel) return customLabel.length > 10 ? `${customLabel.slice(0, 9)}…` : customLabel;
   const kind = identifyUpstreamConfig(input);
   if (kind === "fhl") return "FHL";
   if (kind === "apimart") return "APIMart";
@@ -140,6 +145,7 @@ export function makeFHLResponsesProfile(): UpstreamProfile {
   return {
     id: FHL_PROFILE_ID,
     name: FHL_PROFILE_NAME,
+    providerName: "FHL",
     apiMode: "responses",
     requestPolicy: "openai",
     baseURL: FHL_BASE_URL,
@@ -156,6 +162,7 @@ export function makeAPIMartProfile(): UpstreamProfile {
   return {
     id: APIMART_PROFILE_ID,
     name: APIMART_PROFILE_NAME,
+    providerName: "APIMart",
     apiMode: "apimart",
     requestPolicy: "openai",
     baseURL: APIMART_BASE_URL,
@@ -172,6 +179,7 @@ export function makeRunningHubProfile(): UpstreamProfile {
   return {
     id: RUNNINGHUB_PROFILE_ID,
     name: RUNNINGHUB_BANANA2_PROFILE_NAME,
+    providerName: "RunningHub",
     apiMode: "runninghub",
     requestPolicy: "openai",
     baseURL: RUNNINGHUB_BASE_URL,
@@ -217,6 +225,7 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
   const o = raw as Record<string, unknown>;
   const id = typeof o.id === "string" ? o.id : "";
   const name = typeof o.name === "string" ? o.name : "";
+  const providerName = typeof o.providerName === "string" ? o.providerName.trim() : "";
   const apiMode = normalizeProfileAPIMode(o.apiMode);
   const requestPolicy = o.requestPolicy === "compat" ? "compat" : "openai";
   const baseURL = typeof o.baseURL === "string" ? o.baseURL : "";
@@ -228,7 +237,7 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
   const createdAt = typeof o.createdAt === "number" ? o.createdAt : Date.now();
   const lastUsedAt = typeof o.lastUsedAt === "number" ? o.lastUsedAt : undefined;
   if (!id || !name) return null;
-  return { id, name, apiMode, requestPolicy, baseURL, textModelID, imageModelID, concurrencyLimit, imagesNewAPICompat, createdAt, lastUsedAt };
+  return { id, name, providerName, apiMode, requestPolicy, baseURL, textModelID, imageModelID, concurrencyLimit, imagesNewAPICompat, createdAt, lastUsedAt };
 }
 
 // 列表里挑当前 active —— activeProfileId 命中时用它,否则用最近使用过的,

@@ -121,12 +121,29 @@ function summarizeProbeBody(raw: string): string {
     .slice(0, 260);
 }
 
+function modelIDsFromResponse(parsed: any): string[] | null {
+  const entries = Array.isArray(parsed?.data)
+    ? parsed.data
+    : Array.isArray(parsed?.models)
+      ? parsed.models
+      : null;
+  if (!entries) return null;
+  const ids: string[] = entries
+    .map((entry: any) => {
+      if (typeof entry === "string") return entry.trim();
+      if (!entry || typeof entry !== "object") return "";
+      return String(entry.id ?? entry.model ?? entry.name ?? "").trim();
+    })
+    .filter((id: string) => id.length > 0);
+  return Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b));
+}
+
 async function probeUpstreamFromBrowser(
   baseURL: string,
   apiKey: string,
   apiMode = "responses",
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<ProbeUpstreamResultLike> {
   const normalizedBaseURL = normalizeProbeBaseURL(baseURL);
   const headerAPIKey = validateAPIKeyForHeader(apiKey);
   if (!normalizedBaseURL) throw new Error("BASE_URL 不能为空");
@@ -159,7 +176,7 @@ async function probeUpstreamFromBrowser(
       const message = String(parsed?.message || parsed?.error || "").trim();
       throw new Error(message ? `APIMart 配置不可用: ${message}` : "APIMart 配置不可用");
     }
-    return;
+    return { ok: true, models: [] };
   }
   const response = await fetch(`${normalizedBaseURL}/v1/models`, {
     method: "GET",
@@ -180,9 +197,9 @@ async function probeUpstreamFromBrowser(
   } catch {
     throw new Error("上游 /v1/models 返回的 JSON 无效");
   }
-  if (!Array.isArray(parsed?.data)) {
-    throw new Error("上游 /v1/models 响应缺少 data 数组");
-  }
+  const models = modelIDsFromResponse(parsed);
+  if (!models) throw new Error("上游 /v1/models 响应缺少 data/models 数组");
+  return { modelCount: models.length, models };
 }
 
 function makeJobID(): string {
@@ -895,20 +912,17 @@ export async function probeCurrentUpstream(
   proxyURL = "",
   apiMode = "responses",
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<ProbeUpstreamResultLike> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   const options: ProbeUpstreamOptionsLike = { baseURL, apiKey, apiMode, proxyMode, proxyURL };
   if (hasServiceMethod("ProbeUpstream")) {
-    await invokeService<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);
-    return;
+    return invokeService<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);
   }
   if (canInvokeAndroidMethod("ProbeUpstream")) {
-    await invokeAndroid<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);
-    return;
+    return invokeAndroid<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);
   }
   if (detectHostKind() === "browser") {
-    await probeUpstreamFromBrowser(baseURL, apiKey, apiMode, signal);
-    return;
+    return probeUpstreamFromBrowser(baseURL, apiKey, apiMode, signal);
   }
   throw new Error(unsupportedMessage("ProbeUpstream"));
 }

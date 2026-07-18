@@ -69,6 +69,7 @@ export async function ensureFHLResponsesProfile(store: FHLProfileActions): Promi
   if (!fhlProfile) {
     const id = await store.createProfile({
       name: officialProfileName(store),
+      providerName: "FHL",
       apiMode: "responses",
       requestPolicy: "openai",
       baseURL: FHL_BASE_URL,
@@ -86,6 +87,7 @@ export async function ensureFHLResponsesProfile(store: FHLProfileActions): Promi
     name: shouldRenameLegacyFHLProfile(fhlProfile.name)
       ? officialProfileName(store, fhlProfile.id)
       : fhlProfile.name,
+    providerName: fhlProfile.providerName || "FHL",
     apiMode: "responses",
     requestPolicy: "openai",
     baseURL: FHL_BASE_URL,
@@ -111,6 +113,7 @@ export async function ensureFHLImagesProfile(store: FHLProfileActions): Promise<
   if (!fhlProfile) {
     const id = await store.createProfile({
       name: officialProfileName(store),
+      providerName: "FHL",
       apiMode: "images",
       requestPolicy: "openai",
       baseURL: FHL_BASE_URL,
@@ -128,6 +131,7 @@ export async function ensureFHLImagesProfile(store: FHLProfileActions): Promise<
     name: shouldRenameLegacyFHLProfile(fhlProfile.name)
       ? officialProfileName(store, fhlProfile.id)
       : fhlProfile.name,
+    providerName: fhlProfile.providerName || "FHL",
     apiMode: "images",
     requestPolicy: "openai",
     baseURL: FHL_BASE_URL,

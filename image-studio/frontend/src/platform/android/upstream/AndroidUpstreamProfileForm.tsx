@@ -1,4 +1,4 @@
-import { Check, Eye, EyeOff, Minus, Plug, Plus, Save } from "lucide-react";
+import { Check, Eye, EyeOff, Minus, Plug, Plus, RefreshCw, Save } from "lucide-react";
 import type { ReactNode } from "react";
 import { isAPIMartAsyncProfile } from "../../../lib/apimartAPI";
 import type { UpstreamProfile } from "../../../types/domain";
@@ -6,6 +6,7 @@ import {
   ANDROID_API_MODE_OPTIONS,
   ANDROID_REQUEST_POLICY_OPTIONS,
 } from "./useAndroidUpstreamConfig";
+import { useUpstreamModelCatalog } from "../../../components/panel/useUpstreamModelCatalog";
 
 export function AndroidUpstreamProfileForm({
   activeProfileId,
@@ -48,6 +49,12 @@ export function AndroidUpstreamProfileForm({
   const runningHubPreset = draft.apiMode === "runninghub";
   const supportsRequestPolicy = !apimartPreset && !runningHubPreset;
   const phoneSafeConcurrency = Math.min(2, Math.max(1, Math.floor(Number(draft.concurrencyLimit) || 1)));
+  const catalog = useUpstreamModelCatalog({
+    profileId: draft.id,
+    baseURL: draft.baseURL,
+    apiKey: draftKey,
+    apiMode: draft.apiMode,
+  });
 
   return (
     <section className="android-upstream-form" aria-label="编辑上游配置">
@@ -77,6 +84,17 @@ export function AndroidUpstreamProfileForm({
           type="text"
           value={draft.name}
           onChange={(event) => onPatchDraft({ name: event.target.value })}
+          className="focus-ring android-upstream-input"
+          spellCheck={false}
+        />
+      </AndroidField>
+
+      <AndroidField label="服务商名称" hint="例如 OpenAI、NewAPI、公司内部中转；只用于界面识别。">
+        <input
+          type="text"
+          value={draft.providerName ?? ""}
+          onChange={(event) => onPatchDraft({ providerName: event.target.value })}
+          placeholder="自定义服务商名称"
           className="focus-ring android-upstream-input"
           spellCheck={false}
         />
@@ -159,8 +177,29 @@ export function AndroidUpstreamProfileForm({
         </AndroidField>
       )}
 
+      {catalog.supported ? (
+        <AndroidField label="服务商模型列表" hint={catalog.message || "通过 OpenAI 兼容的 /v1/models 拉取；拉取后仍可手动输入模型 ID。"}>
+          <button
+            type="button"
+            className="android-upstream-model-fetch"
+            onClick={() => void catalog.refresh()}
+            disabled={!catalog.canFetch}
+          >
+            <RefreshCw className={`h-4 w-4 ${catalog.loading ? "animate-spin" : ""}`} />
+            {catalog.loading ? "正在拉取模型…" : "拉取模型列表"}
+          </button>
+        </AndroidField>
+      ) : null}
+
       {draft.apiMode === "responses" ? (
         <AndroidField label="文本模型 ID">
+          {catalog.models.length > 0 ? (
+            <AndroidModelSelect
+              models={catalog.models}
+              value={draft.textModelID}
+              onChange={(value) => onPatchDraft({ textModelID: value })}
+            />
+          ) : null}
           <input
             type="text"
             value={draft.textModelID}
@@ -176,6 +215,13 @@ export function AndroidUpstreamProfileForm({
         label="图像模型 ID"
         hint={runningHubPreset ? "RunningHub 这里填桥接模型键，建议 banana2 或 image_g2。" : undefined}
       >
+        {catalog.models.length > 0 ? (
+          <AndroidModelSelect
+            models={catalog.models}
+            value={draft.imageModelID}
+            onChange={(value) => onPatchDraft({ imageModelID: value })}
+          />
+        ) : null}
         <input
           type="text"
           value={draft.imageModelID}
@@ -239,6 +285,29 @@ export function AndroidUpstreamProfileForm({
         </p>
       ) : null}
     </section>
+  );
+}
+
+function AndroidModelSelect({
+  models,
+  onChange,
+  value,
+}: {
+  models: string[];
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <select
+      value={models.includes(value) ? value : ""}
+      onChange={(event) => {
+        if (event.target.value) onChange(event.target.value);
+      }}
+      className="focus-ring android-upstream-input font-mono-token"
+    >
+      <option value="">从已拉取列表选择…</option>
+      {models.map((model) => <option key={model} value={model}>{model}</option>)}
+    </select>
   );
 }
 

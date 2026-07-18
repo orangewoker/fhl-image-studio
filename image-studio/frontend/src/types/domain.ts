@@ -17,6 +17,8 @@ export type RequestPolicy = "openai" | "compat";
 export interface UpstreamProfile {
   id: string;
   name: string;
+  /** User-defined provider label, for example OpenAI, NewAPI or a private relay. */
+  providerName?: string;
   apiMode: APIMode;
   requestPolicy: RequestPolicy;
   baseURL: string;

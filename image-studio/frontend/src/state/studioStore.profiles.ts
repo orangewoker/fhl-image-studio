@@ -27,6 +27,7 @@ export function createProfileActions(store: StateAdapter) {
   return {
     async createProfile(input: {
       name?: string;
+      providerName?: string;
       apiMode: APIMode;
       baseURL?: string;
       requestPolicy?: RequestPolicy;
@@ -43,6 +44,7 @@ export function createProfileActions(store: StateAdapter) {
       const profile: UpstreamProfile = {
         id,
         name: input.name?.trim() || nextDefaultProfileName(list),
+        providerName: input.providerName?.trim() || "",
         apiMode: input.apiMode,
         requestPolicy: input.requestPolicy ?? defaults.requestPolicy,
         baseURL: cleanBaseURL(input.baseURL ?? defaults.baseURL),
@@ -79,6 +81,7 @@ export function createProfileActions(store: StateAdapter) {
       const next: UpstreamProfile = {
         ...current,
         name: patch.name !== undefined ? patch.name.trim() : current.name,
+        providerName: patch.providerName !== undefined ? patch.providerName.trim() : current.providerName,
         apiMode: nextAPIMode,
         requestPolicy: patch.requestPolicy ?? current.requestPolicy,
         baseURL: patch.baseURL !== undefined

@@ -198,6 +198,7 @@ export function AndroidCanvasStage() {
   const selectedAPIShortLabel = upstreamConfigShortLabel({
     apiMode: activeProfile?.apiMode ?? apiMode,
     baseURL: activeProfile?.baseURL ?? baseURL,
+    providerName: activeProfile?.providerName,
   });
   const activeJobGroupModeLabel = activeJobGroup ? batchApiShortLabel(activeJobGroup.apiMode) : "";
   const selectedAPIProviderLabel = providerAPIShortLabel(selectedAPIShortLabel);

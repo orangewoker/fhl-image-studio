@@ -110,6 +110,27 @@ void main() {
         'https://example.com',
       );
     });
+
+    test('parses and deduplicates custom provider model lists', () {
+      expect(
+        NativeHttpService.parseModelIDs({
+          'data': [
+            {'id': 'vision-image-v2'},
+            {'model': 'chat-text-v1'},
+            'vision-image-v2',
+          ],
+        }),
+        ['chat-text-v1', 'vision-image-v2'],
+      );
+      expect(
+        NativeHttpService.parseModelIDs({
+          'models': [
+            {'name': 'private-model'},
+          ],
+        }),
+        ['private-model'],
+      );
+    });
   });
 
   group('NativeFileService filename safety', () {

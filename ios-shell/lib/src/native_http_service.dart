@@ -138,10 +138,8 @@ class NativeHttpService {
         }
         if (apiMode == 'apimart') return <String, Object?>{'ok': true};
         final parsed = jsonDecode(body);
-        if (parsed is! Map || parsed['data'] is! List) {
-          throw const FormatException('上游 /v1/models 响应缺少 data 数组');
-        }
-        return <String, Object?>{'modelCount': (parsed['data'] as List).length};
+        final models = parseModelIDs(parsed);
+        return <String, Object?>{'modelCount': models.length, 'models': models};
       } catch (error) {
         lastError = error;
       }
@@ -178,6 +176,36 @@ class NativeHttpService {
         .replaceFirst(RegExp(r'/v1$'), '');
     if (normalized.isEmpty) throw const FormatException('未配置上游 BASE_URL');
     return validateHttpUri(normalized);
+  }
+
+  static List<String> parseModelIDs(Object? parsed) {
+    if (parsed is! Map) {
+      throw const FormatException('上游 /v1/models 响应格式无效');
+    }
+    final entries = parsed['data'] is List
+        ? parsed['data'] as List
+        : parsed['models'] is List
+        ? parsed['models'] as List
+        : null;
+    if (entries == null) {
+      throw const FormatException('上游 /v1/models 响应缺少 data/models 数组');
+    }
+    final models =
+        entries
+            .map((entry) {
+              if (entry is String) return entry.trim();
+              if (entry is Map) {
+                return (entry['id'] ?? entry['model'] ?? entry['name'] ?? '')
+                    .toString()
+                    .trim();
+              }
+              return '';
+            })
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    return models;
   }
 
   static String _cleanBase64(String value) {

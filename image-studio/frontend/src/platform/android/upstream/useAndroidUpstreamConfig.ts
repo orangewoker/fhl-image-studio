@@ -191,6 +191,7 @@ export function useAndroidUpstreamConfig(open: boolean) {
     try {
       const ok = await updateProfile(draft.id, {
         name: draft.name,
+        providerName: draft.providerName,
         apiMode: draft.apiMode,
         requestPolicy: draft.requestPolicy,
         baseURL: draft.baseURL,

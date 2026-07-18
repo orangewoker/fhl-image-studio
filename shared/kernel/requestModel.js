@@ -23,7 +23,10 @@ const PROMPT_REVERSE_INSTRUCTIONS = "Analyze the attached image and write a deta
 const PROMPT_REVERSE_USER_TEXT = "Write a Simplified Chinese text-to-image prompt for the attached image.";
 
 export function normalizeBaseURL(raw) {
-  return String(raw || "").trim().replace(/\/+$/, "");
+  return String(raw || "")
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/v1$/i, "");
 }
 
 export function normalizeAPIMode(apiMode) {

@@ -458,6 +458,26 @@ html[data-platform="android"] .android-upstream-input {
   font-size: 13px;
 }
 
+html[data-platform="android"] .android-upstream-model-fetch {
+  display: inline-flex;
+  min-height: 46px;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-radius: 18px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+html[data-platform="android"] .android-upstream-model-fetch:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 html[data-platform="android"] .android-upstream-hint,
 html[data-platform="android"] .android-upstream-save-hint,
 html[data-platform="android"] .android-upstream-error {

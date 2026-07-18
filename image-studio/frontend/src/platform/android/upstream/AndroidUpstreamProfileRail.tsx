@@ -1,6 +1,6 @@
 import { Copy, Plus, RadioTower, Trash2 } from "lucide-react";
 import { isAPIMartAsyncProfile } from "../../../lib/apimartAPI";
-import { isFHLBaseURL } from "../../../lib/profiles";
+import { isFHLBaseURL, upstreamConfigShortLabel } from "../../../lib/profiles";
 import type { UpstreamProfile } from "../../../types/domain";
 
 export function AndroidUpstreamProfileRail({
@@ -68,6 +68,7 @@ export function AndroidUpstreamProfileRail({
 }
 
 function profileModeLabel(profile: UpstreamProfile): string {
+  if (profile.providerName?.trim()) return upstreamConfigShortLabel(profile);
   if (isAPIMartAsyncProfile(profile)) return "APIMart 异步参数";
   if (isFHLBaseURL(profile.baseURL)) return "FHL";
   return profile.apiMode === "responses" ? "Responses" : "Images";

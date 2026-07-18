@@ -36,3 +36,13 @@ test("blank profiles use sequential default names", () => {
   const existing = [makeProfile("配置1")];
   assert.equal(profiles.makeBlankProfile("images", existing).name, "配置2");
 });
+
+test("custom provider names survive profile parsing and drive UI labels", () => {
+  const parsed = profiles.tryParseProfile({
+    ...makeProfile("私人中转"),
+    providerName: "My Private NewAPI",
+  });
+  assert.equal(parsed.providerName, "My Private NewAPI");
+  assert.equal(profiles.upstreamConfigLabel(parsed), "My Private NewAPI");
+  assert.equal(profiles.upstreamConfigShortLabel(parsed), "My Privat…");
+});

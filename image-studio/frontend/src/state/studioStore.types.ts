@@ -166,6 +166,7 @@ export interface StudioState {
   clearError: () => void;
   createProfile: (input: {
     name?: string;
+    providerName?: string;
     apiMode: APIMode;
     baseURL?: string;
     requestPolicy?: RequestPolicy;

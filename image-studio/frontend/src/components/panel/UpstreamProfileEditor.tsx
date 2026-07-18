@@ -1,8 +1,9 @@
-import { Eye, EyeOff, HelpCircle, Info, Plug } from "lucide-react";
+import { Eye, EyeOff, HelpCircle, Info, Plug, RefreshCw } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../../types/domain";
 import { requestPolicyLabel } from "../../lib/profiles";
 import { usePlatform } from "../../platform/context";
+import { useUpstreamModelCatalog } from "./useUpstreamModelCatalog";
 
 export function UpstreamProfileEditor({
   draft,
@@ -40,6 +41,12 @@ export function UpstreamProfileEditor({
   onSaveAndClose: () => void | Promise<void>;
 }) {
   const { isAndroidPhone, usesFluentUI } = usePlatform();
+  const catalog = useUpstreamModelCatalog({
+    profileId: draft.id,
+    baseURL: draft.baseURL,
+    apiKey: draftKey,
+    apiMode: draft.apiMode,
+  });
 
   return (
     <div className={`upstream-profile-editor flex min-w-0 flex-col ${isAndroidPhone ? "gap-3" : "gap-3.5"}`}>
@@ -61,6 +68,18 @@ export function UpstreamProfileEditor({
           spellCheck={false}
           className={`focus-ring w-full min-w-0 border border-black/[0.08] bg-[var(--surface)] px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-white/[0.08] dark:text-zinc-100 dark:placeholder:text-zinc-500 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
         />
+      </Field>
+
+      <Field label="服务商名称">
+        <input
+          type="text"
+          value={draft.providerName ?? ""}
+          placeholder="例如 OpenAI、NewAPI、公司内部中转"
+          onChange={(e) => onPatchDraft({ providerName: e.target.value })}
+          spellCheck={false}
+          className={`focus-ring w-full min-w-0 border border-black/[0.08] bg-[var(--surface)] px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-white/[0.08] dark:text-zinc-100 dark:placeholder:text-zinc-500 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
+        />
+        <Hint>只用于界面识别，可自由命名；实际请求地址由 Base URL 决定。</Hint>
       </Field>
 
       <Field label="API 形态">
@@ -92,6 +111,19 @@ export function UpstreamProfileEditor({
             ? "需要 key 绑定到「拥有 gpt-5.5 模型的分组」。SSE 保活可防 Cloudflare 524。"
             : "使用标准 Images API,key 用 image-2 / image API 分组,兼容性最广。"}
         </Hint>
+      </Field>
+
+      <Field label="服务商模型列表">
+        <button
+          type="button"
+          onClick={() => void catalog.refresh()}
+          disabled={!catalog.canFetch}
+          className={`platform-action-btn inline-flex w-full items-center justify-center gap-2 border border-black/[0.08] px-3 py-2 text-sm text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${catalog.loading ? "animate-spin" : ""}`} />
+          {catalog.loading ? "正在拉取…" : "拉取 /v1/models"}
+        </button>
+        {catalog.message ? <Hint>{catalog.message}</Hint> : null}
       </Field>
 
       <Field label="参数策略">
@@ -176,6 +208,14 @@ export function UpstreamProfileEditor({
 
       {draft.apiMode === "responses" ? (
         <Field label="文本模型 ID">
+          {catalog.models.length > 0 ? (
+            <ModelSelect
+              models={catalog.models}
+              value={draft.textModelID}
+              onChange={(value) => onPatchDraft({ textModelID: value })}
+              className={usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}
+            />
+          ) : null}
           <input
             type="text"
             value={draft.textModelID}
@@ -188,6 +228,14 @@ export function UpstreamProfileEditor({
       ) : null}
 
       <Field label="图像模型 ID">
+        {catalog.models.length > 0 ? (
+          <ModelSelect
+            models={catalog.models}
+            value={draft.imageModelID}
+            onChange={(value) => onPatchDraft({ imageModelID: value })}
+            className={usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}
+          />
+        ) : null}
         <input
           type="text"
           value={draft.imageModelID}
@@ -264,6 +312,31 @@ export function UpstreamProfileEditor({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ModelSelect({
+  className,
+  models,
+  onChange,
+  value,
+}: {
+  className: string;
+  models: string[];
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <select
+      value={models.includes(value) ? value : ""}
+      onChange={(event) => {
+        if (event.target.value) onChange(event.target.value);
+      }}
+      className={`focus-ring mb-2 w-full min-w-0 border border-black/[0.08] bg-[var(--surface)] px-3 py-2 text-sm text-zinc-900 dark:border-white/[0.08] dark:text-zinc-100 font-mono-token ${className}`}
+    >
+      <option value="">从服务商列表选择…</option>
+      {models.map((model) => <option key={model} value={model}>{model}</option>)}
+    </select>
   );
 }
 
