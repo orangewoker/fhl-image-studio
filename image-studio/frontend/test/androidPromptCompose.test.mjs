@@ -146,18 +146,21 @@ test("Android prompt guidance is workspace scoped and persisted with tabs", () =
   assert.match(shared, /optimizationGuidance: typeof raw\.optimizationGuidance === "string" \? raw\.optimizationGuidance : ""/);
 });
 
-test("Android prompt text tools require FHL GPT-5.5 instead of APIMart", () => {
+test("Android prompt text tools support OpenAI chat completions with FHL fallback", () => {
   const androidResolver = store.match(/async function resolveAndroidFHLPromptTextProfile[\s\S]*?\n}\nconst HISTORY_MEDIA_HYDRATE_CONCURRENCY/)?.[0] ?? "";
   assert.ok(androidResolver, "Android FHL text profile resolver should be present");
-  assert.match(store, /ANDROID_FHL_TEXT_TOOLS_NOTICE = "AI 优化、提示词反推和指令改写需要调用 FHL GPT-5\.5，请先配置 FHL API。"/);
-  assert.match(store, /if \(readRuntimePlatformState\(\)\.isAndroid\) \{\s*return resolveAndroidFHLPromptTextProfile\(s\);/);
+  assert.match(store, /OpenAI 标准 v1 配置对话模型/);
+  assert.match(store, /activeProfile\.apiMode === "responses" \|\| activeProfile\.apiMode === "images"/);
+  assert.match(store, /apiMode: activeProfile\.apiMode/);
   assert.match(store, /async function resolveAndroidFHLPromptTextProfile/);
   assert.match(androidResolver, /s\.profiles\.find\(\(profile\) => isFHLBaseURL\(profile\.baseURL\)\)/);
   assert.match(androidResolver, /GetStoredAPIKey\(keyringUserFor\(fhlProfile\.id\)\)/);
   assert.match(androidResolver, /textModelID: \(fhlProfile\.textModelID \|\| FHL_TEXT_MODEL_ID\)\.trim\(\)/);
-  assert.match(androidResolver, /return \{ apiKey: "", baseURL: "", textModelID: "" \};/);
+  assert.match(androidResolver, /return \{ apiKey: "", baseURL: "", textModelID: "", apiMode: "responses" \};/);
   assert.doesNotMatch(androidResolver, /apiMode === "apimart"|APIMart/);
   assert.match(store, /s\.pushToast\(ANDROID_FHL_TEXT_TOOLS_NOTICE, "warn", 5200\)/);
+  assert.match(store, /apiMode: optimizeProfile\.apiMode/);
+  assert.match(store, /apiMode: reverseProfile\.apiMode/);
 });
 
 test("Android error notice recommends APIMart for unstable upstream errors", () => {

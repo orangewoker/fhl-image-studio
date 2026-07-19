@@ -95,8 +95,8 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
           <button
             type="button"
             className="no-drag min-w-0 flex-1 android-header-copy android-header-brand-button"
-            title="关于 FHL Image Studio"
-            aria-label="关于 FHL Image Studio"
+            title="关于 Ai Image"
+            aria-label="关于 Ai Image"
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={openAndroidBrandAbout}

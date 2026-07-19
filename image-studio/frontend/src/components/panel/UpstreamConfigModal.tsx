@@ -208,7 +208,7 @@ export function UpstreamConfigModal({
               {
                 id: "images" as APIMode,
                 title: "OpenAI 标准 v1",
-                sub: "标准 /v1/images/generations 与 /v1/images/edits。",
+                sub: "标准 /v1/chat/completions 与 /v1/images 端点。",
                 note: "适合 OpenAI 官方接口及兼容服务商。",
               },
             ]).map((item) => (

@@ -94,7 +94,7 @@ export function PromptEditorSection({
                 ? "bg-[var(--accent-soft)] text-[var(--accent)]"
                 : "text-zinc-500 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]"
             } disabled:cursor-not-allowed disabled:opacity-50 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
-            title="调用 Responses API 优化当前提示词"
+            title="调用已配置的对话模型优化当前提示词"
           >
             <Sparkles className={`w-3 h-3 ${isOptimizingPrompt ? "animate-pulse" : ""}`} />
             {isOptimizingPrompt ? "优化中..." : "AI 优化"}

@@ -37,6 +37,7 @@ void main() {
       });
 
       final indexUri = await server.start();
+      expect(indexUri.port, LocalAssetServer.stablePort);
       expect(server.owns(indexUri.toString()), isTrue);
       final indexResponse = await (await client.getUrl(indexUri)).close();
       expect(indexResponse.statusCode, HttpStatus.ok);
@@ -58,6 +59,24 @@ void main() {
       }
     },
   );
+
+  test('loopback server keeps the same web origin after restart', () async {
+    Future<ByteData> loadAsset(String key) async {
+      final bytes = await File(key).readAsBytes();
+      return ByteData.sublistView(Uint8List.fromList(bytes));
+    }
+
+    final first = LocalAssetServer(loadAsset: loadAsset);
+    final firstOrigin = (await first.start()).origin;
+    await first.close();
+
+    final second = LocalAssetServer(loadAsset: loadAsset);
+    addTearDown(second.close);
+    final secondOrigin = (await second.start()).origin;
+
+    expect(firstOrigin, 'http://127.0.0.1:17381');
+    expect(secondOrigin, firstOrigin);
+  });
 
   test(
     'loopback server blocks traversal paths and emits module MIME types',

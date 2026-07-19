@@ -10,6 +10,11 @@ import 'package:flutter/services.dart';
 /// A tiny loopback server gives index.html, JavaScript and CSS the same HTTP
 /// origin while keeping every application asset inside the app bundle.
 class LocalAssetServer {
+  /// Keep the web origin stable across launches so WKWebView can restore the
+  /// same localStorage/IndexedDB databases instead of creating a new origin
+  /// for every random loopback port.
+  static const int stablePort = 17381;
+
   LocalAssetServer({Future<ByteData> Function(String key)? loadAsset})
     : _loadAsset = loadAsset ?? rootBundle.load;
 
@@ -26,7 +31,10 @@ class LocalAssetServer {
 
   Future<Uri> start() async {
     if (_server != null) return indexUri;
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final server = await HttpServer.bind(
+      InternetAddress.loopbackIPv4,
+      stablePort,
+    );
     _server = server;
     unawaited(_serve(server));
     return indexUri;

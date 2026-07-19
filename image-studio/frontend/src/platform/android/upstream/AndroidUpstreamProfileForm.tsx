@@ -203,8 +203,13 @@ export function AndroidUpstreamProfileForm({
         </AndroidField>
       ) : null}
 
-      {draft.apiMode === "responses" ? (
-        <AndroidField label="文本模型 ID">
+      {draft.apiMode === "responses" || draft.apiMode === "images" ? (
+        <AndroidField
+          label={draft.apiMode === "images" ? "对话模型 ID" : "文本模型 ID"}
+          hint={draft.apiMode === "images"
+            ? "用于 /v1/chat/completions，提供 AI 优化、图片反推和指令改写。"
+            : "用于 /v1/responses，提供 AI 优化、图片反推和指令改写。"}
+        >
           {catalog.models.length > 0 ? (
             <AndroidModelSelect
               models={catalog.models}
@@ -216,7 +221,7 @@ export function AndroidUpstreamProfileForm({
             type="text"
             value={draft.textModelID}
             onChange={(event) => onPatchDraft({ textModelID: event.target.value })}
-            placeholder="留空 = 默认 gpt-5.5"
+            placeholder={draft.apiMode === "images" ? "例如 gpt-4o-mini" : "留空 = 默认 gpt-5.5"}
             className="focus-ring android-upstream-input font-mono-token"
             spellCheck={false}
           />

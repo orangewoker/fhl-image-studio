@@ -49,6 +49,7 @@ export interface PromptOptimizeRequest {
   mode: Mode;
   baseURL: string;
   textModelID: string;
+  apiMode?: string;
   proxyMode: ProxyMode;
   proxyURL: string;
   imagePaths: string[];
@@ -59,6 +60,7 @@ export interface PromptReverseRequest {
   apiKey: string;
   baseURL: string;
   textModelID: string;
+  apiMode?: string;
   proxyMode: ProxyMode;
   proxyURL: string;
   imagePaths: string[];

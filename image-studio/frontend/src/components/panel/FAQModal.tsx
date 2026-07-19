@@ -56,11 +56,12 @@ export function FAQModal({ open, onClose }: { open: boolean; onClose: () => void
             <code> image_generation </code> 工具的中转站都行。
           </p>
           <p>
-            <strong>Images API 模式</strong>下:任何提供 <code>/v1/images/generations</code> 和
-            <code> /v1/images/edits </code>(或仅 generations,若只做文生图)的 OpenAI 兼容中转站都行。
+            <strong>OpenAI 标准 v1 模式</strong>下:生图使用 <code>/v1/images/generations</code> 和
+            <code> /v1/images/edits </code>(或仅 generations,若只做文生图)，AI 优化和反推使用
+            <code> /v1/chat/completions</code>。
           </p>
           <p>
-            注意:只提供 <code>/v1/chat/completions</code> 的中转站<strong>两种模式都不兼容</strong>(本应用不发 chat 请求)。
+            只提供 <code>/v1/chat/completions</code> 的中转站可使用文本工具，但不能完成生图；完整功能需要同时提供图像端点。
           </p>
         </details>
 
@@ -78,9 +79,10 @@ export function FAQModal({ open, onClose }: { open: boolean; onClose: () => void
               </ul>
             </li>
             <li>
-              <strong>Images API</strong> 只用<strong>一个</strong>模型 ID:
+              <strong>OpenAI 标准 v1</strong> 使用<strong>两个</strong>模型 ID:
               <ul>
-                <li><strong>图像模型 ID</strong>(默认 <code>gpt-image-2</code>):直接传给 <code>/v1/images/generations</code> 的 <code>model</code> 字段。文本模型 ID 在此模式下不读。</li>
+                <li><strong>对话模型 ID</strong>:传给 <code>/v1/chat/completions</code>，用于 AI 优化、图片反推和指令改写。</li>
+                <li><strong>图像模型 ID</strong>(默认 <code>gpt-image-2</code>):传给 <code>/v1/images/generations</code> 或 <code>/v1/images/edits</code>。</li>
               </ul>
             </li>
           </ul>

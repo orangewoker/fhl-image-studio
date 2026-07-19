@@ -40,7 +40,8 @@ jobs:
         run: |
           npm ci
           npm test
-          npm run build:android
+          VERSION_BUILD="$(awk '/^version:/{print $2}' ../../ios-shell/pubspec.yaml)"
+          VITE_APP_VERSION="${VERSION_BUILD%%+*}" npm run build:android
           node ../../scripts/prepare-ios-frontend.mjs
           test -n "$(find ../../ios-shell/assets/web/assets -name '*.js' -print -quit)"
           test -n "$(find ../../ios-shell/assets/web/assets -name '*.css' -print -quit)"
@@ -80,15 +81,15 @@ jobs:
           ditto "$APP" build/ios/unsigned-ipa/Payload/Runner.app
           (
             cd build/ios/unsigned-ipa
-            zip -qry "../AI-Runner-${VERSION}-unsigned.ipa" Payload
+            zip -qry "../Ai-Image-${VERSION}-unsigned.ipa" Payload
           )
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
-          echo "ipa=ios-shell/build/ios/AI-Runner-${VERSION}-unsigned.ipa" >> "$GITHUB_OUTPUT"
+          echo "ipa=ios-shell/build/ios/Ai-Image-${VERSION}-unsigned.ipa" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FHL-Image-Studio-iOS-unsigned
+          name: Ai-Image-iOS-unsigned
           path: ${{ steps.package.outputs.ipa }}
           if-no-files-found: error
 
@@ -97,9 +98,9 @@ jobs:
         with:
           tag_name: ios-v${{ steps.package.outputs.version }}
           target_commitish: ${{ github.sha }}
-          name: FHL Image Studio iOS ${{ steps.package.outputs.version }}
+          name: Ai Image iOS ${{ steps.package.outputs.version }}
           body: |
-            FHL Image Studio iOS unsigned IPA.
+            Ai Image iOS unsigned IPA.
             Build: ${{ steps.package.outputs.build }}
             This package contains no embedded provisioning profile and is intended for local re-signing/sideloading.
           prerelease: true

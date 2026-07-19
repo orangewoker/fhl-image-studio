@@ -49,7 +49,7 @@
     orientation: window.innerWidth >= window.innerHeight ? "landscape" : "portrait",
   };
   var diagnostics = {
-    appVersion: "V2.0.2.1",
+    appVersion: "V0.0.1",
     packageName: "top.fangtangyuan.fhlImageStudio",
     platform: "ios",
     model: navigator.platform || "iPhone/iPad",

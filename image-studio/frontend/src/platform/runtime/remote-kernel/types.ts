@@ -105,6 +105,7 @@ export type RemotePromptOptimizeInput = {
   mode: string;
   baseURL: string;
   textModelID: string;
+  apiMode?: string;
   proxyMode?: string;
   proxyURL?: string;
   imagePaths?: string[];
@@ -116,6 +117,7 @@ export type RemotePromptReverseInput = {
   apiKey: string;
   baseURL: string;
   textModelID: string;
+  apiMode?: string;
   proxyMode?: string;
   proxyURL?: string;
   imagePaths?: string[];

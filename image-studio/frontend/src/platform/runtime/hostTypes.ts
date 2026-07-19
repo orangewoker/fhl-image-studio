@@ -42,6 +42,7 @@ export type PromptOptimizeOptionsLike = {
   mode: string;
   baseURL: string;
   textModelID: string;
+  apiMode?: string;
   proxyMode?: string;
   proxyURL?: string;
   imagePaths: string[];
@@ -52,6 +53,7 @@ export type PromptReverseOptionsLike = {
   apiKey: string;
   baseURL: string;
   textModelID: string;
+  apiMode?: string;
   proxyMode?: string;
   proxyURL?: string;
   imagePaths: string[];

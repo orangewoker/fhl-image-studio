@@ -98,7 +98,7 @@ export function UpstreamProfileEditor({
         <div className={`grid gap-2 ${isAndroidPhone ? "grid-cols-1" : "grid-cols-2"}`}>
           {([
             { id: "responses" as APIMode, title: "Responses API", sub: "SSE 保活(CF 超时推荐)" },
-            { id: "images" as APIMode, title: "OpenAI 标准 v1", sub: "/v1/images/generations · /v1/images/edits" },
+            { id: "images" as APIMode, title: "OpenAI 标准 v1", sub: "/v1/chat/completions · /v1/images" },
           ]).map((option) => {
             const active = draft.apiMode === option.id;
             return (
@@ -178,7 +178,7 @@ export function UpstreamProfileEditor({
         />
         {baseURLError ? <Hint>{baseURLError}</Hint> : null}
         <Hint>
-          只填中转站的站点根地址。应用会按当前 API 形态自动拼接 <code className="font-mono-token">/v1/responses</code>(Responses)或 <code className="font-mono-token">/v1/images/generations</code> / <code className="font-mono-token">/v1/images/edits</code>(Images),<strong>不要</strong>把这些路径手动贴进来。
+          只填中转站的站点根地址。应用会按当前 API 形态自动拼接 <code className="font-mono-token">/v1/responses</code>(Responses)，或 <code className="font-mono-token">/v1/chat/completions</code> + <code className="font-mono-token">/v1/images/generations</code> / <code className="font-mono-token">/v1/images/edits</code>(OpenAI 标准 v1)，<strong>不要</strong>把这些路径手动贴进来。
         </Hint>
       </Field>
 
@@ -218,8 +218,8 @@ export function UpstreamProfileEditor({
         <Hint>API Key 保存到系统凭据存储(Keychain / Credential Manager / Secret Service),不在 localStorage 中明文存放。</Hint>
       </Field>
 
-      {draft.apiMode === "responses" ? (
-        <Field label="文本模型 ID">
+      {draft.apiMode === "responses" || draft.apiMode === "images" ? (
+        <Field label={draft.apiMode === "images" ? "对话模型 ID" : "文本模型 ID"}>
           {catalog.models.length > 0 ? (
             <ModelSelect
               models={catalog.models}
@@ -231,11 +231,16 @@ export function UpstreamProfileEditor({
           <input
             type="text"
             value={draft.textModelID}
-            placeholder="留空=默认 gpt-5.5"
+            placeholder={draft.apiMode === "images" ? "例如 gpt-4o-mini" : "留空=默认 gpt-5.5"}
             onChange={(e) => onPatchDraft({ textModelID: e.target.value })}
             spellCheck={false}
             className={`focus-ring w-full min-w-0 border border-black/[0.08] bg-[var(--surface)] px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-white/[0.08] dark:text-zinc-100 dark:placeholder:text-zinc-500 font-mono-token ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
           />
+          <Hint>
+            {draft.apiMode === "images"
+              ? "用于 /v1/chat/completions，提供 AI 优化、图片反推和指令改写。"
+              : "用于 /v1/responses，提供 AI 优化、图片反推和指令改写。"}
+          </Hint>
         </Field>
       ) : null}
 
@@ -321,7 +326,7 @@ export function UpstreamProfileEditor({
       {draft.apiMode === "images" ? (
         <div className={`${usesAppleUI ? "liquid-glass-panel" : ""} flex items-start gap-2 border border-[color:var(--accent)]/20 bg-[var(--accent-soft)] px-3 py-2 text-[11px] text-[var(--accent)] ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 break-words [overflow-wrap:anywhere]">OpenAI 标准 v1 路径使用 <code className="font-mono-token">/v1/images/generations</code> + <code className="font-mono-token">/v1/images/edits</code>；模型列表仍从 <code className="font-mono-token">/v1/models</code> 拉取。</span>
+          <span className="min-w-0 break-words [overflow-wrap:anywhere]">OpenAI 标准 v1 对话使用 <code className="font-mono-token">/v1/chat/completions</code>，生图使用 <code className="font-mono-token">/v1/images/generations</code> + <code className="font-mono-token">/v1/images/edits</code>；模型列表从 <code className="font-mono-token">/v1/models</code> 拉取。</span>
         </div>
       ) : null}
     </div>

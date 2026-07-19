@@ -844,6 +844,42 @@ test("optimizePromptRemote extracts output_text", async () => {
   });
 });
 
+test("OpenAI standard v1 prompt tools use chat completions", async () => {
+  let capturedURL = "";
+  let captured = null;
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url, init) => {
+      capturedURL = String(url);
+      captured = JSON.parse(init.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: "chat optimized prompt" } }],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    const text = await kernel.optimizePromptRemote({
+      apiKey: "key",
+      prompt: "cat",
+      mode: "generate",
+      baseURL: "https://upstream.example",
+      textModelID: "gpt-4o-mini",
+      apiMode: "images",
+      imagePaths: [],
+      imagePath: "",
+    }, new AbortController().signal);
+    assert.equal(capturedURL, "https://upstream.example/v1/chat/completions");
+    assert.equal(captured.model, "gpt-4o-mini");
+    assert.equal(captured.stream, false);
+    assert.equal(captured.messages[0].role, "system");
+    assert.equal(captured.messages[1].role, "user");
+    assert.equal(captured.messages[1].content[0].type, "text");
+    assert.equal(text, "chat optimized prompt");
+  });
+});
+
 test("reversePromptRemote posts vision prompt payload and extracts response text", async () => {
   let captured = null;
   await withPatchedGlobals(async () => {

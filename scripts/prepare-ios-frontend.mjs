@@ -18,6 +18,17 @@ await fs.rm(targetDir, { recursive: true, force: true });
 await fs.mkdir(targetDir, { recursive: true });
 await fs.cp(distDir, targetDir, { recursive: true });
 
+const pubspec = await fs.readFile(path.join(repoRoot, "ios-shell", "pubspec.yaml"), "utf8");
+const versionMatch = pubspec.match(/^version:\s*([^+\s]+)(?:\+\d+)?\s*$/m);
+if (!versionMatch) throw new Error("Unable to read iOS version from ios-shell/pubspec.yaml.");
+const bridgePath = path.join(targetDir, "ios-bridge.js");
+const bridge = await fs.readFile(bridgePath, "utf8");
+await fs.writeFile(
+  bridgePath,
+  bridge.replace(/appVersion:\s*"V[^"]*"/, `appVersion: "V${versionMatch[1]}"`),
+  "utf8",
+);
+
 const copiedIndex = await fs.readFile(path.join(targetDir, "index.html"), "utf8");
 if (!copiedIndex.includes("ios-bridge.js")) {
   throw new Error("Copied frontend does not include the iOS bridge bootstrap.");

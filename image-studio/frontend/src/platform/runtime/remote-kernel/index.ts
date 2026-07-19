@@ -155,7 +155,55 @@ function emptyPromptTextResultMessage(resultLabel: string, raw: string): string 
   if (resultLabel === "reverse prompt") {
     return `上游没有返回可用的反推提示词。请确认当前文本模型支持图片理解(input_image)，或在「上游配置」里换一个支持视觉输入的文本模型。${suffix}`;
   }
-  return `上游没有返回可用的优化结果。请确认当前文本模型支持 /v1/responses 文本输出。${suffix}`;
+  return `上游没有返回可用的优化结果。请确认当前对话模型支持文本输出。${suffix}`;
+}
+
+function responsesPayloadToChatCompletions(payload: Record<string, unknown>): Record<string, unknown> {
+  const responseInput = Array.isArray(payload.input) ? payload.input : [];
+  const firstInput = responseInput[0] && typeof responseInput[0] === "object"
+    ? responseInput[0] as Record<string, unknown>
+    : {};
+  const responseContent = Array.isArray(firstInput.content) ? firstInput.content : [];
+  const userContent: Array<Record<string, unknown>> = [];
+  for (const item of responseContent) {
+    if (!item || typeof item !== "object") continue;
+    const part = item as Record<string, unknown>;
+    if (part.type === "input_text" && typeof part.text === "string") {
+      userContent.push({ type: "text", text: part.text });
+      continue;
+    }
+    if (part.type === "input_image" && typeof part.image_url === "string") {
+      userContent.push({ type: "image_url", image_url: { url: part.image_url } });
+    }
+  }
+  const messages: Array<Record<string, unknown>> = [];
+  if (typeof payload.instructions === "string" && payload.instructions.trim()) {
+    messages.push({ role: "system", content: payload.instructions });
+  }
+  messages.push({ role: "user", content: userContent });
+  return {
+    model: payload.model,
+    messages,
+    stream: false,
+  };
+}
+
+function extractChatCompletionText(raw: string): string {
+  try {
+    const data = JSON.parse(raw);
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content === "string") return content.trim();
+    if (Array.isArray(content)) {
+      return content
+        .map((part) => typeof part === "string" ? part : (typeof part?.text === "string" ? part.text : ""))
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+    }
+  } catch {
+    // Keep the same empty-result diagnostics used by Responses API parsing.
+  }
+  return "";
 }
 
 export async function reversePromptRemote(
@@ -187,17 +235,18 @@ async function requestPromptTextRemote(
   if (resultLabel === "reverse prompt" && sourceDataURLs.length === 0) {
     throw new RemoteKernelError("请先选择一张图片");
   }
-  const url = `${normalizeBaseURL(input.baseURL)}/v1/responses`;
+  const useChatCompletions = normalizeAPIMode(input.apiMode || "responses") === "images";
+  const url = `${normalizeBaseURL(input.baseURL)}/v1/${useChatCompletions ? "chat/completions" : "responses"}`;
   const apiKey = normalizeAPIKeyForHeader(input.apiKey);
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
-    Accept: "text/event-stream, application/json",
+    Accept: useChatCompletions ? "application/json" : "text/event-stream, application/json",
   };
-  const body = JSON.stringify({
-    ...buildPayload(sourceDataURLs),
-    stream: true,
-  });
+  const responsePayload = buildPayload(sourceDataURLs);
+  const body = JSON.stringify(useChatCompletions
+    ? responsesPayloadToChatCompletions(responsePayload)
+    : { ...responsePayload, stream: true });
   const proxyMode = input.proxyMode === "none" || input.proxyMode === "custom" ? input.proxyMode : "system";
   let status = 0;
   let raw = "";
@@ -225,7 +274,7 @@ async function requestPromptTextRemote(
     const rawPath = registerRawText(resultLabel === "reverse prompt" ? "reverse" : "optimize", 1, raw);
     throw new RemoteKernelError(`上游返回 ${status}:${extractResponseErrorMessage(raw)}`, rawPath);
   }
-  const text = extractResponseText(raw);
+  const text = useChatCompletions ? extractChatCompletionText(raw) : extractResponseText(raw);
   if (!text) {
     const rawPath = registerRawText(resultLabel === "reverse prompt" ? "reverse" : "optimize", 1, raw);
     throw new RemoteKernelError(emptyPromptTextResultMessage(resultLabel, raw), rawPath);

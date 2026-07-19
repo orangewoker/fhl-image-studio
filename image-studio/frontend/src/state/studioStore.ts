@@ -182,7 +182,7 @@ const FONT_SCALE_KEY = storageKey("gptcodex.fontScale");
 const OUTPUT_DIR_KEY = storageKey("gptcodex.outputDir");
 const ANDROID_CONTINUOUS_DEFAULT_KEY = storageKey("gptcodex.androidContinuousDefault.v1");
 const INITIAL_HISTORY_LOAD = 48;
-const ANDROID_FHL_TEXT_TOOLS_NOTICE = "AI 优化、提示词反推和指令改写需要调用 FHL GPT-5.5，请先配置 FHL API。";
+const ANDROID_FHL_TEXT_TOOLS_NOTICE = "AI 优化、提示词反推和指令改写需要对话模型。请为 OpenAI 标准 v1 配置对话模型，或配置 FHL Responses。";
 
 function shouldApplyAndroidContinuousDefault(): boolean {
   try {
@@ -198,7 +198,37 @@ async function resolvePromptTextProfile(s: StudioState): Promise<{
   apiKey: string;
   baseURL: string;
   textModelID: string;
+  apiMode: "responses" | "images";
 }> {
+  const activeProfile = s.profiles.find((profile) => profile.id === s.activeProfileId);
+  if (
+    activeProfile
+    && (activeProfile.apiMode === "responses" || activeProfile.apiMode === "images")
+    && activeProfile.baseURL.trim()
+    && activeProfile.textModelID.trim()
+  ) {
+    const storedKey = await GetStoredAPIKey(keyringUserFor(activeProfile.id)).catch(() => "");
+    return {
+      apiKey: (storedKey || s.apiKey).trim(),
+      baseURL: cleanBaseURL(activeProfile.baseURL),
+      textModelID: activeProfile.textModelID.trim(),
+      apiMode: activeProfile.apiMode,
+    };
+  }
+
+  if (
+    (s.apiMode === "responses" || s.apiMode === "images")
+    && s.baseURL.trim()
+    && s.textModelID.trim()
+  ) {
+    return {
+      apiKey: s.apiKey.trim(),
+      baseURL: cleanBaseURL(s.baseURL),
+      textModelID: s.textModelID.trim(),
+      apiMode: s.apiMode,
+    };
+  }
+
   if (readRuntimePlatformState().isAndroid) {
     return resolveAndroidFHLPromptTextProfile(s);
   }
@@ -213,12 +243,13 @@ async function resolvePromptTextProfile(s: StudioState): Promise<{
         apiKey: s.apiKey.trim(),
         baseURL: cleanBaseURL(s.baseURL),
         textModelID: s.textModelID.trim(),
+        apiMode: "responses",
       };
     }
 
     const responsesProfile = s.profiles.find((profile) => profile.apiMode === "responses" && profile.baseURL.trim());
     if (!responsesProfile) {
-      return { apiKey: "", baseURL: "", textModelID: "" };
+      return { apiKey: "", baseURL: "", textModelID: "", apiMode: "responses" };
     }
     apiKey = "";
     baseURL = responsesProfile.baseURL;
@@ -239,6 +270,7 @@ async function resolvePromptTextProfile(s: StudioState): Promise<{
     apiKey: apiKey.trim(),
     baseURL: cleanBaseURL(baseURL),
     textModelID: textModelID.trim(),
+    apiMode: "responses",
   };
 }
 
@@ -246,6 +278,7 @@ async function resolveAndroidFHLPromptTextProfile(s: StudioState): Promise<{
   apiKey: string;
   baseURL: string;
   textModelID: string;
+  apiMode: "responses";
 }> {
   const activeStateIsFHL = isFHLBaseURL(s.baseURL);
   const fhlProfile = s.profiles.find((profile) => isFHLBaseURL(profile.baseURL));
@@ -256,6 +289,7 @@ async function resolveAndroidFHLPromptTextProfile(s: StudioState): Promise<{
       apiKey: (storedKey || (activeStateIsFHL ? s.apiKey : "")).trim(),
       baseURL: cleanBaseURL(fhlProfile.baseURL),
       textModelID: (fhlProfile.textModelID || FHL_TEXT_MODEL_ID).trim(),
+      apiMode: "responses",
     };
   }
 
@@ -264,10 +298,11 @@ async function resolveAndroidFHLPromptTextProfile(s: StudioState): Promise<{
       apiKey: s.apiKey.trim(),
       baseURL: cleanBaseURL(s.baseURL),
       textModelID: (s.textModelID || FHL_TEXT_MODEL_ID).trim(),
+      apiMode: "responses",
     };
   }
 
-  return { apiKey: "", baseURL: "", textModelID: "" };
+  return { apiKey: "", baseURL: "", textModelID: "", apiMode: "responses" };
 }
 const HISTORY_MEDIA_HYDRATE_CONCURRENCY = 4;
 
@@ -2272,6 +2307,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         mode: s.mode,
         baseURL: optimizeProfile.baseURL,
         textModelID: optimizeProfile.textModelID,
+        apiMode: optimizeProfile.apiMode,
         proxyMode: s.proxyMode,
         proxyURL: s.proxyURL,
         imagePaths: sourcePaths,
@@ -2381,6 +2417,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         apiKey: reverseProfile.apiKey,
         baseURL: reverseProfile.baseURL,
         textModelID: reverseProfile.textModelID,
+        apiMode: reverseProfile.apiMode,
         proxyMode: s.proxyMode,
         proxyURL: s.proxyURL,
         imagePaths: sourcePaths,

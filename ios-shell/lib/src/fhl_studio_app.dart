@@ -14,7 +14,7 @@ class FHLStudioApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'FHL Image Studio',
+      title: 'Ai Image',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.light(
         useMaterial3: true,
@@ -258,7 +258,7 @@ class _FHLStudioWebViewState extends State<FHLStudioWebView>
                     children: [
                       CircularProgressIndicator(),
                       SizedBox(height: 18),
-                      Text('正在启动 FHL Image Studio…'),
+                      Text('正在启动 Ai Image…'),
                     ],
                   ),
                 ),

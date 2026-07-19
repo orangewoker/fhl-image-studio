@@ -34,6 +34,7 @@ test("phone submit CTA is portaled above navigation without double bottom reserv
 
 test("mobile upstream setup exposes a first-class OpenAI v1 provider choice", () => {
   assert.match(upstreamConfig, /title: "新建 OpenAI 标准 v1"/);
-  assert.match(upstreamConfig, /\/v1\/images 端点/);
+  assert.match(upstreamConfig, /\/v1\/chat\/completions/);
+  assert.match(upstreamConfig, /\/v1\/images\/generations/);
   assert.match(upstreamHeader, /onCreateOpenAI/);
 });

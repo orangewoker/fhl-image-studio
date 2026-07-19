@@ -14,7 +14,7 @@ export const ANDROID_UPSTREAM_MODE_OPTIONS: Array<{
   meta: string;
 }> = [
   { id: "responses", title: "一键配置 FHL", meta: "Responses SSE / Images 两种形态 / gpt-5.5 + gpt-image-2 / 不内置 API Key" },
-  { id: "images", title: "新建 OpenAI 标准 v1", meta: "自定义服务商 /v1/images 端点 / 可拉取模型列表" },
+  { id: "images", title: "新建 OpenAI 标准 v1", meta: "图像 + /v1/chat/completions / 可拉取模型列表" },
   { id: "apimart", title: "一键配置 APIMart 异步", meta: "推荐异步 task_id 参数 / 不内置 API Key" },
   { id: "runninghub", title: "一键配置 RH", meta: "桥接 8117 / banana2 + image_g2 / 安卓端不写 RH Key" },
 ];
@@ -25,7 +25,7 @@ export const ANDROID_API_MODE_OPTIONS: Array<{
   meta: string;
 }> = [
   { id: "responses", title: "Responses API", meta: "SSE 保活 / image_generation" },
-  { id: "images", title: "OpenAI 标准 v1", meta: "/v1/images/generations · /v1/images/edits" },
+  { id: "images", title: "OpenAI 标准 v1", meta: "/v1/chat/completions · /v1/images/generations · /v1/images/edits" },
   { id: "apimart", title: "APIMart 异步", meta: "task_id 异步轮询" },
   { id: "runninghub", title: "RunningHub", meta: "本地桥接，文生图 / 图生图" },
 ];
